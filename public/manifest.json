@@ -1,0 +1,16 @@
+{
+  "name": "WebXReader — Local-First Web Novel Reader",
+  "short_name": "WebXReader",
+  "description": "Desktop-class, private, local-first web novel reader with personal bookshelf and customizable reading environment.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

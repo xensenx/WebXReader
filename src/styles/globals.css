@@ -1,0 +1,297 @@
+/* ============================================================
+   WebXReader Design System — CSS Custom Properties
+   ============================================================ */
+
+:root {
+  /* Color System */
+  --color-bg: #fafafa;
+  --color-bg-secondary: #f0f0f0;
+  --color-bg-tertiary: #e5e5e5;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f5f5f5;
+  --color-surface-active: #ebebeb;
+  --color-border: #e0e0e0;
+  --color-border-light: #eee;
+  --color-text: #1a1a1a;
+  --color-text-secondary: #666;
+  --color-text-tertiary: #999;
+  --color-text-inverse: #ffffff;
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-light: #dbeafe;
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-danger-light: #fee2e2;
+  --color-success: #16a34a;
+  --color-success-light: #dcfce7;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fef3c7;
+  --color-shadow: rgba(0, 0, 0, 0.08);
+  --color-shadow-lg: rgba(0, 0, 0, 0.12);
+  --color-overlay: rgba(0, 0, 0, 0.4);
+
+  /* Reader-specific colors */
+  --reader-bg: #ffffff;
+  --reader-text: #1a1a1a;
+  --reader-text-secondary: #555;
+  --reader-link: #2563eb;
+  --reader-selection: rgba(37, 99, 235, 0.2);
+  --reader-highlight-yellow: rgba(250, 204, 21, 0.4);
+  --reader-highlight-green: rgba(74, 222, 128, 0.4);
+  --reader-highlight-blue: rgba(96, 165, 250, 0.4);
+  --reader-highlight-pink: rgba(244, 114, 182, 0.4);
+  --reader-highlight-orange: rgba(251, 146, 60, 0.4);
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  --font-reading: var(--font-serif);
+
+  /* Font Sizes */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+
+  /* Spacing Scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px var(--color-shadow);
+  --shadow-md: 0 2px 8px var(--color-shadow);
+  --shadow-lg: 0 4px 16px var(--color-shadow-lg);
+  --shadow-xl: 0 8px 32px var(--color-shadow-lg);
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  /* Z-index scale */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+
+  /* Layout */
+  --header-height: 56px;
+  --sidebar-width: 280px;
+  --max-content-width: 1200px;
+  --reader-max-width: 720px;
+}
+
+/* ============================================================
+   Theme: Dark
+   ============================================================ */
+[data-theme='dark'] {
+  --color-bg: #121212;
+  --color-bg-secondary: #1e1e1e;
+  --color-bg-tertiary: #2a2a2a;
+  --color-surface: #1e1e1e;
+  --color-surface-hover: #2a2a2a;
+  --color-surface-active: #333;
+  --color-border: #333;
+  --color-border-light: #282828;
+  --color-text: #e4e4e7;
+  --color-text-secondary: #a1a1aa;
+  --color-text-tertiary: #71717a;
+  --color-text-inverse: #1a1a1a;
+  --color-accent: #60a5fa;
+  --color-accent-hover: #93bbfd;
+  --color-accent-light: rgba(96, 165, 250, 0.15);
+  --color-danger: #f87171;
+  --color-danger-hover: #fca5a5;
+  --color-danger-light: rgba(248, 113, 113, 0.15);
+  --color-success: #4ade80;
+  --color-success-light: rgba(74, 222, 128, 0.15);
+  --color-warning: #fbbf24;
+  --color-warning-light: rgba(251, 191, 36, 0.15);
+  --color-shadow: rgba(0, 0, 0, 0.3);
+  --color-shadow-lg: rgba(0, 0, 0, 0.5);
+  --color-overlay: rgba(0, 0, 0, 0.6);
+
+  --reader-bg: #1a1a1a;
+  --reader-text: #d4d4d8;
+  --reader-text-secondary: #a1a1aa;
+  --reader-link: #60a5fa;
+  --reader-selection: rgba(96, 165, 250, 0.3);
+}
+
+/* ============================================================
+   Theme: Sepia
+   ============================================================ */
+[data-theme='sepia'] {
+  --color-bg: #f4ecd8;
+  --color-bg-secondary: #ebe3cf;
+  --color-bg-tertiary: #ddd5c1;
+  --color-surface: #faf6eb;
+  --color-surface-hover: #f0eadb;
+  --color-surface-active: #e5dfd0;
+  --color-border: #d4cbb5;
+  --color-border-light: #e5dfd0;
+  --color-text: #3d3226;
+  --color-text-secondary: #6b5d4e;
+  --color-text-tertiary: #8b7d6e;
+  --color-text-inverse: #faf6eb;
+  --color-accent: #8b6914;
+  --color-accent-hover: #6b4f0e;
+  --color-accent-light: rgba(139, 105, 20, 0.15);
+  --color-danger: #b91c1c;
+  --color-danger-hover: #991b1b;
+  --color-danger-light: rgba(185, 28, 28, 0.1);
+  --color-success: #166534;
+  --color-success-light: rgba(22, 101, 52, 0.1);
+  --color-warning: #b45309;
+  --color-warning-light: rgba(180, 83, 9, 0.1);
+  --color-shadow: rgba(61, 50, 38, 0.1);
+  --color-shadow-lg: rgba(61, 50, 38, 0.15);
+  --color-overlay: rgba(61, 50, 38, 0.4);
+
+  --reader-bg: #faf6eb;
+  --reader-text: #3d3226;
+  --reader-text-secondary: #6b5d4e;
+  --reader-link: #8b6914;
+  --reader-selection: rgba(139, 105, 20, 0.2);
+}
+
+/* ============================================================
+   Global Reset & Base
+   ============================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+  background-color: var(--reader-selection);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Utility classes */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
