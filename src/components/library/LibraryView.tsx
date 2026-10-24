@@ -197,7 +197,12 @@ export function LibraryView() {
       {/* App Header */}
       <header className={styles.header}>
         <div className={styles.brand}>
-          <BookOpen size={24} className={styles.brandIcon} />
+          <img
+            src="/webxreader.svg"
+            alt=""
+            className={styles.brandLogo}
+            aria-hidden="true"
+          />
           <span>WebXReader</span>
         </div>
 

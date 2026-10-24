@@ -29,8 +29,12 @@
   letter-spacing: -0.02em;
 }
 
-.brandIcon {
-  color: var(--color-accent);
+.brandLogo {
+  width: 34px;
+  height: 28px;
+  display: block;
+  object-fit: contain;
+  object-position: center;
 }
 
 .headerActions {

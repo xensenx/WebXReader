@@ -1,5 +1,5 @@
 // WebXReader Offline Application Shell Service Worker
-const CACHE_NAME = 'webxreader-shell-v4';
+const CACHE_NAME = 'webxreader-shell-v5';
 
 function appUrl(path) {
   return new URL(path, self.registration.scope).toString();
@@ -11,7 +11,12 @@ async function discoverShellAssets() {
   if (!response.ok) throw new Error(`Could not fetch application shell (${response.status})`);
 
   const html = await response.text();
-  const assets = new Set([indexUrl, appUrl('favicon.svg'), appUrl('manifest.json')]);
+  const assets = new Set([
+    indexUrl,
+    appUrl('favicon.ico'),
+    appUrl('webxreader.svg'),
+    appUrl('manifest.json'),
+  ]);
   const assetPattern = /(?:src|href)=["']([^"']+)["']/g;
   let match;
   while ((match = assetPattern.exec(html)) !== null) {
