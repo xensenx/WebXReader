@@ -2,7 +2,7 @@
  * ReaderView: the dedicated desktop-class novel reader environment.
  */
 
-import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -29,7 +29,7 @@ import { ScrollReader } from './ScrollReader';
 import { PaginatedReader } from './PaginatedReader';
 import { DoubleSidedReader } from './DoubleSidedReader';
 import type { EpubReaderHandle } from './EpubReader';
-import type { PdfReaderHandle } from './PdfReader';
+import type { PdfReaderHandle, PdfZoomAnchor } from './PdfReader';
 import { TableOfContents } from './TableOfContents';
 import { BookmarkPanel } from './BookmarkPanel';
 import { SearchPanel } from './SearchPanel';
@@ -48,6 +48,41 @@ const PdfReader = lazy(async () => {
   const module = await import('./PdfReader');
   return { default: module.PdfReader };
 });
+
+const MIN_READER_ZOOM = 0.5;
+const MAX_READER_ZOOM = 3;
+const MIN_PDF_ZOOM = 0.24;
+const MAX_PDF_ZOOM = 8;
+
+type ReaderZoomAnchor = PdfZoomAnchor;
+
+function clampReaderZoom(value: number, fixedLayout: boolean) {
+  const min = fixedLayout ? MIN_PDF_ZOOM : MIN_READER_ZOOM;
+  const max = fixedLayout ? MAX_PDF_ZOOM : MAX_READER_ZOOM;
+  // Keep PDF wheel/pinch zoom continuous. Rounding each input step makes
+  // small trackpad deltas visibly stall and jump at high magnification.
+  const zoom = fixedLayout ? value : Math.round(value * 100) / 100;
+  return Math.min(max, Math.max(min, zoom));
+}
+
+function getWheelDeltaPixels(event: WheelEvent, viewport?: HTMLElement | null) {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 16;
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * (viewport?.clientHeight || window.innerHeight);
+  return event.deltaY;
+}
+
+function getTouchZoomGesture(touches: TouchList) {
+  const first = touches[0];
+  const second = touches[1];
+  if (!first || !second) return null;
+  return {
+    distance: Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY),
+    point: {
+      x: (first.clientX + second.clientX) / 2,
+      y: (first.clientY + second.clientY) / 2,
+    },
+  };
+}
 
 function getReaderScrollContainer(element: HTMLElement): HTMLElement | null {
   let parent = element.parentElement;
@@ -99,7 +134,22 @@ export function ReaderView() {
   const [headerVisible, setHeaderVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [readerZoom, setReaderZoom] = useState(1);
+  const readerZoomRef = useRef(1);
+  const [zoomAnchor, setZoomAnchor] = useState<ReaderZoomAnchor | undefined>(undefined);
+  const pdfZoomAnchorRef = useRef<ReaderZoomAnchor | undefined>(undefined);
+  const zoomLabelRef = useRef<HTMLSpanElement>(null);
+  const previousReaderZoomRef = useRef(readerZoom);
   const readerStageRef = useRef<HTMLDivElement>(null);
+  const zoomAnchorIdRef = useRef(0);
+  const wheelZoomDeltaRef = useRef(0);
+  const wheelZoomPointRef = useRef<{ x: number; y: number } | undefined>(undefined);
+  const wheelZoomFrameRef = useRef<number | null>(null);
+  const lastWheelZoomAtRef = useRef(0);
+  const pdfZoomCommitTimerRef = useRef<number | null>(null);
+  const touchZoomStartRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const touchZoomPendingRef = useRef<{ zoom: number; point: { x: number; y: number } } | null>(null);
+  const touchZoomFrameRef = useRef<number | null>(null);
+  const lastTouchZoomAtRef = useRef(0);
 
   // Drawers / Panels
   const [tocOpen, setTocOpen] = useState(false);
@@ -131,6 +181,155 @@ export function ReaderView() {
     flushRef.current = flush;
   }, [flush]);
 
+  const captureZoomAnchor = useCallback((clientX?: number, clientY?: number) => {
+    const stage = readerStageRef.current;
+    const viewport = stage?.querySelector<HTMLElement>('[data-reader-viewport]');
+    if (!stage || !viewport) return undefined;
+
+    const viewportRect = viewport.getBoundingClientRect();
+    const x = clientX ?? viewportRect.left + viewportRect.width / 2;
+    const y = clientY ?? viewportRect.top + viewportRect.height / 2;
+    const viewportX = Math.max(0, Math.min(viewport.clientWidth, x - viewportRect.left));
+    const viewportY = Math.max(0, Math.min(viewport.clientHeight, y - viewportRect.top));
+    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page]');
+    const page = hitPage && stage.contains(hitPage) ? hitPage : null;
+    const pageRect = page?.getBoundingClientRect();
+
+    return {
+      id: ++zoomAnchorIdRef.current,
+      pageNumber: page ? Number(page.dataset.pdfPage) : undefined,
+      pageX: pageRect?.width ? Math.max(0, Math.min(1, (x - pageRect.left) / pageRect.width)) : undefined,
+      pageY: pageRect?.height ? Math.max(0, Math.min(1, (y - pageRect.top) / pageRect.height)) : undefined,
+      viewportX,
+      viewportY,
+      scrollRatioX: (viewport.scrollLeft + viewportX) / Math.max(1, viewport.scrollWidth),
+      scrollRatioY: (viewport.scrollTop + viewportY) / Math.max(1, viewport.scrollHeight),
+    } satisfies ReaderZoomAnchor;
+  }, []);
+
+  const updateZoom = useCallback((nextZoom: number, fixedLayout: boolean, anchor?: ReaderZoomAnchor) => {
+    if (Math.abs(nextZoom - readerZoomRef.current) < 1e-7) return;
+    readerZoomRef.current = nextZoom;
+    if (!fixedLayout) {
+      if (anchor) setZoomAnchor(anchor);
+      setReaderZoom(nextZoom);
+      return;
+    }
+
+    if (anchor) pdfZoomAnchorRef.current = anchor;
+    const activeAnchor = pdfZoomAnchorRef.current ?? captureZoomAnchor();
+    if (activeAnchor) {
+      pdfZoomAnchorRef.current = activeAnchor;
+      pdfReaderRef.current?.previewZoom(nextZoom, activeAnchor);
+    }
+    if (zoomLabelRef.current) {
+      const percent = Math.round(nextZoom * 100);
+      zoomLabelRef.current.textContent = `${percent}%`;
+      zoomLabelRef.current.setAttribute('aria-label', `Book zoom ${percent} percent`);
+    }
+
+    if (pdfZoomCommitTimerRef.current !== null) {
+      window.clearTimeout(pdfZoomCommitTimerRef.current);
+    }
+    pdfZoomCommitTimerRef.current = window.setTimeout(() => {
+      setZoomAnchor(pdfZoomAnchorRef.current);
+      setReaderZoom(readerZoomRef.current);
+      pdfZoomCommitTimerRef.current = null;
+    }, 120);
+  }, [captureZoomAnchor]);
+
+  const zoomBy = useCallback((factor: number, point?: { x: number; y: number }) => {
+    const anchor = captureZoomAnchor(point?.x, point?.y);
+    const fixedLayout = book?.sourceFormat === 'pdf';
+    updateZoom(clampReaderZoom(readerZoomRef.current * factor, fixedLayout), fixedLayout, anchor);
+  }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
+
+  const zoomTo = useCallback((targetZoom: number, point?: { x: number; y: number }) => {
+    const anchor = captureZoomAnchor(point?.x, point?.y);
+    const fixedLayout = book?.sourceFormat === 'pdf';
+    updateZoom(clampReaderZoom(targetZoom, fixedLayout), fixedLayout, anchor);
+  }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
+
+  const resetZoom = useCallback(() => {
+    const anchor = captureZoomAnchor();
+    updateZoom(1, book?.sourceFormat === 'pdf', anchor);
+  }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
+
+  const queueWheelZoom = useCallback((deltaY: number, point?: { x: number; y: number }) => {
+    const fixedLayout = book?.sourceFormat === 'pdf';
+    wheelZoomDeltaRef.current += deltaY;
+    if (point) wheelZoomPointRef.current = point;
+    if (wheelZoomFrameRef.current !== null) return;
+
+    const applyPendingZoom = () => {
+      const elapsed = performance.now() - lastWheelZoomAtRef.current;
+      if (!fixedLayout && wheelZoomDeltaRef.current !== 0 && elapsed < 50) {
+        wheelZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
+        return;
+      }
+
+      wheelZoomFrameRef.current = null;
+      const delta = wheelZoomDeltaRef.current;
+      const latestPoint = wheelZoomPointRef.current;
+      wheelZoomDeltaRef.current = 0;
+      wheelZoomPointRef.current = undefined;
+      if (delta !== 0) {
+        if (!fixedLayout) lastWheelZoomAtRef.current = performance.now();
+        zoomBy(Math.exp(-delta * 0.0008), latestPoint);
+      }
+    };
+
+    wheelZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
+  }, [book?.sourceFormat, zoomBy]);
+
+  const queueTouchZoom = useCallback((zoom: number, point: { x: number; y: number }) => {
+    const fixedLayout = book?.sourceFormat === 'pdf';
+    touchZoomPendingRef.current = { zoom, point };
+    if (touchZoomFrameRef.current !== null) return;
+
+    const applyPendingZoom = () => {
+      const elapsed = performance.now() - lastTouchZoomAtRef.current;
+      if (!fixedLayout && touchZoomPendingRef.current && elapsed < 40) {
+        touchZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
+        return;
+      }
+
+      touchZoomFrameRef.current = null;
+      const pending = touchZoomPendingRef.current;
+      touchZoomPendingRef.current = null;
+      if (!pending) return;
+      if (!fixedLayout) lastTouchZoomAtRef.current = performance.now();
+      zoomTo(pending.zoom, pending.point);
+    };
+
+    touchZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
+  }, [book?.sourceFormat, zoomTo]);
+
+  useEffect(() => () => {
+    if (wheelZoomFrameRef.current !== null) cancelAnimationFrame(wheelZoomFrameRef.current);
+    if (touchZoomFrameRef.current !== null) cancelAnimationFrame(touchZoomFrameRef.current);
+    if (pdfZoomCommitTimerRef.current !== null) window.clearTimeout(pdfZoomCommitTimerRef.current);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (previousReaderZoomRef.current === readerZoom) return;
+    previousReaderZoomRef.current = readerZoom;
+    if (book?.sourceFormat === 'pdf' || book?.sourceFormat === 'epub' || !zoomAnchor) return;
+
+    const viewport = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
+    if (!viewport) return;
+    const horizontal = viewport.dataset.readerViewport === 'paginated';
+    viewport.scrollTo({
+      left: horizontal
+        ? Math.max(0, zoomAnchor.scrollRatioX * viewport.scrollWidth - zoomAnchor.viewportX)
+        : viewport.scrollLeft,
+      top: horizontal
+        ? viewport.scrollTop
+        : Math.max(0, zoomAnchor.scrollRatioY * viewport.scrollHeight - zoomAnchor.viewportY),
+      behavior: 'auto',
+    });
+  }, [book?.sourceFormat, readerZoom, zoomAnchor]);
+
   // Capture initial progress once on load so readers are not re-rendered on scroll
   const initialProgressRef = useRef<{
     scrollPosition?: number;
@@ -146,6 +345,28 @@ export function ReaderView() {
     setActiveChapterId('');
     setBook(null);
     setContent(null);
+    readerZoomRef.current = 1;
+    setReaderZoom(1);
+    setZoomAnchor(undefined);
+    pdfZoomAnchorRef.current = undefined;
+    wheelZoomDeltaRef.current = 0;
+    wheelZoomPointRef.current = undefined;
+    lastWheelZoomAtRef.current = 0;
+    if (wheelZoomFrameRef.current !== null) {
+      cancelAnimationFrame(wheelZoomFrameRef.current);
+      wheelZoomFrameRef.current = null;
+    }
+    touchZoomStartRef.current = null;
+    touchZoomPendingRef.current = null;
+    lastTouchZoomAtRef.current = 0;
+    if (touchZoomFrameRef.current !== null) {
+      cancelAnimationFrame(touchZoomFrameRef.current);
+      touchZoomFrameRef.current = null;
+    }
+    if (pdfZoomCommitTimerRef.current !== null) {
+      window.clearTimeout(pdfZoomCommitTimerRef.current);
+      pdfZoomCommitTimerRef.current = null;
+    }
   }, [bookId]);
 
   useEffect(() => {
@@ -257,29 +478,29 @@ export function ReaderView() {
           setSettingsOpen(false);
         }
       } else if (e.ctrlKey || e.metaKey) {
-        if (e.key === '+' || e.key === '=') {
+        if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') {
           e.preventDefault();
-          setReaderZoom((value) => Math.min(2.5, Math.round((value + 0.1) * 20) / 20));
-        } else if (e.key === '-') {
+          zoomBy(1.1);
+        } else if (e.key === '-' || e.code === 'NumpadSubtract') {
           e.preventDefault();
-          setReaderZoom((value) => Math.max(0.75, Math.round((value - 0.1) * 20) / 20));
+          zoomBy(1 / 1.1);
         } else if (e.key === '0') {
           e.preventDefault();
-          setReaderZoom(1);
+          resetZoom();
         }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleFullscreen, tocOpen, bookmarksOpen, searchOpen, settingsOpen]);
+  }, [toggleFullscreen, tocOpen, bookmarksOpen, searchOpen, settingsOpen, zoomBy, resetZoom]);
 
   const handleToggleControls = useCallback(() => {
     setHeaderVisible((p) => !p);
   }, []);
 
-  // React's wheel event is not guaranteed to be non-passive in every browser.
-  // Install a native listener as well so browser page zoom cannot win the race.
+  // Prevent browser zoom inside the reading surface and route the gesture to
+  // the reader. The explicit non-passive listener is required for this.
   useEffect(() => {
     const stage = readerStageRef.current;
     if (!stage) return;
@@ -287,15 +508,53 @@ export function ReaderView() {
     const handleNativeWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      setReaderZoom((value) => Math.min(
-        2.5,
-        Math.max(0.75, Math.round((value + (event.deltaY < 0 ? 0.1 : -0.1)) * 20) / 20)
-      ));
+      queueWheelZoom(getWheelDeltaPixels(event, stage.querySelector<HTMLElement>('[data-reader-viewport]')), {
+        x: event.clientX,
+        y: event.clientY,
+      });
     };
 
     stage.addEventListener('wheel', handleNativeWheel, { passive: false });
     return () => stage.removeEventListener('wheel', handleNativeWheel);
-  }, []);
+  }, [loading, queueWheelZoom]);
+
+  useEffect(() => {
+    const stage = readerStageRef.current;
+    if (!stage) return;
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length < 2) return;
+      const gesture = getTouchZoomGesture(event.touches);
+      if (!gesture || gesture.distance <= 0) return;
+      touchZoomStartRef.current = { distance: gesture.distance, zoom: readerZoomRef.current };
+      event.stopPropagation();
+    };
+    const handleTouchMove = (event: TouchEvent) => {
+      const start = touchZoomStartRef.current;
+      if (!start || event.touches.length < 2) return;
+      const gesture = getTouchZoomGesture(event.touches);
+      if (!gesture) return;
+      if (event.cancelable) event.preventDefault();
+      event.stopPropagation();
+      queueTouchZoom(start.zoom * gesture.distance / start.distance, gesture.point);
+    };
+    const handleTouchEnd = (event: TouchEvent) => {
+      if (!touchZoomStartRef.current) return;
+      event.stopPropagation();
+      if (event.touches.length < 2) touchZoomStartRef.current = null;
+    };
+
+    stage.addEventListener('touchstart', handleTouchStart, { capture: true, passive: true });
+    stage.addEventListener('touchmove', handleTouchMove, { capture: true, passive: false });
+    stage.addEventListener('touchend', handleTouchEnd, { capture: true, passive: true });
+    stage.addEventListener('touchcancel', handleTouchEnd, { capture: true, passive: true });
+    return () => {
+      stage.removeEventListener('touchstart', handleTouchStart, true);
+      stage.removeEventListener('touchmove', handleTouchMove, true);
+      stage.removeEventListener('touchend', handleTouchEnd, true);
+      stage.removeEventListener('touchcancel', handleTouchEnd, true);
+    };
+  }, [loading, queueTouchZoom]);
 
   // Handle scroll progress update
   const handleScrollProgress = useCallback(
@@ -597,7 +856,8 @@ export function ReaderView() {
 
           <button
             className={styles.iconBtn}
-            onClick={() => setReaderZoom((value) => Math.max(0.75, Math.round((value - 0.1) * 20) / 20))}
+            onClick={() => zoomBy(1 / 1.1)}
+            disabled={readerZoom <= (isPdf ? MIN_PDF_ZOOM : MIN_READER_ZOOM)}
             title="Zoom out (Ctrl/Cmd -)"
             aria-label="Zoom out"
             type="button"
@@ -605,13 +865,14 @@ export function ReaderView() {
             <ZoomOut size={18} />
           </button>
 
-          <span className={styles.zoomLabel} aria-label={`Book zoom ${Math.round(readerZoom * 100)} percent`}>
+          <span ref={zoomLabelRef} className={styles.zoomLabel} aria-label={`Book zoom ${Math.round(readerZoom * 100)} percent`}>
             {Math.round(readerZoom * 100)}%
           </span>
 
           <button
             className={styles.iconBtn}
-            onClick={() => setReaderZoom((value) => Math.min(2.5, Math.round((value + 0.1) * 20) / 20))}
+            onClick={() => zoomBy(1.1)}
+            disabled={readerZoom >= (isPdf ? MAX_PDF_ZOOM : MAX_READER_ZOOM)}
             title="Zoom in (Ctrl/Cmd +)"
             aria-label="Zoom in"
             type="button"
@@ -648,6 +909,7 @@ export function ReaderView() {
               onProgressUpdate={handlePaginatedProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
+              zoomAnchor={zoomAnchor}
             />
           ) : isEpub ? (
             <EpubReader
@@ -658,6 +920,8 @@ export function ReaderView() {
               onProgressUpdate={handleEpubProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
+              onZoomGesture={(deltaY) => queueWheelZoom(deltaY)}
+              onZoomTo={zoomTo}
             />
           ) : effectiveReadingMode === 'paginated' ? (
           <PaginatedReader
@@ -670,6 +934,7 @@ export function ReaderView() {
             onProgressUpdate={handlePaginatedProgress}
             onToggleControls={handleToggleControls}
             zoom={readerZoom}
+            zoomAnchor={zoomAnchor}
           />
         ) : effectiveReadingMode === 'vertical' ? (
           <DoubleSidedReader
@@ -682,6 +947,7 @@ export function ReaderView() {
             onProgressUpdate={handleDoubleSidedProgress}
             onToggleControls={handleToggleControls}
             zoom={readerZoom}
+            zoomAnchor={zoomAnchor}
           />
         ) : (
           <ScrollReader

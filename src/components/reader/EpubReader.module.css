@@ -35,10 +35,8 @@
    wheel and touch scrolling while still allowing the rendition to grow. */
 .scrollViewer {
   box-sizing: border-box;
-  padding-inline: var(--epub-page-margin, 32px);
   overflow: hidden;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
 }
 
 .scrollViewer :global(.epub-container) {
@@ -66,8 +64,14 @@
 
 .scrollViewer :global(.epub-view) {
   min-height: min(1123px, calc(100vh - 48px));
-  width: min(794px, calc(100% - 32px)) !important;
-  max-width: calc(100% - 32px) !important;
+  /* Keep the page inset while letting the epub-container (and its scrollbar)
+     use the full reader width. Padding the scroll surface itself pulls its
+     scrollbar in from the edge. */
+  width: min(
+    794px,
+    calc(100% - var(--epub-page-margin, 32px) - var(--epub-page-margin, 32px) - 32px)
+  ) !important;
+  max-width: calc(100% - var(--epub-page-margin, 32px) - var(--epub-page-margin, 32px) - 32px) !important;
   margin: 16px auto !important;
 }
 

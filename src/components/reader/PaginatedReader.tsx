@@ -31,6 +31,7 @@ export interface PaginatedReaderProps {
   onProgressUpdate: (chapterId: string, progressFraction: number, pageIndex: number) => void;
   onToggleControls?: () => void;
   zoom?: number;
+  zoomAnchor?: { scrollRatioX: number; scrollRatioY: number };
   pagesPerSpread?: 1 | 2;
 }
 
@@ -44,6 +45,7 @@ export const PaginatedReader = memo(function PaginatedReader({
   onProgressUpdate,
   onToggleControls,
   zoom = 1,
+  zoomAnchor,
   pagesPerSpread = 1,
 }: PaginatedReaderProps) {
   const [currentPage, setCurrentPage] = useState(Math.max(0, initialPageIndex));
@@ -59,10 +61,13 @@ export const PaginatedReader = memo(function PaginatedReader({
   const touchStartX = useRef<number | null>(null);
   const lastProgressFractionRef = useRef(initialProgressFraction);
   const pendingRestoreFractionRef = useRef(initialProgressFraction);
+  const previousZoomRef = useRef(zoom);
+  const zoomAnchorRef = useRef(zoomAnchor);
   const initialLayoutAppliedRef = useRef(false);
   const hasMeasuredLayoutRef = useRef(false);
   const spreadGap = pagesPerSpread === 2 ? 24 : 0;
   onProgressUpdateRef.current = onProgressUpdate;
+  zoomAnchorRef.current = zoomAnchor;
 
   const layoutKey = [
     settings.fontFamily,
@@ -104,13 +109,18 @@ export const PaginatedReader = memo(function PaginatedReader({
     const dimensions = getViewportDimensions();
     if (!dimensions || dimensions.width <= 1 || dimensions.height <= 1) return;
 
-    pendingRestoreFractionRef.current = Math.min(1, Math.max(0, lastProgressFractionRef.current));
+    const zoomChanged = previousZoomRef.current !== zoom;
+    previousZoomRef.current = zoom;
+    const restoreFraction = zoomChanged && zoomAnchorRef.current
+      ? zoomAnchorRef.current.scrollRatioX
+      : lastProgressFractionRef.current;
+    pendingRestoreFractionRef.current = Math.min(1, Math.max(0, restoreFraction));
     setPageWidth(dimensions.width);
     setPageHeight(dimensions.height);
     setColumnCount(1);
     setIsMeasuring(true);
     hasMeasuredLayoutRef.current = false;
-  }, [getViewportDimensions]);
+  }, [getViewportDimensions, zoom]);
 
   // Reflow when typography, zoom, chapters, or the viewport changes.
   useLayoutEffect(() => {

@@ -175,3 +175,102 @@
   height: 100%;
   background-color: var(--color-accent);
 }
+
+.supportGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.supportLink {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+  text-decoration: none;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.supportLink:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+  transform: translateY(-1px);
+}
+
+.supportLink:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.supportIcon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.supportIcon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.githubIcon {
+  color: var(--color-text);
+}
+
+.koFiIcon {
+  background: #ff5e5b;
+  color: #fff;
+}
+
+.koFiIcon svg {
+  width: 23px;
+  height: 23px;
+  fill: currentColor;
+}
+
+.websiteIcon {
+  color: var(--color-accent);
+}
+
+.supportCopy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.supportTitle {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.supportDesc {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.supportExternal {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+}
+
+@media (max-width: 760px) {
+  .supportGrid {
+    grid-template-columns: 1fr;
+  }
+}

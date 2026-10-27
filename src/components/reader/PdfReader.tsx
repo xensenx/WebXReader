@@ -2,38 +2,30 @@
  * Fixed-layout PDF reader powered by pdfjs-dist.
  *
  * PDFs are not reflowable, but they should still behave like a document: the
- * primary interaction is native vertical scrolling through a page stack. Page
- * buttons and the page field are secondary jump controls, not a replacement
- * for scrolling.
+ * primary interaction is native vertical scrolling through a page stack.
+ * Reader-level controls own zoom, while the progress scrubber and document
+ * contents provide page jumps without a second toolbar.
  */
 
 import {
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   useCallback,
   useImperativeHandle,
   forwardRef,
   type KeyboardEvent,
-  type ChangeEvent,
-  type FormEvent,
   type CSSProperties,
 } from 'react';
-import {
-  ChevronLeft,
-  ChevronRight,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
-  RotateCcw,
-  AlertCircle,
-} from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { pdfjsLib } from '../../core/parsing/pdf-init';
 import styles from './PdfReader.module.css';
 
 type PdfDocument = Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>;
 type PdfPage = Awaited<ReturnType<PdfDocument['getPage']>>;
 type PdfRenderTask = ReturnType<PdfPage['render']>;
+type PdfTextContent = Awaited<ReturnType<PdfPage['getTextContent']>>;
 type PdfTextLayer = {
   render: () => Promise<unknown>;
   cancel: () => void;
@@ -42,6 +34,18 @@ type PdfTextLayer = {
 export interface PdfReaderHandle {
   goToPage: (pageNum: number) => void;
   goToProgress: (fraction: number) => void;
+  previewZoom: (zoom: number, anchor: PdfZoomAnchor) => void;
+}
+
+export interface PdfZoomAnchor {
+  id: number;
+  pageNumber?: number;
+  pageX?: number;
+  pageY?: number;
+  viewportX: number;
+  viewportY: number;
+  scrollRatioX: number;
+  scrollRatioY: number;
 }
 
 interface PdfReaderProps {
@@ -51,6 +55,7 @@ interface PdfReaderProps {
   onProgressUpdate: (chapterId: string, progressFraction: number, pageIndex: number) => void;
   onToggleControls?: () => void;
   readerZoom?: number;
+  zoomAnchor?: PdfZoomAnchor;
 }
 
 interface PageSize {
@@ -58,17 +63,22 @@ interface PageSize {
   height: number;
 }
 
+interface PdfZoomPreviewTransform {
+  baseLeft: number;
+  baseTop: number;
+  scale: number;
+  translateX: number;
+  translateY: number;
+}
+
 function getPdfDisplayScale(
   baseWidth: number,
   viewportWidth: number,
-  zoom: number,
   readerZoom: number
 ) {
   const availableWidth = Math.max(240, viewportWidth - 32);
   const fitScale = availableWidth / baseWidth;
-  return (zoom === 1
-    ? Math.min(2.2, Math.max(0.45, fitScale))
-    : zoom) * readerZoom;
+  return Math.min(2.2, Math.max(0.45, fitScale)) * readerZoom;
 }
 
 interface PdfPageViewProps {
@@ -76,7 +86,6 @@ interface PdfPageViewProps {
   pageNumber: number;
   viewportRef: React.RefObject<HTMLDivElement | null>;
   pageSize: PageSize | undefined;
-  zoom: number;
   readerZoom: number;
   layoutVersion: number;
   initiallyVisible: boolean;
@@ -88,7 +97,6 @@ function PdfPageView({
   pageNumber,
   viewportRef,
   pageSize,
-  zoom,
   readerZoom,
   layoutVersion,
   initiallyVisible,
@@ -99,8 +107,13 @@ function PdfPageView({
   const textLayerContainerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<PdfRenderTask | null>(null);
   const textLayerRef = useRef<PdfTextLayer | null>(null);
+  const textContentCacheRef = useRef<{
+    pdfDoc: PdfDocument;
+    pageNumber: number;
+    textContent: PdfTextContent;
+  } | null>(null);
   const [shouldRender, setShouldRender] = useState(initiallyVisible);
-  const [rendering, setRendering] = useState(false);
+  const [hasRendered, setHasRendered] = useState(false);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -115,21 +128,33 @@ function PdfPageView({
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          // Once a page has entered the reading window, keep its canvas. This
-          // avoids destroying and recreating pages while the user scrolls back.
           setShouldRender(true);
+        } else if (!initiallyVisible) {
+          // Keep only nearby pages rasterized. Large zoom levels multiply
+          // canvas memory by page area, so distant pages return to placeholders.
+          setShouldRender(false);
         }
       },
       { root, rootMargin: '1200px 0px' }
     );
     observer.observe(shell);
     return () => observer.disconnect();
-  }, [initiallyVisible, viewportRef]);
+    }, [initiallyVisible, viewportRef]);
+
+  useEffect(() => {
+    if (shouldRender) return;
+    if (canvasRef.current) {
+      canvasRef.current.width = 0;
+      canvasRef.current.height = 0;
+    }
+    textLayerContainerRef.current?.replaceChildren();
+    setHasRendered(false);
+  }, [shouldRender]);
 
   useEffect(() => {
     if (!shouldRender || !canvasRef.current || !textLayerContainerRef.current || !viewportRef.current) return;
     let active = true;
-    setRendering(true);
+    let stagedTextLayer: HTMLDivElement | null = null;
 
     const render = async () => {
       try {
@@ -145,44 +170,63 @@ function PdfPageView({
         const scale = getPdfDisplayScale(
           baseViewport.width,
           viewportRef.current.clientWidth,
-          zoom,
           readerZoom
         );
         const viewport = page.getViewport({ scale });
-        const canvas = canvasRef.current;
-        const dpr = window.devicePixelRatio || 1;
+        const stagingCanvas = document.createElement('canvas');
+        const maxPixelCount = 16_000_000;
+        const dpr = Math.min(
+          window.devicePixelRatio || 1,
+          2.5,
+          8192 / Math.max(1, viewport.width),
+          8192 / Math.max(1, viewport.height),
+          Math.sqrt(maxPixelCount / Math.max(1, viewport.width * viewport.height))
+        );
 
-        canvas.width = Math.max(1, Math.floor(viewport.width * dpr));
-        canvas.height = Math.max(1, Math.floor(viewport.height * dpr));
-        canvas.style.width = `${Math.floor(viewport.width)}px`;
-        canvas.style.height = `${Math.floor(viewport.height)}px`;
+        stagingCanvas.width = Math.max(1, Math.floor(viewport.width * dpr));
+        stagingCanvas.height = Math.max(1, Math.floor(viewport.height * dpr));
 
-        const context = canvas.getContext('2d', { alpha: false });
+        const context = stagingCanvas.getContext('2d', { alpha: false });
         if (!context) return;
 
-        const textLayerContainer = textLayerContainerRef.current;
-        if (!textLayerContainer) return;
-        textLayerContainer.replaceChildren();
-        textLayerContainer.style.setProperty('--total-scale-factor', String(viewport.scale));
-        const textContent = await page.getTextContent();
+        let textContent: PdfTextContent;
+        const cachedText = textContentCacheRef.current;
+        if (cachedText?.pdfDoc === pdfDoc && cachedText.pageNumber === pageNumber) {
+          textContent = cachedText.textContent;
+        } else {
+          textContent = await page.getTextContent();
+          textContentCacheRef.current = { pdfDoc, pageNumber, textContent };
+        }
         if (!active || !textLayerContainerRef.current) return;
+
+        stagedTextLayer = document.createElement('div');
+        stagedTextLayer.className = styles.textLayer;
+        stagedTextLayer.style.position = 'fixed';
+        stagedTextLayer.style.inset = 'auto';
+        stagedTextLayer.style.left = '-10000px';
+        stagedTextLayer.style.top = '0';
+        stagedTextLayer.style.width = `${Math.floor(viewport.width)}px`;
+        stagedTextLayer.style.height = `${Math.floor(viewport.height)}px`;
+        stagedTextLayer.style.setProperty('--total-scale-factor', String(viewport.scale));
+        document.body.appendChild(stagedTextLayer);
 
         const textLayer = new pdfjsLib.TextLayer({
           textContentSource: textContent,
-          container: textLayerContainer,
+          container: stagedTextLayer,
           viewport,
         });
         textLayerRef.current = textLayer;
+        let textLayerReady = true;
         const textLayerPromise = textLayer.render().catch((textError: unknown) => {
+          textLayerReady = false;
           if (active) console.warn(`Failed to render PDF text layer ${pageNumber}:`, textError);
         });
 
         // Let PDF.js apply the device-pixel transform as part of its render
         // pipeline. Applying a transform directly to the context is easy to
-        // get wrong when a canvas is resized or a render is cancelled during
-        // scrolling/zooming, and can leave pages blank or partially painted.
+        // get wrong when a render is cancelled during scrolling or zooming.
         const task = page.render({
-          canvas,
+          canvas: stagingCanvas,
           canvasContext: context,
           viewport,
           transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0],
@@ -191,19 +235,42 @@ function PdfPageView({
         await task.promise;
         await textLayerPromise;
         if (renderTaskRef.current === task) renderTaskRef.current = null;
+        if (textLayerRef.current === textLayer) textLayerRef.current = null;
+
+        if (!active) return;
+        const canvas = canvasRef.current;
+        const textLayerContainer = textLayerContainerRef.current;
+        if (!canvas || !textLayerContainer) return;
+
+        // Keep the previous bitmap on screen while PDF.js draws the next
+        // zoom level. Replacing it only after the staged render is complete
+        // prevents the blank/white flash on every zoom gesture.
+        canvas.width = stagingCanvas.width;
+        canvas.height = stagingCanvas.height;
+        const visibleContext = canvas.getContext('2d', { alpha: false });
+        if (!visibleContext) return;
+        visibleContext.drawImage(stagingCanvas, 0, 0);
+        if (textLayerReady && stagedTextLayer) {
+          textLayerContainer.style.setProperty('--total-scale-factor', String(viewport.scale));
+          textLayerContainer.replaceChildren(...Array.from(stagedTextLayer.childNodes));
+        }
+        setHasRendered(true);
       } catch (error) {
         if (error && typeof error === 'object' && 'name' in error && error.name === 'RenderingCancelledException') {
           return;
         }
         console.error(`Failed to render PDF page ${pageNumber}:`, error);
       } finally {
-        if (active) setRendering(false);
+        stagedTextLayer?.remove();
       }
     };
 
-    void render();
+    // Wheel, pinch and resize gestures can produce many zoom values per
+    // second. Let the shell scale immediately and redraw after a short pause.
+    const timer = window.setTimeout(() => void render(), 40);
     return () => {
       active = false;
+      window.clearTimeout(timer);
       if (renderTaskRef.current) {
         renderTaskRef.current.cancel();
         renderTaskRef.current = null;
@@ -212,15 +279,13 @@ function PdfPageView({
         textLayerRef.current.cancel();
         textLayerRef.current = null;
       }
-      textLayerContainerRef.current?.replaceChildren();
     };
-  }, [pdfDoc, pageNumber, shouldRender, zoom, readerZoom, layoutVersion, viewportRef, onPageSize]);
+  }, [pdfDoc, pageNumber, shouldRender, readerZoom, layoutVersion, viewportRef, onPageSize]);
 
   const fallbackSize = pageSize ?? { width: 612, height: 792 };
   const displayScale = getPdfDisplayScale(
     fallbackSize.width,
     viewportRef.current?.clientWidth ?? 0,
-    zoom,
     readerZoom
   );
   const shellStyle: CSSProperties = {
@@ -231,27 +296,26 @@ function PdfPageView({
   return (
     <div
       ref={shellRef}
-      className={`${styles.pageShell} ${pageSize ? '' : styles.pageShellPlaceholder}`}
+      className={styles.pageShell}
       data-pdf-page={pageNumber}
       style={shellStyle}
       aria-label={`PDF page ${pageNumber}`}
     >
       <canvas ref={canvasRef} className={styles.pdfCanvas} aria-label={`Page ${pageNumber}`} />
       <div ref={textLayerContainerRef} className={styles.textLayer} aria-label={`Selectable text for page ${pageNumber}`} />
-      {(!shouldRender || rendering) && <div className={styles.pagePlaceholder} aria-hidden="true" />}
+      {!hasRendered && <div className={styles.pagePlaceholder} aria-hidden="true" />}
     </div>
   );
 }
 
 export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function PdfReader(
-  { fileData, initialPage = 1, readingMode = 'scroll', onProgressUpdate, onToggleControls, readerZoom = 1 },
+  { fileData, initialPage = 1, readingMode = 'scroll', onProgressUpdate, onToggleControls, readerZoom = 1, zoomAnchor },
   ref
 ) {
   const isContinuous = readingMode === 'scroll';
   const [pdfDoc, setPdfDoc] = useState<PdfDocument | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(Math.max(1, initialPage));
   const [totalPages, setTotalPages] = useState<number>(1);
-  const [zoom, setZoom] = useState<number>(1.0);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [pageSizes, setPageSizes] = useState<Record<number, PageSize>>({});
@@ -260,17 +324,17 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const pageStackRef = useRef<HTMLDivElement>(null);
+  const previewTransformRef = useRef<PdfZoomPreviewTransform | null>(null);
+  const lastZoomAnchorRef = useRef<PdfZoomAnchor | undefined>(undefined);
   const initialPageRef = useRef(initialPage);
   const onProgressUpdateRef = useRef(onProgressUpdate);
   const scrollFrameRef = useRef<number | null>(null);
-  const previousZoomRef = useRef(zoom);
+  const previousReaderZoomRef = useRef(readerZoom);
   onProgressUpdateRef.current = onProgressUpdate;
 
   useEffect(() => {
     initialPageRef.current = initialPage;
   }, [initialPage]);
-
-  const [pageInputValue, setPageInputValue] = useState<string>(String(Math.max(1, initialPage)));
 
   const setPageSize = useCallback((pageNumber: number, size: PageSize) => {
     setPageSizes((previous) => {
@@ -287,21 +351,61 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     viewport.scrollTo({ top: Math.max(0, page.offsetTop - 16), behavior });
   }, []);
 
+  // Update one compositor transform per animation frame while the user is
+  // zooming. Keep an explicit screen-to-document transform so the point under
+  // the pointer remains fixed even when the pointer moves between frames.
+  // React state stays at the last committed scale so page layout and PDF.js
+  // raster tasks do not restart for every wheel/pinch event.
+  const previewZoom = useCallback((nextZoom: number, anchor: PdfZoomAnchor) => {
+    const viewport = viewportRef.current;
+    const pageStack = pageStackRef.current;
+    if (!viewport || !pageStack) return;
+
+    const viewportRect = viewport.getBoundingClientRect();
+    const pointerX = viewportRect.left + anchor.viewportX;
+    const pointerY = viewportRect.top + anchor.viewportY;
+    const previous = previewTransformRef.current ?? {
+      baseLeft: pageStack.getBoundingClientRect().left,
+      baseTop: pageStack.getBoundingClientRect().top,
+      scale: 1,
+      translateX: 0,
+      translateY: 0,
+    };
+    const scale = nextZoom / readerZoom;
+
+    // Invert the last preview transform to find the document point currently
+    // under the pointer, then map that same point to the new zoom level.
+    const documentX = (pointerX - previous.baseLeft - previous.translateX) / previous.scale;
+    const documentY = (pointerY - previous.baseTop - previous.translateY) / previous.scale;
+    const translateX = pointerX - previous.baseLeft - scale * documentX;
+    const translateY = pointerY - previous.baseTop - scale * documentY;
+
+    lastZoomAnchorRef.current = anchor;
+    pageStack.style.transformOrigin = '0 0';
+    pageStack.style.transform = `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`;
+    previewTransformRef.current = {
+      baseLeft: previous.baseLeft,
+      baseTop: previous.baseTop,
+      scale,
+      translateX,
+      translateY,
+    };
+  }, [readerZoom]);
+
   const goToPage = useCallback((pageNum: number, behavior: ScrollBehavior = 'smooth') => {
     const clamped = Math.max(1, Math.min(pageNum, totalPages));
     setCurrentPage(clamped);
-    setPageInputValue(String(clamped));
     requestAnimationFrame(() => scrollToPage(clamped, behavior));
   }, [scrollToPage, totalPages]);
 
   useImperativeHandle(ref, () => ({
     goToPage: (pageNum: number) => goToPage(pageNum),
+    previewZoom,
     goToProgress: (fraction: number) => {
       const viewport = viewportRef.current;
       const clamped = Math.min(1, Math.max(0, fraction));
       const page = totalPages > 1 ? Math.round(clamped * (totalPages - 1)) + 1 : 1;
       setCurrentPage(page);
-      setPageInputValue(String(page));
       if (viewport) {
         viewport.scrollTo({
           top: clamped * Math.max(0, viewport.scrollHeight - viewport.clientHeight),
@@ -311,7 +415,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         requestAnimationFrame(() => scrollToPage(page));
       }
     },
-  }), [goToPage, scrollToPage, totalPages]);
+  }), [goToPage, previewZoom, scrollToPage, totalPages]);
 
   useEffect(() => {
     let active = true;
@@ -333,7 +437,6 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         setTotalPages(doc.numPages);
         const start = Math.max(1, Math.min(initialPageRef.current, doc.numPages));
         setCurrentPage(start);
-        setPageInputValue(String(start));
         setLoading(false);
       })
       .catch((reason: unknown) => {
@@ -408,11 +511,42 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     return () => observer.disconnect();
   }, [pdfDoc]);
 
-  useEffect(() => {
-    if (previousZoomRef.current === zoom) return;
-    previousZoomRef.current = zoom;
-    requestAnimationFrame(() => scrollToPage(currentPage, 'auto'));
-  }, [currentPage, scrollToPage, zoom]);
+  useLayoutEffect(() => {
+    if (previousReaderZoomRef.current === readerZoom) return;
+    previousReaderZoomRef.current = readerZoom;
+
+    const pageStack = pageStackRef.current;
+    if (pageStack) {
+      pageStack.style.transform = '';
+      pageStack.style.transformOrigin = '';
+    }
+    previewTransformRef.current = null;
+
+    const viewport = viewportRef.current;
+    const activeAnchor = zoomAnchor ?? lastZoomAnchorRef.current;
+    lastZoomAnchorRef.current = undefined;
+    if (!viewport || !activeAnchor) return;
+
+    const page = activeAnchor.pageNumber
+      ? pageStackRef.current?.querySelector<HTMLElement>(`[data-pdf-page="${activeAnchor.pageNumber}"]`)
+      : null;
+    if (page) {
+      const viewportRect = viewport.getBoundingClientRect();
+      const pageRect = page.getBoundingClientRect();
+      const left = viewport.scrollLeft + pageRect.left - viewportRect.left
+        + pageRect.width * (activeAnchor.pageX ?? 0.5) - activeAnchor.viewportX;
+      const top = viewport.scrollTop + pageRect.top - viewportRect.top
+        + pageRect.height * (activeAnchor.pageY ?? 0.5) - activeAnchor.viewportY;
+      viewport.scrollTo({ left: Math.max(0, left), top: Math.max(0, top), behavior: 'auto' });
+      return;
+    }
+
+    viewport.scrollTo({
+      left: Math.max(0, activeAnchor.scrollRatioX * viewport.scrollWidth - activeAnchor.viewportX),
+      top: Math.max(0, activeAnchor.scrollRatioY * viewport.scrollHeight - activeAnchor.viewportY),
+      behavior: 'auto',
+    });
+  }, [readerZoom, zoomAnchor]);
 
   useEffect(() => {
     if (isContinuous) return;
@@ -445,7 +579,6 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         ? Math.min(1, (Math.max(0, visiblePage - 1) + withinPageFraction) / (totalPages - 1))
         : withinPageFraction;
     setCurrentPage((previous) => previous === visiblePage ? previous : visiblePage);
-    setPageInputValue((previous) => previous === String(visiblePage) ? previous : String(visiblePage));
     onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
   }, [currentPage, isContinuous, totalPages]);
 
@@ -460,27 +593,6 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   useEffect(() => () => {
     if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
   }, []);
-
-  const goToNextPage = useCallback(() => goToPage(currentPage + 1), [currentPage, goToPage]);
-  const goToPrevPage = useCallback(() => goToPage(currentPage - 1), [currentPage, goToPage]);
-
-  const handlePageInputSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const parsed = Number.parseInt(pageInputValue, 10);
-    if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= totalPages) {
-      goToPage(parsed);
-    } else {
-      setPageInputValue(String(currentPage));
-    }
-  };
-
-  const handlePageInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setPageInputValue(event.target.value);
-  };
-
-  const zoomIn = () => setZoom((value) => Math.min(3, Math.round((value + 0.2) * 10) / 10));
-  const zoomOut = () => setZoom((value) => Math.max(0.5, Math.round((value - 0.2) * 10) / 10));
-  const resetZoom = () => setZoom(1);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const viewport = viewportRef.current;
@@ -497,59 +609,16 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     } else if (event.key === 'End') {
       event.preventDefault();
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
-    } else if (event.key === '+' || event.key === '=') {
-      event.preventDefault();
-      zoomIn();
-    } else if (event.key === '-') {
-      event.preventDefault();
-      zoomOut();
     }
   };
 
   return (
     <div className={styles.container} onKeyDown={handleKeyDown} tabIndex={0} autoFocus>
-      <div className={styles.toolbar}>
-        <div className={styles.toolGroup}>
-          <button className={styles.toolBtn} onClick={goToPrevPage} disabled={currentPage <= 1} title="Scroll to previous page" aria-label="Previous page" type="button">
-            <ChevronLeft size={18} />
-          </button>
-
-          <form onSubmit={handlePageInputSubmit} className={styles.pageInputGroup}>
-            <input
-              type="text"
-              inputMode="numeric"
-              className={styles.pageInput}
-              value={pageInputValue}
-              onChange={handlePageInputChange}
-              onBlur={() => setPageInputValue(String(currentPage))}
-              aria-label="Current page number"
-            />
-            <span className={styles.pageTotal}>/ {totalPages}</span>
-          </form>
-
-          <button className={styles.toolBtn} onClick={goToNextPage} disabled={currentPage >= totalPages} title="Scroll to next page" aria-label="Next page" type="button">
-            <ChevronRight size={18} />
-          </button>
-        </div>
-
-        <div className={styles.toolGroup}>
-          <button className={styles.toolBtn} onClick={zoomOut} disabled={zoom <= 0.5} title="Zoom out (-)" aria-label="Zoom out" type="button">
-            <ZoomOut size={16} />
-          </button>
-          <span className={styles.zoomLabel}>{Math.round(zoom * 100)}%</span>
-          <button className={styles.toolBtn} onClick={zoomIn} disabled={zoom >= 3} title="Zoom in (+)" aria-label="Zoom in" type="button">
-            <ZoomIn size={16} />
-          </button>
-          <button className={styles.toolBtn} onClick={resetZoom} title="Fit to width" aria-label="Fit to width" type="button">
-            {zoom === 1 ? <Maximize2 size={16} /> : <RotateCcw size={16} />}
-          </button>
-        </div>
-      </div>
-
       <div
         ref={viewportRef}
         className={styles.viewport}
         data-reader-viewport={isContinuous ? 'pdf-vertical-scroll' : 'pdf-page'}
+        data-current-page={currentPage}
         onScroll={handleScroll}
         onClick={(event) => {
           if (event.target === viewportRef.current) onToggleControls?.();
@@ -582,7 +651,6 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
                   pageNumber={pageNumber}
                   viewportRef={viewportRef}
                   pageSize={pageSizes[pageNumber]}
-                  zoom={zoom}
                   readerZoom={readerZoom}
                   layoutVersion={layoutVersion}
                   initiallyVisible={Math.abs(pageNumber - currentPage) <= 1}

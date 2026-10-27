@@ -123,6 +123,7 @@
   overflow: hidden;
   padding-top: var(--header-height);
   box-sizing: border-box;
+  touch-action: pan-x pan-y;
   transition: padding-top var(--transition-base);
 }
 
