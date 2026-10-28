@@ -13,6 +13,7 @@ import {
   Download,
   Trash2,
   Clock,
+  Check,
 } from 'lucide-react';
 import type { Book, ReadingStatus } from '../../types/book';
 import { formatDate } from '../../utils';
@@ -28,6 +29,9 @@ interface BookCardProps {
   onToggleArchive: (id: string) => void;
   onExport: (id: string) => void;
   onDelete: (book: Book) => void;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelection: (id: string) => void;
 }
 
 export function BookCard({
@@ -40,6 +44,9 @@ export function BookCard({
   onToggleArchive,
   onExport,
   onDelete,
+  selectionMode,
+  selected,
+  onToggleSelection,
 }: BookCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -63,6 +70,10 @@ export function BookCard({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (selectionMode) setMenuOpen(false);
+  }, [selectionMode]);
+
   const handleMenuClick = (e: MouseEvent) => {
     e.stopPropagation();
     setMenuOpen((prev) => !prev);
@@ -74,6 +85,14 @@ export function BookCard({
     action();
   };
 
+  const handleCardClick = () => {
+    if (selectionMode) {
+      onToggleSelection(book.id);
+      return;
+    }
+    onOpen(book.id);
+  };
+
   // Determine reading progress percentage if available
   const progressPercent = progress === undefined
     ? book.readingStatus === 'completed' ? 100 : book.readingStatus === 'unread' ? 0 : null
@@ -81,17 +100,19 @@ export function BookCard({
 
   return (
     <div
-      className={styles.card}
-      onClick={() => onOpen(book.id)}
-      role="button"
+      className={`${styles.card} ${selected ? styles.cardSelected : ''}`}
+      onClick={handleCardClick}
+      role={selectionMode ? 'checkbox' : 'button'}
       tabIndex={0}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onOpen(book.id);
+          handleCardClick();
         }
       }}
       aria-label={`${book.title} by ${book.author || 'Unknown'}`}
+      aria-checked={selectionMode ? selected : undefined}
     >
       <div className={styles.coverContainer}>
         {book.coverImage ? (
@@ -110,7 +131,13 @@ export function BookCard({
           </div>
         )}
 
-        <div className={styles.badges}>
+        {selectionMode && (
+          <span className={`${styles.selectionIndicator} ${selected ? styles.selectionIndicatorSelected : ''}`} aria-hidden="true">
+            {selected && <Check size={14} />}
+          </span>
+        )}
+
+        <div className={`${styles.badges} ${selectionMode ? styles.badgesSelectionMode : ''}`}>
           <span className={styles.formatBadge}>{book.sourceFormat}</span>
         </div>
 
@@ -153,20 +180,22 @@ export function BookCard({
             <span className={styles.progressLabel}>{progressPercent}%</span>
           )}
 
-          <button
-            ref={buttonRef}
-            className={styles.menuButton}
-            onClick={handleMenuClick}
-            aria-label={`Actions for ${book.title}`}
-            aria-expanded={menuOpen}
-            type="button"
-          >
-            <MoreVertical size={16} />
-          </button>
+          {!selectionMode && (
+            <button
+              ref={buttonRef}
+              className={styles.menuButton}
+              onClick={handleMenuClick}
+              aria-label={`Actions for ${book.title}`}
+              aria-expanded={menuOpen}
+              type="button"
+            >
+              <MoreVertical size={16} />
+            </button>
+          )}
         </div>
       </div>
 
-      {menuOpen && (
+      {menuOpen && !selectionMode && (
         <div ref={menuRef} className={styles.dropdown} role="menu">
           <button
             className={styles.menuItem}

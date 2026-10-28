@@ -147,6 +147,8 @@ describe('IndexedDB Storage Operations', () => {
       maxContentWidth: 800,
       contentMargin: 32,
       libraryLayout: 'list',
+      librarySortField: 'importedAt',
+      librarySortDirection: 'desc',
       autoDetectChapters: true,
       importSizeWarningMB: 50,
       updatedAt: 1000,

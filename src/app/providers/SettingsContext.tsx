@@ -12,14 +12,12 @@ interface SettingsContextValue {
   settings: UserSettings;
   loading: boolean;
   updateSettings: (partial: Partial<UserSettings>) => Promise<void>;
-  resetSettings: () => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextValue>({
   settings: DEFAULT_SETTINGS,
   loading: true,
   updateSettings: async () => {},
-  resetSettings: async () => {},
 });
 
 interface SettingsProviderProps {

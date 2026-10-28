@@ -165,6 +165,55 @@
   gap: var(--space-2);
 }
 
+.selectionToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin: calc(-1 * var(--space-3)) 0 var(--space-5);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.selectionSummary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.selectionSummary strong {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.selectionActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .selectionToolbar {
+    align-items: flex-start;
+  }
+
+  .selectionActions {
+    width: 100%;
+  }
+
+  .selectionActions > button {
+    flex: 1 1 auto;
+  }
+}
+
 .dragOverlay {
   position: fixed;
   inset: 0;

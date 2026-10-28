@@ -13,7 +13,6 @@ import {
   Upload,
   Trash2,
   ShieldCheck,
-  RotateCcw,
   Globe2,
   ExternalLink,
   Heart,
@@ -24,6 +23,7 @@ import {
 import { useSettingsContext } from '../../app/providers/SettingsContext';
 import {
   getStorageEstimate,
+  getSettings,
   requestPersistentStorage,
   clearDatabase,
 } from '../../core/storage/database';
@@ -35,6 +35,7 @@ import { formatFileSize } from '../../utils';
 import type { ThemeName, ReadingMode } from '../../types/book';
 
 import { Button } from '../common/Button';
+import { DropdownSelect } from '../common/DropdownSelect';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import {
   consumeSettingsScrollPosition,
@@ -63,7 +64,7 @@ function GitHubIcon() {
 
 export function SettingsView() {
   const navigate = useNavigate();
-  const { settings, updateSettings, resetSettings } = useSettingsContext();
+  const { settings, updateSettings } = useSettingsContext();
 
   const [storageInfo, setStorageInfo] = useState<{ usage: number; quota: number } | null>(null);
   const [storageCheckComplete, setStorageCheckComplete] = useState(false);
@@ -75,7 +76,12 @@ export function SettingsView() {
   const scrollRestoreRef = useRef<SettingsScrollPosition | null>(null);
 
   useEffect(() => {
-    scrollRestoreRef.current = consumeSettingsScrollPosition();
+    // React StrictMode replays mount effects in development. The first pass
+    // consumes the session value; keep it instead of overwriting it with null
+    // on the replayed pass.
+    if (!scrollRestoreRef.current) {
+      scrollRestoreRef.current = consumeSettingsScrollPosition();
+    }
   }, []);
 
   useEffect(() => {
@@ -135,6 +141,8 @@ export function SettingsView() {
 
     try {
       const result = await restoreLibraryBackup(file);
+      const restoredSettings = await getSettings();
+      if (restoredSettings) await updateSettings(restoredSettings);
       setStatusMessage(
         `Restored ${result.booksRestored} books. ${
           result.errors.length > 0 ? `(${result.errors.length} skipped)` : ''
@@ -150,7 +158,6 @@ export function SettingsView() {
   const handleClearDatabase = async () => {
     try {
       await clearDatabase();
-      await resetSettings();
       setClearConfirmOpen(false);
       navigate('/');
     } catch (err) {
@@ -197,16 +204,17 @@ export function SettingsView() {
               <span className={styles.rowLabel}>Application Theme</span>
               <span className={styles.rowDesc}>Global color palette for reader and library</span>
             </div>
-            <select
+            <DropdownSelect
               className={styles.select}
               value={settings.theme}
-              onChange={(e) => updateSettings({ theme: e.target.value as ThemeName })}
-              aria-label="Application Theme"
-            >
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-              <option value="sepia">Warm Sepia</option>
-            </select>
+              onChange={(value) => updateSettings({ theme: value as ThemeName })}
+              ariaLabel="Application Theme"
+              options={[
+                { value: 'light', label: 'Light' },
+                { value: 'dark', label: 'Dark' },
+                { value: 'sepia', label: 'Warm Sepia' },
+              ]}
+            />
           </div>
 
           <div className={styles.row}>
@@ -214,18 +222,17 @@ export function SettingsView() {
               <span className={styles.rowLabel}>Default Reading Mode</span>
               <span className={styles.rowDesc}>Preferred layout for newly opened books</span>
             </div>
-            <select
+            <DropdownSelect
               className={styles.select}
               value={settings.defaultReadingMode}
-              onChange={(e) =>
-                updateSettings({ defaultReadingMode: e.target.value as ReadingMode })
-              }
-              aria-label="Default Reading Mode"
-            >
-              <option value="scroll">Vertical Scroll</option>
-              <option value="paginated">Pages</option>
-              <option value="vertical">Double Sided</option>
-            </select>
+              onChange={(value) => updateSettings({ defaultReadingMode: value as ReadingMode })}
+              ariaLabel="Default Reading Mode"
+              options={[
+                { value: 'scroll', label: 'Vertical Scroll' },
+                { value: 'paginated', label: 'Pages' },
+                { value: 'vertical', label: 'Double Sided' },
+              ]}
+            />
           </div>
 
           <div className={styles.row}>
@@ -266,21 +273,6 @@ export function SettingsView() {
               <span>MB</span>
             </label>
           </div>
-        </div>
-
-        {/* Reset Defaults */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<RotateCcw size={14} />}
-            onClick={() => {
-              resetSettings();
-              setStatusMessage('Application settings reset to defaults.');
-            }}
-          >
-            Reset Presentation Settings
-          </Button>
         </div>
 
         {/* Keyboard Shortcuts Reference */}
@@ -340,7 +332,8 @@ export function SettingsView() {
           <div className={styles.infoBox}>
             <strong>100% Local-First Promise:</strong> WebXReader never sends your novel
             contents, reading history, or personal annotations to any remote server or cloud
-            storage. Everything is stored directly inside your browser's IndexedDB.
+            storage. Your books and reading data live in IndexedDB; general site preferences are
+            stored separately in browser local storage and remain when you clear library data.
           </div>
 
           {storageInfo && (
@@ -432,10 +425,10 @@ export function SettingsView() {
             <div className={styles.row}>
               <div className={styles.rowCol}>
                 <span className={styles.rowLabel} style={{ color: 'var(--color-danger)' }}>
-                  Clear All Stored Library Data
+                  Clear Library Data
                 </span>
                 <span className={styles.rowDesc}>
-                  Permanently erase all books, reading progress, and settings from this browser.
+                  Permanently erase books, reading progress, bookmarks, annotations, and book-specific reader settings. General site preferences stay saved.
                 </span>
               </div>
               <Button
@@ -564,9 +557,9 @@ export function SettingsView() {
         isOpen={clearConfirmOpen}
         onClose={() => setClearConfirmOpen(false)}
         onConfirm={handleClearDatabase}
-        title="Clear All Library Data?"
-        message="This action will permanently delete all imported books, reading progress, bookmarks, annotations, and settings from your browser. This action cannot be undone."
-        confirmLabel="Erase Everything"
+        title="Clear Library Data?"
+        message="This permanently deletes imported books, reading progress, bookmarks, annotations, covers, and book-specific reader settings. General site preferences are stored separately in browser local storage and will remain saved."
+        confirmLabel="Clear Library Data"
         variant="danger"
       />
     </div>

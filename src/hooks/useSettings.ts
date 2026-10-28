@@ -1,9 +1,9 @@
 /**
  * Custom hook for managing user settings.
- * Loads from IndexedDB, applies theme, and provides update functions.
+ * Loads browser-local preferences, applies theme, and provides update functions.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { UserSettings, ThemeName } from '../types/book';
 import { DEFAULT_SETTINGS } from '../types/book';
 import { getSettings, saveSettings } from '../core/storage/database';
@@ -12,7 +12,6 @@ interface UseSettingsResult {
   settings: UserSettings;
   loading: boolean;
   updateSettings: (partial: Partial<UserSettings>) => Promise<void>;
-  resetSettings: () => Promise<void>;
 }
 
 function getSystemTheme(): ThemeName {
@@ -29,6 +28,8 @@ function applyTheme(theme: ThemeName): void {
 export function useSettings(): UseSettingsResult {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const settingsRef = useRef(settings);
+  const settingsChangedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,20 +39,29 @@ export function useSettings(): UseSettingsResult {
         const stored = await getSettings();
         if (cancelled) return;
 
-        if (stored) {
-          setSettings(stored);
-          applyTheme(stored.theme);
-        } else {
-          // No stored settings — apply system theme as default
+        if (!settingsChangedRef.current) {
+          if (stored) {
+            const merged = { ...DEFAULT_SETTINGS, ...stored };
+            settingsRef.current = merged;
+            setSettings(merged);
+            applyTheme(merged.theme);
+          } else {
+            // No stored settings — apply system theme as default
+            const systemTheme = getSystemTheme();
+            const initial: UserSettings = { ...DEFAULT_SETTINGS, theme: systemTheme };
+            settingsRef.current = initial;
+            setSettings(initial);
+            applyTheme(systemTheme);
+          }
+        }
+      } catch {
+        if (!settingsChangedRef.current) {
           const systemTheme = getSystemTheme();
           const initial: UserSettings = { ...DEFAULT_SETTINGS, theme: systemTheme };
+          settingsRef.current = initial;
           setSettings(initial);
           applyTheme(systemTheme);
         }
-      } catch {
-        // Fall back to defaults
-        const systemTheme = getSystemTheme();
-        applyTheme(systemTheme);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -79,38 +89,27 @@ export function useSettings(): UseSettingsResult {
   }, []);
 
   const updateSettings = useCallback(async (partial: Partial<UserSettings>) => {
-    setSettings((prev) => {
-      const merged: UserSettings = {
-        ...prev,
-        ...partial,
-        updatedAt: Date.now(),
-      };
+    settingsChangedRef.current = true;
+    const merged: UserSettings = {
+      ...settingsRef.current,
+      ...partial,
+      updatedAt: Date.now(),
+    };
+    settingsRef.current = merged;
+    setSettings(merged);
 
-      // Apply theme change immediately
-      if (partial.theme) {
-        applyTheme(partial.theme);
-      }
+    if (partial.theme) applyTheme(partial.theme);
 
-      // Persist asynchronously
-      saveSettings(merged).catch((err) => {
-        console.error('Failed to save settings:', err);
-      });
-
-      return merged;
-    });
-  }, []);
-
-  const resetSettings = useCallback(async () => {
-    const defaults: UserSettings = { ...DEFAULT_SETTINGS, updatedAt: Date.now() };
-    setSettings(defaults);
-    applyTheme(defaults.theme);
-    await saveSettings(defaults);
+    try {
+      await saveSettings(merged);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    }
   }, []);
 
   return {
     settings,
     loading,
     updateSettings,
-    resetSettings,
   };
 }

@@ -25,6 +25,16 @@
   gap: var(--space-3);
 }
 
+@media (max-width: 480px) {
+  .actionsRight {
+    width: 100%;
+  }
+
+  .actionsRight > button {
+    flex: 1;
+  }
+}
+
 .controlsRow {
   display: flex;
   align-items: center;
@@ -82,19 +92,9 @@
   gap: var(--space-2);
 }
 
-.select {
-  padding: 6px 10px;
-  font-size: var(--text-xs);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background-color: var(--color-surface);
-  color: var(--color-text);
-  outline: none;
-  cursor: pointer;
-}
-
-.select:focus-visible {
-  border-color: var(--color-accent);
+.sortSelect {
+  width: 148px;
+  flex: 0 0 148px;
 }
 
 .iconBtn {
@@ -126,4 +126,22 @@
   height: 20px;
   background-color: var(--color-border);
   margin: 0 var(--space-1);
+}
+
+@media (max-width: 480px) {
+  .sortingGroup {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .sortSelect {
+    flex: 1 1 148px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sortingGroup button {
+    transition: none;
+  }
 }

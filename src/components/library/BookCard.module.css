@@ -17,6 +17,11 @@
   border-color: var(--color-accent);
 }
 
+.cardSelected {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-light);
+}
+
 .card:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
@@ -82,6 +87,33 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+}
+
+.badgesSelectionMode {
+  top: calc(var(--space-2) + 28px);
+}
+
+.selectionIndicator {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: var(--radius-sm);
+  background-color: rgba(0, 0, 0, 0.48);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+}
+
+.selectionIndicatorSelected {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-text-inverse);
 }
 
 .formatBadge {

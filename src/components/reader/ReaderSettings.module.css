@@ -184,14 +184,6 @@
 
 .select {
   width: 100%;
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background-color: var(--color-surface);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  outline: none;
-  cursor: pointer;
 }
 
 .sliderRow {

@@ -2,9 +2,9 @@
  * LibraryToolbar component for searching, filtering, sorting, and layout switching.
  */
 
-import type { ChangeEvent } from 'react';
 import {
   Upload,
+  CheckSquare,
   LayoutGrid,
   List,
   ArrowDownUp,
@@ -17,6 +17,7 @@ import type {
 } from '../../types/book';
 import { SearchInput } from '../common/SearchInput';
 import { Button } from '../common/Button';
+import { DropdownSelect } from '../common/DropdownSelect';
 import styles from './LibraryToolbar.module.css';
 
 interface LibraryToolbarProps {
@@ -31,6 +32,8 @@ interface LibraryToolbarProps {
   layout: LibraryLayout;
   onLayoutChange: (layout: LibraryLayout) => void;
   onImportClick: () => void;
+  selectionMode: boolean;
+  onToggleSelectionMode: () => void;
 }
 
 const FILTERS: { id: LibraryFilter; label: string }[] = [
@@ -40,6 +43,13 @@ const FILTERS: { id: LibraryFilter; label: string }[] = [
   { id: 'completed', label: 'Completed' },
   { id: 'favorites', label: 'Favorites' },
   { id: 'archived', label: 'Archived' },
+];
+
+const SORT_OPTIONS = [
+  { value: 'lastOpenedAt', label: 'Recently Read' },
+  { value: 'importedAt', label: 'Recently Added' },
+  { value: 'title', label: 'Title' },
+  { value: 'author', label: 'Author' },
 ];
 
 export function LibraryToolbar({
@@ -54,11 +64,9 @@ export function LibraryToolbar({
   layout,
   onLayoutChange,
   onImportClick,
+  selectionMode,
+  onToggleSelectionMode,
 }: LibraryToolbarProps) {
-  const handleSortChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    onSortFieldChange(e.target.value as SortField);
-  };
-
   return (
     <div className={styles.toolbar}>
       <div className={styles.topRow}>
@@ -100,21 +108,22 @@ export function LibraryToolbar({
         </div>
 
         <div className={styles.sortingGroup}>
-          <label htmlFor="sort-select" className="sr-only">
-            Sort books by
-          </label>
-          <select
-            id="sort-select"
+          <DropdownSelect
+            className={styles.sortSelect}
             value={sortField}
-            onChange={handleSortChange}
-            className={styles.select}
-            aria-label="Sort books by"
+            options={SORT_OPTIONS}
+            onChange={(value) => onSortFieldChange(value as SortField)}
+            ariaLabel="Sort books by"
+          />
+
+          <Button
+            variant="secondary"
+            icon={<CheckSquare size={16} />}
+            onClick={onToggleSelectionMode}
+            aria-pressed={selectionMode}
           >
-            <option value="lastOpenedAt">Recently Read</option>
-            <option value="importedAt">Recently Added</option>
-            <option value="title">Title</option>
-            <option value="author">Author</option>
-          </select>
+            {selectionMode ? 'Done' : 'Select'}
+          </Button>
 
           <button
             className={styles.iconBtn}

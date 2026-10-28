@@ -18,6 +18,7 @@ interface UseBooksResult {
   error: string | null;
   refreshBooks: () => Promise<void>;
   removeBook: (id: string) => Promise<void>;
+  removeBooks: (ids: string[]) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   updateReadingStatus: (id: string, status: ReadingStatus) => Promise<void>;
   toggleArchive: (id: string) => Promise<void>;
@@ -73,6 +74,20 @@ export function useBooks(): UseBooksResult {
       await refreshBooks();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to delete book';
+      setError(message);
+      throw err;
+    }
+  }, [refreshBooks]);
+
+  const removeBooks = useCallback(async (ids: string[]) => {
+    try {
+      for (const id of ids) {
+        await deleteBook(id);
+      }
+      await refreshBooks();
+    } catch (err) {
+      await refreshBooks();
+      const message = err instanceof Error ? err.message : 'Failed to delete selected books';
       setError(message);
       throw err;
     }
@@ -141,6 +156,7 @@ export function useBooks(): UseBooksResult {
     error,
     refreshBooks,
     removeBook,
+    removeBooks,
     toggleFavorite,
     updateReadingStatus,
     toggleArchive,

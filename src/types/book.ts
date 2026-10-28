@@ -1,6 +1,6 @@
 /**
  * Core book data model types for WebXReader.
- * These types define the persistent data structures stored in IndexedDB.
+ * These types define the persistent data structures used by the app.
  */
 
 /** Supported import formats */
@@ -273,6 +273,10 @@ export interface UserSettings {
   contentMargin: number;
   /** Library layout preference */
   libraryLayout: LibraryLayout;
+  /** Library sort field preference */
+  librarySortField: SortField;
+  /** Library sort direction preference */
+  librarySortDirection: SortDirection;
   /** Auto-detect chapters for TXT */
   autoDetectChapters: boolean;
   /** Import size warning threshold in MB */
@@ -353,6 +357,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   maxContentWidth: 720,
   contentMargin: 24,
   libraryLayout: 'grid',
+  librarySortField: 'importedAt',
+  librarySortDirection: 'desc',
   autoDetectChapters: true,
   importSizeWarningMB: 50,
   updatedAt: Date.now(),

@@ -12,6 +12,7 @@ import {
   Archive,
   Download,
   Trash2,
+  Check,
 } from 'lucide-react';
 import type { Book, ReadingStatus } from '../../types/book';
 import { formatDate } from '../../utils';
@@ -27,6 +28,9 @@ interface BookListProps {
   onToggleArchive: (id: string) => void;
   onExport: (id: string) => void;
   onDelete: (book: Book) => void;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelection: (id: string) => void;
 }
 
 export function BookList({
@@ -39,6 +43,9 @@ export function BookList({
   onToggleArchive,
   onExport,
   onDelete,
+  selectionMode,
+  selected,
+  onToggleSelection,
 }: BookListProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -61,6 +68,10 @@ export function BookList({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (selectionMode) setMenuOpen(false);
+  }, [selectionMode]);
+
   const handleMenuClick = (e: MouseEvent) => {
     e.stopPropagation();
     setMenuOpen((prev) => !prev);
@@ -70,6 +81,14 @@ export function BookList({
     e.stopPropagation();
     setMenuOpen(false);
     action();
+  };
+
+  const handleRowClick = () => {
+    if (selectionMode) {
+      onToggleSelection(book.id);
+      return;
+    }
+    onOpen(book.id);
   };
 
   const getStatusClass = () => {
@@ -89,18 +108,25 @@ export function BookList({
 
   return (
     <div
-      className={styles.row}
-      onClick={() => onOpen(book.id)}
-      role="button"
+      className={`${styles.row} ${selected ? styles.rowSelected : ''}`}
+      onClick={handleRowClick}
+      role={selectionMode ? 'checkbox' : 'button'}
       tabIndex={0}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onOpen(book.id);
+          handleRowClick();
         }
       }}
       aria-label={`${book.title} by ${book.author || 'Unknown'}`}
+      aria-checked={selectionMode ? selected : undefined}
     >
+      {selectionMode && (
+        <span className={`${styles.selectionIndicator} ${selected ? styles.selectionIndicatorSelected : ''}`} aria-hidden="true">
+          {selected && <Check size={14} />}
+        </span>
+      )}
       <div className={styles.thumbnailContainer}>
         {book.coverImage ? (
           <img
@@ -144,18 +170,20 @@ export function BookList({
           : formatDate(book.importedAt)}
       </div>
 
-      <button
-        ref={buttonRef}
-        className={styles.menuButton}
-        onClick={handleMenuClick}
-        aria-label={`Actions for ${book.title}`}
-        aria-expanded={menuOpen}
-        type="button"
-      >
-        <MoreVertical size={16} />
-      </button>
+      {!selectionMode && (
+        <button
+          ref={buttonRef}
+          className={styles.menuButton}
+          onClick={handleMenuClick}
+          aria-label={`Actions for ${book.title}`}
+          aria-expanded={menuOpen}
+          type="button"
+        >
+          <MoreVertical size={16} />
+        </button>
+      )}
 
-      {menuOpen && (
+      {menuOpen && !selectionMode && (
         <div ref={menuRef} className={styles.dropdown} role="menu">
           <button
             className={styles.menuItem}

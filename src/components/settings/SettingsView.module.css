@@ -117,14 +117,9 @@
 }
 
 .select {
-  padding: 8px 12px;
-  font-size: var(--text-sm);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background-color: var(--color-surface);
-  color: var(--color-text);
-  outline: none;
-  cursor: pointer;
+  width: 180px;
+  max-width: 100%;
+  flex: 0 1 180px;
 }
 
 .shortcutGrid {

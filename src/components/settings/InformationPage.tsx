@@ -1,3 +1,4 @@
+import { useLayoutEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -20,6 +21,10 @@ export function InformationPage({ kind }: InformationPageProps) {
   const navigate = useNavigate();
   const isPrivacyPage = kind === 'privacy';
   const title = isPrivacyPage ? 'Privacy Policy' : 'About WebXReader';
+
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+  }, [kind]);
 
   return (
     <div className={styles.container}>
@@ -112,7 +117,7 @@ function PrivacyPolicy() {
         <ShieldCheck size={19} />
         <div>
           <h2 className={styles.cardTitle}>Your reading data stays on your device</h2>
-          <p className={styles.updated}>Last updated October 27, 2026</p>
+          <p className={styles.updated}>Last updated October 28, 2026</p>
         </div>
       </div>
 
@@ -125,10 +130,16 @@ function PrivacyPolicy() {
         <section className={styles.proseSection}>
           <h3>Information stored in your browser</h3>
           <p>
-            WebXReader stores the information needed to provide your library on your device using
-            browser storage. This can include imported book files and metadata, covers, reading
-            progress, bookmarks, annotations, and your application and reader settings. This data is
-            stored in IndexedDB and is not uploaded by WebXReader.
+            WebXReader stores imported book files and metadata, covers, reading progress,
+            bookmarks, annotations, and per-book reader settings in IndexedDB on your device. This
+            library and reading data is not uploaded by WebXReader.
+          </p>
+          <p>
+            General site preferences, including your theme, default reading settings, library
+            layout, sort order, and import preferences, are stored separately in this browser's
+            local storage. If the browser blocks local storage, WebXReader uses a separate
+            preferences record in IndexedDB. Clearing library data in WebXReader leaves these
+            preferences in place. To remove them too, clear this site's data in your browser.
           </p>
           <p>
             The offline feature may also save the application shell and static app files in Cache

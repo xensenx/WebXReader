@@ -78,7 +78,7 @@ export function useReaderSettings(bookId: string): UseReaderSettingsResult {
         ]);
 
         if (!cancelled) {
-          setGlobalSettings(global ?? DEFAULT_SETTINGS);
+          setGlobalSettings(global ? { ...DEFAULT_SETTINGS, ...global } : DEFAULT_SETTINGS);
           setBookOverrides(bookSetting ?? null);
         }
       } catch (err) {

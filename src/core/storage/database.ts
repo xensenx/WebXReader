@@ -1,8 +1,9 @@
 /**
  * IndexedDB storage abstraction for WebXReader.
- * Provides a typed, promise-based interface over IndexedDB with versioned migrations.
+ * Provides a typed interface over the library IndexedDB and separate browser-local preferences.
  */
 
+import { DEFAULT_SETTINGS } from '../../types/book';
 import type {
   Book,
   BookContent,
@@ -17,6 +18,22 @@ import type {
 
 const DB_NAME = 'webxreader';
 const DB_VERSION = 1;
+const SETTINGS_STORAGE_KEY = 'webxreader.preferences.v1';
+
+function normalizeUserSettings(settings: Partial<UserSettings>): UserSettings {
+  return { ...DEFAULT_SETTINGS, ...settings, id: 'global' };
+}
+
+function readLocalUserSettings(): UserSettings | undefined {
+  try {
+    const serialized = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!serialized) return undefined;
+    const stored = JSON.parse(serialized) as UserSettings;
+    return stored && typeof stored === 'object' ? normalizeUserSettings(stored) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Store names */
 const STORES = {
@@ -335,15 +352,42 @@ export async function deleteAnnotation(id: string): Promise<void> {
 }
 
 // ============================================================
-// Settings Operations
+// General preferences (localStorage, with legacy IndexedDB migration/fallback)
 // ============================================================
 
 export async function getSettings(): Promise<UserSettings | undefined> {
-  return withTransaction<UserSettings | undefined>(STORES.settings, 'readonly', (store) => store.get('global'));
+  const localSettings = readLocalUserSettings();
+  if (localSettings) return localSettings;
+
+  const legacySettings = await withTransaction<UserSettings | undefined>(
+    STORES.settings,
+    'readonly',
+    (store) => store.get('global')
+  );
+
+  // A preference may have been saved while the legacy IndexedDB read was pending.
+  const newerLocalSettings = readLocalUserSettings();
+  if (newerLocalSettings) return newerLocalSettings;
+  if (!legacySettings) return undefined;
+
+  const migratedSettings = normalizeUserSettings(legacySettings);
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(migratedSettings));
+    await withTransaction(STORES.settings, 'readwrite', (store) => store.delete('global'));
+  } catch {
+    // Keep the legacy record if migration cannot be completed.
+  }
+  return migratedSettings;
 }
 
 export async function saveSettings(settings: UserSettings): Promise<void> {
-  await withTransaction(STORES.settings, 'readwrite', (store) => store.put({ ...settings, id: 'global' }));
+  const preferences = normalizeUserSettings(settings);
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(preferences));
+  } catch {
+    // Preserve preferences in IndexedDB if localStorage is unavailable.
+    await withTransaction(STORES.settings, 'readwrite', (store) => store.put(preferences));
+  }
 }
 
 export async function getBookSettings(bookId: string): Promise<BookSettings | undefined> {
@@ -359,11 +403,11 @@ export async function saveBookSettings(settings: BookSettings): Promise<void> {
 // ============================================================
 
 export async function exportBackup(): Promise<BackupData> {
-  const db = await getDb();
+  const [db, settings] = await Promise.all([getDb(), getSettings()]);
   
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
-      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.settings, STORES.bookSettings],
+      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.bookSettings],
       'readonly'
     );
 
@@ -371,6 +415,7 @@ export async function exportBackup(): Promise<BackupData> {
       version: 2,
       exportedAt: Date.now(),
       appVersion: '1.0.0',
+      settings,
     };
 
     const requests = [
@@ -382,7 +427,7 @@ export async function exportBackup(): Promise<BackupData> {
     ];
 
     let completed = 0;
-    const total = requests.length + 2; // settings + content
+    const total = requests.length + 1; // content
     const complete = () => {
       completed++;
       if (completed === total) resolve(results as BackupData);
@@ -403,14 +448,6 @@ export async function exportBackup(): Promise<BackupData> {
       complete();
     }
     contentReq.onerror = () => reject(new Error(`Backup export failed: ${contentReq.error?.message ?? 'content read failed'}`));
-
-    // Settings is a single record
-    const settingsReq = tx.objectStore(STORES.settings).get('global');
-    settingsReq.onsuccess = () => {
-      results.settings = settingsReq.result;
-      complete();
-    };
-    settingsReq.onerror = () => reject(new Error(`Backup export failed: ${settingsReq.error?.message ?? 'settings read failed'}`));
 
     tx.onerror = () => reject(new Error(`Backup export failed: ${tx.error?.message ?? 'transaction failed'}`));
   });
@@ -534,7 +571,7 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
-      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.settings, STORES.bookSettings],
+      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.bookSettings],
       'readwrite'
     );
 
@@ -568,11 +605,15 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
         tx.objectStore(STORES.bookSettings).put(bookSetting);
       }
     }
-    if (backup.settings) {
-      tx.objectStore(STORES.settings).put({ ...backup.settings, id: 'global' });
-    }
-
-    tx.oncomplete = () => resolve({ booksRestored: booksToRestore.length, errors });
+    tx.oncomplete = () => {
+      if (backup.settings) {
+        saveSettings(backup.settings)
+          .then(() => resolve({ booksRestored: booksToRestore.length, errors }))
+          .catch(reject);
+        return;
+      }
+      resolve({ booksRestored: booksToRestore.length, errors });
+    };
     tx.onerror = () => reject(new Error(`Backup restore failed: ${tx.error?.message ?? 'transaction failed'}`));
     tx.onabort = () => reject(new Error(`Backup restore was rolled back: ${tx.error?.message ?? 'transaction aborted'}`));
   });
@@ -602,13 +643,19 @@ export async function requestPersistentStorage(): Promise<boolean> {
   return false;
 }
 
-/**
- * Clears the entire database. Use with caution.
- */
+/** Clears library and reading data while preserving general site preferences. */
 export async function clearDatabase(): Promise<void> {
   const db = await getDb();
   return new Promise((resolve, reject) => {
-    const storeNames = Array.from(db.objectStoreNames);
+    const storeNames: StoreName[] = [
+      STORES.books,
+      STORES.bookContent,
+      STORES.progress,
+      STORES.bookmarks,
+      STORES.annotations,
+      STORES.bookSettings,
+      STORES.covers,
+    ].filter((name) => db.objectStoreNames.contains(name));
     const tx = db.transaction(storeNames, 'readwrite');
     for (const name of storeNames) {
       tx.objectStore(name).clear();

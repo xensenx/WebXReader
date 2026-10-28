@@ -7,6 +7,7 @@ import { AlertCircle, AlertTriangle, BookOpen } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { DropZone } from '../common/DropZone';
 import { Button } from '../common/Button';
+import { DropdownSelect } from '../common/DropdownSelect';
 import { importFile, type ImportResult } from '../../features/import/import-service';
 import type { Book } from '../../types/book';
 import { useSettingsContext } from '../../app/providers/SettingsContext';
@@ -366,17 +367,18 @@ export function ImportDialog({
               </label>
               <label className={styles.optionLabel}>
                 <span>Text encoding</span>
-                <select
+                <DropdownSelect
                   className={styles.encodingSelect}
                   value={textEncoding}
-                  onChange={(event) => setTextEncoding(event.target.value)}
-                  aria-label="Text encoding"
-                >
-                  <option value="auto">Detect UTF-8 (recommended)</option>
-                  <option value="utf-8">UTF-8</option>
-                  <option value="windows-1252">Windows-1252</option>
-                  <option value="shift_jis">Shift JIS</option>
-                </select>
+                  onChange={setTextEncoding}
+                  ariaLabel="Text encoding"
+                  options={[
+                    { value: 'auto', label: 'Detect UTF-8 (recommended)' },
+                    { value: 'utf-8', label: 'UTF-8' },
+                    { value: 'windows-1252', label: 'Windows-1252' },
+                    { value: 'shift_jis', label: 'Shift JIS' },
+                  ]}
+                />
               </label>
             </div>
 

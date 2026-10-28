@@ -2,7 +2,7 @@
  * ReaderSettings sliding drawer for live customization of typography, themes, and reading modes.
  */
 
-import { useEffect, useRef, type ChangeEvent } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   X,
   AlignLeft,
@@ -19,6 +19,7 @@ import type {
   ReaderSettingsUpdate,
 } from '../../hooks/useReaderSettings';
 import { Button } from '../common/Button';
+import { DropdownSelect } from '../common/DropdownSelect';
 import styles from './ReaderSettings.module.css';
 
 interface ReaderSettingsProps {
@@ -179,20 +180,13 @@ export function ReaderSettings({
           {/* Font Family */}
           <div className={styles.section}>
             <span className={styles.sectionTitle}>Font Family</span>
-            <select
+            <DropdownSelect
               className={styles.select}
               value={settings.fontFamily}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                onUpdate({ fontFamily: e.target.value })
-              }
-              aria-label="Font Family"
-            >
-              {FONT_OPTIONS.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => onUpdate({ fontFamily: value })}
+              ariaLabel="Font Family"
+              options={FONT_OPTIONS}
+            />
           </div>
 
           {/* Font Size */}

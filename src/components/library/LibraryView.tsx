@@ -11,6 +11,9 @@ import {
   BookX,
   SearchX,
   ArrowRight,
+  Archive,
+  CheckCircle,
+  Trash2,
 } from 'lucide-react';
 import { useBooks } from '../../hooks/useBooks';
 import { useSettingsContext } from '../../app/providers/SettingsContext';
@@ -19,8 +22,6 @@ import { downloadOriginalBook } from '../../features/export/backup-service';
 import type {
   Book,
   LibraryFilter,
-  SortField,
-  SortDirection,
 } from '../../types/book';
 
 import { BookCard } from './BookCard';
@@ -36,23 +37,27 @@ import styles from './LibraryView.module.css';
 
 export function LibraryView() {
   const navigate = useNavigate();
-  const { books, loading, refreshBooks, removeBook, toggleFavorite, updateReadingStatus, toggleArchive } = useBooks();
+  const { books, loading, refreshBooks, removeBook, removeBooks, toggleFavorite, updateReadingStatus, toggleArchive } = useBooks();
   const { settings, updateSettings } = useSettingsContext();
 
   // Search, filter, and sort state
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<LibraryFilter>('all');
-  const [sortField, setSortField] = useState<SortField>('lastOpenedAt');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedBookIds, setSelectedBookIds] = useState<Set<string>>(() => new Set());
 
   // Dialog states
   const [importOpen, setImportOpen] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState<File[] | null>(null);
   const [detailsBook, setDetailsBook] = useState<Book | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Book | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   // Global drag-and-drop overlay
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+
+  const sortField = settings.librarySortField;
+  const sortDirection = settings.librarySortDirection;
 
   // Layout preference
   const layout = settings.libraryLayout || 'grid';
@@ -130,6 +135,63 @@ export function LibraryView() {
 
     return result;
   }, [books, filter, searchQuery, sortField, sortDirection]);
+
+  const selectedBooks = useMemo(
+    () => books.filter((book) => selectedBookIds.has(book.id)),
+    [books, selectedBookIds]
+  );
+  const allVisibleBooksSelected = filteredBooks.length > 0 &&
+    filteredBooks.every((book) => selectedBookIds.has(book.id));
+
+  const toggleSelectionMode = () => {
+    const nextMode = !selectionMode;
+    setSelectionMode(nextMode);
+    if (!nextMode) clearSelection();
+  };
+
+  const toggleBookSelection = (id: string) => {
+    setSelectedBookIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleVisibleSelection = () => {
+    setSelectedBookIds((previous) => {
+      const next = new Set(previous);
+      if (allVisibleBooksSelected) filteredBooks.forEach((book) => next.delete(book.id));
+      else filteredBooks.forEach((book) => next.add(book.id));
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedBookIds(new Set());
+
+  const updateSelectedBooks = async (changes: Partial<Pick<Book, 'archived' | 'readingStatus'>>) => {
+    try {
+      const updatedAt = Date.now();
+      for (const book of selectedBooks) {
+        const { readingProgress: _readingProgress, ...storedBook } = book;
+        await updateBook({ ...storedBook, ...changes, updatedAt });
+      }
+      clearSelection();
+      await refreshBooks();
+    } catch (err) {
+      await refreshBooks();
+      alert(`Could not update selected books: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    try {
+      await removeBooks(selectedBooks.map((book) => book.id));
+      clearSelection();
+    } catch (err) {
+      alert(`Could not delete selected books: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   // Book action handlers
   const handleOpenBook = (id: string) => {
@@ -275,18 +337,71 @@ export function LibraryView() {
           filter={filter}
           onFilterChange={setFilter}
           sortField={sortField}
-          onSortFieldChange={setSortField}
+          onSortFieldChange={(field) => updateSettings({ librarySortField: field })}
           sortDirection={sortDirection}
           onToggleSortDirection={() =>
-            setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+            updateSettings({ librarySortDirection: sortDirection === 'asc' ? 'desc' : 'asc' })
           }
           layout={layout}
           onLayoutChange={handleLayoutChange}
+          selectionMode={selectionMode}
+          onToggleSelectionMode={toggleSelectionMode}
           onImportClick={() => {
             setDroppedFiles(null);
             setImportOpen(true);
           }}
         />
+
+        {selectionMode && (
+          <div className={styles.selectionToolbar} role="toolbar" aria-label="Selected book actions">
+            <div className={styles.selectionSummary} aria-live="polite">
+              <strong>{selectedBooks.length}</strong>
+              <span>{selectedBooks.length === 1 ? 'book selected' : 'books selected'}</span>
+            </div>
+            <div className={styles.selectionActions}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={toggleVisibleSelection}
+                disabled={filteredBooks.length === 0}
+              >
+                {allVisibleBooksSelected ? 'Deselect visible' : 'Select visible'}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Archive size={14} />}
+                onClick={() => updateSelectedBooks({ archived: !selectedBooks.every((book) => book.archived) })}
+                disabled={selectedBooks.length === 0}
+              >
+                {selectedBooks.length > 0 && selectedBooks.every((book) => book.archived) ? 'Unarchive' : 'Archive'}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<CheckCircle size={14} />}
+                onClick={() => updateSelectedBooks({
+                  readingStatus: selectedBooks.every((book) => book.readingStatus === 'completed') ? 'unread' : 'completed',
+                })}
+                disabled={selectedBooks.length === 0}
+              >
+                {selectedBooks.length > 0 && selectedBooks.every((book) => book.readingStatus === 'completed') ? 'Mark unread' : 'Mark completed'}
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                icon={<Trash2 size={14} />}
+                onClick={() => setBulkDeleteOpen(true)}
+                disabled={selectedBooks.length === 0}
+              >
+                Delete
+              </Button>
+              <Button size="sm" variant="ghost" onClick={clearSelection} disabled={selectedBooks.length === 0}>
+                Clear
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Books Content / Empty States */}
         {!loading && books.length === 0 && (
@@ -344,6 +459,9 @@ export function LibraryView() {
                     onToggleArchive={toggleArchive}
                     onExport={handleExportBook}
                     onDelete={(b) => setDeleteTarget(b)}
+                    selectionMode={selectionMode}
+                    selected={selectedBookIds.has(book.id)}
+                    onToggleSelection={toggleBookSelection}
                   />
                 ))}
               </div>
@@ -361,6 +479,9 @@ export function LibraryView() {
                     onToggleArchive={toggleArchive}
                     onExport={handleExportBook}
                     onDelete={(b) => setDeleteTarget(b)}
+                    selectionMode={selectionMode}
+                    selected={selectedBookIds.has(book.id)}
+                    onToggleSelection={toggleBookSelection}
                   />
                 ))}
               </div>
@@ -411,6 +532,16 @@ export function LibraryView() {
         onConfirm={handleDeleteConfirm}
         title="Delete Book"
         message={`Are you sure you want to delete "${deleteTarget?.title}"? All associated reading progress, bookmarks, and annotations will be permanently deleted from this device.`}
+        confirmLabel="Delete Permanently"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleDeleteSelected}
+        title={`Delete ${selectedBooks.length} ${selectedBooks.length === 1 ? 'book' : 'books'}?`}
+        message={`This will permanently delete ${selectedBooks.length === 1 ? 'this book' : 'these books'} and all associated reading progress, bookmarks, and annotations from this device.`}
         confirmLabel="Delete Permanently"
         variant="danger"
       />
