@@ -97,6 +97,7 @@ export function BookCard({
   const progressPercent = progress === undefined
     ? book.readingStatus === 'completed' ? 100 : book.readingStatus === 'unread' ? 0 : null
     : Math.round(Math.min(1, Math.max(0, progress)) * 100);
+  const isCompleted = book.readingStatus === 'completed';
 
   return (
     <div
@@ -214,7 +215,7 @@ export function BookCard({
             type="button"
           >
             <Info size={14} />
-            <span>Details</span>
+            <span>Edit Details</span>
           </button>
 
           <button
@@ -237,7 +238,7 @@ export function BookCard({
               handleAction(e, () =>
                 onUpdateStatus(
                   book.id,
-                  book.readingStatus === 'completed' ? 'unread' : 'completed'
+                  isCompleted ? 'unread' : 'completed'
                 )
               )
             }
@@ -246,7 +247,7 @@ export function BookCard({
           >
             <CheckCircle size={14} />
             <span>
-              {book.readingStatus === 'completed'
+              {isCompleted
                 ? 'Mark as Unread'
                 : 'Mark as Completed'}
             </span>

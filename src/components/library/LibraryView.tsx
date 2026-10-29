@@ -13,11 +13,12 @@ import {
   ArrowRight,
   Archive,
   CheckCircle,
+  Circle,
   Trash2,
 } from 'lucide-react';
 import { useBooks } from '../../hooks/useBooks';
 import { useSettingsContext } from '../../app/providers/SettingsContext';
-import { updateBook } from '../../core/storage/database';
+import { updateBook, updateBookAndCover } from '../../core/storage/database';
 import { downloadOriginalBook } from '../../features/export/backup-service';
 import type {
   Book,
@@ -169,14 +170,17 @@ export function LibraryView() {
 
   const clearSelection = () => setSelectedBookIds(new Set());
 
-  const updateSelectedBooks = async (changes: Partial<Pick<Book, 'archived' | 'readingStatus'>>) => {
+  const updateSelectedBooks = async (
+    changes: Partial<Pick<Book, 'archived' | 'readingStatus'>>,
+    clearAfterUpdate = true,
+  ) => {
     try {
       const updatedAt = Date.now();
       for (const book of selectedBooks) {
         const { readingProgress: _readingProgress, ...storedBook } = book;
         await updateBook({ ...storedBook, ...changes, updatedAt });
       }
-      clearSelection();
+      if (clearAfterUpdate) clearSelection();
       await refreshBooks();
     } catch (err) {
       await refreshBooks();
@@ -205,7 +209,7 @@ export function LibraryView() {
   const handleSaveBookDetails = async (updated: Book) => {
     const storedBook = { ...updated } as Book & { readingProgress?: number };
     delete storedBook.readingProgress;
-    await updateBook(storedBook);
+    await updateBookAndCover(storedBook, storedBook.coverImage);
     await refreshBooks();
   };
 
@@ -380,12 +384,19 @@ export function LibraryView() {
                 size="sm"
                 variant="secondary"
                 icon={<CheckCircle size={14} />}
-                onClick={() => updateSelectedBooks({
-                  readingStatus: selectedBooks.every((book) => book.readingStatus === 'completed') ? 'unread' : 'completed',
-                })}
-                disabled={selectedBooks.length === 0}
+                onClick={() => updateSelectedBooks({ readingStatus: 'completed' }, false)}
+                disabled={!selectedBooks.some((book) => book.readingStatus !== 'completed')}
               >
-                {selectedBooks.length > 0 && selectedBooks.every((book) => book.readingStatus === 'completed') ? 'Mark unread' : 'Mark completed'}
+                Mark completed
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Circle size={14} />}
+                onClick={() => updateSelectedBooks({ readingStatus: 'unread' }, false)}
+                disabled={!selectedBooks.some((book) => book.readingStatus !== 'unread')}
+              >
+                Mark unread
               </Button>
               <Button
                 size="sm"

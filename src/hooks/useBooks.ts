@@ -122,6 +122,11 @@ export function useBooks(): UseBooksResult {
         readingStatus: status,
         updatedAt: Date.now(),
       };
+      setBooks((currentBooks) => currentBooks.map((currentBook) =>
+        currentBook.id === id
+          ? { ...currentBook, readingStatus: status, readingProgress: status === 'completed' ? 1 : currentBook.readingProgress }
+          : currentBook
+      ));
       await updateBook(updated);
       await refreshBooks();
     } catch (err) {

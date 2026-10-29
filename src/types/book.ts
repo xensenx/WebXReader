@@ -100,6 +100,8 @@ export interface Book {
   updatedAt: number;
   /** Cover image blob key or data URL */
   coverImage?: string;
+  /** Cover image captured at import, preserved as the reset target for user-edited covers. */
+  originalCoverImage?: string | null;
   /** User-assigned tags */
   userTags: string[];
   /** User rating (1-5 or null) */

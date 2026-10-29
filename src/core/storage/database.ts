@@ -209,6 +209,23 @@ export async function updateBook(book: Book): Promise<void> {
   await withTransaction(STORES.books, 'readwrite', (store) => store.put(book));
 }
 
+/** Persist edited book metadata and its cover together so cleared covers do not reappear. */
+export async function updateBookAndCover(book: Book, coverData?: string): Promise<void> {
+  const db = await getDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORES.books, STORES.covers], 'readwrite');
+    tx.objectStore(STORES.books).put(book);
+    if (coverData) {
+      tx.objectStore(STORES.covers).put({ bookId: book.id, data: coverData });
+    } else {
+      tx.objectStore(STORES.covers).delete(book.id);
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(new Error(`Failed to save book details: ${tx.error?.message ?? 'transaction failed'}`));
+    tx.onabort = () => reject(new Error(`Book details were not saved: ${tx.error?.message ?? 'transaction aborted'}`));
+  });
+}
+
 /** Persist a book, its content, and optional cover in one transaction. */
 export async function saveBookBundle(
   book: Book,
