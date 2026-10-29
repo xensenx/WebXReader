@@ -51,7 +51,7 @@ export function InformationPage({ kind }: InformationPageProps) {
 function AboutWebXReader() {
   const mirrors = [
     { label: 'Primary', href: 'https://webxreader.web.app/', host: 'webxreader.web.app' },
-    { label: 'Mirror one', href: 'https://webxreader.pages.dev/#/about', host: 'webxreader.pages.dev' },
+    { label: 'Mirror one', href: 'https://webxreader.pages.dev/', host: 'webxreader.pages.dev' },
     { label: 'Mirror two', href: 'https://webxreader.vercel.app/', host: 'webxreader.vercel.app' },
     { label: 'Mirror three', href: 'https://webxreader.netlify.app/', host: 'webxreader.netlify.app' },
   ];
