@@ -21,6 +21,20 @@
   background-color: var(--color-accent-light);
 }
 
+.row[draggable='true'] {
+  cursor: grab;
+}
+
+.row[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.rowDragging {
+  opacity: 0.35;
+  border: 2px dashed var(--color-accent);
+  background-color: var(--color-accent-light);
+}
+
 .selectionIndicator {
   width: 22px;
   height: 22px;

@@ -68,8 +68,19 @@ export function LibraryView() {
   // Global drag-and-drop overlay
   const [isDraggingOver, setIsDraggingOver] = useState(false);
 
-  const sortField = settings.librarySortField;
+  const sortField = settings.librarySortField === 'lastOpenedAt' ? 'custom' : settings.librarySortField;
   const sortDirection = settings.librarySortDirection;
+
+  // Custom book ordering state for drag-and-drop
+  const [customOrder, setCustomOrder] = useState<string[]>(() => settings.customBookOrder ?? []);
+  const [draggingBookId, setDraggingBookId] = useState<string | null>(null);
+  const draggedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (settings.customBookOrder && settings.customBookOrder.length > 0) {
+      setCustomOrder(settings.customBookOrder);
+    }
+  }, [settings.customBookOrder]);
 
   // Layout preference
   const layout = settings.libraryLayout || 'grid';
@@ -126,28 +137,35 @@ export function LibraryView() {
     }
 
     // Sorting
-    result.sort((a, b) => {
-      let comparison = 0;
-      switch (sortField) {
-        case 'title':
-          comparison = a.title.localeCompare(b.title);
-          break;
-        case 'author':
-          comparison = (a.author || '').localeCompare(b.author || '');
-          break;
-        case 'importedAt':
-          comparison = a.importedAt - b.importedAt;
-          break;
-        case 'lastOpenedAt':
-        default:
-          comparison = (a.lastOpenedAt ?? 0) - (b.lastOpenedAt ?? 0);
-          break;
-      }
-      return sortDirection === 'asc' ? comparison : -comparison;
-    });
+    if (sortField === 'custom') {
+      const orderMap = new Map(customOrder.map((id, index) => [id, index]));
+      result.sort((a, b) => {
+        const orderA = orderMap.has(a.id) ? orderMap.get(a.id)! : 999999;
+        const orderB = orderMap.has(b.id) ? orderMap.get(b.id)! : 999999;
+        if (orderA !== orderB) return orderA - orderB;
+        return b.importedAt - a.importedAt;
+      });
+    } else {
+      result.sort((a, b) => {
+        let comparison = 0;
+        switch (sortField) {
+          case 'title':
+            comparison = a.title.localeCompare(b.title);
+            break;
+          case 'author':
+            comparison = (a.author || '').localeCompare(b.author || '');
+            break;
+          case 'importedAt':
+          default:
+            comparison = a.importedAt - b.importedAt;
+            break;
+        }
+        return sortDirection === 'asc' ? comparison : -comparison;
+      });
+    }
 
     return result;
-  }, [books, filter, searchQuery, sortField, sortDirection]);
+  }, [books, filter, searchQuery, sortField, sortDirection, customOrder]);
 
   const selectedBooks = useMemo(
     () => books.filter((book) => selectedBookIds.has(book.id)),
@@ -317,6 +335,73 @@ export function LibraryView() {
     saveLibraryViewState({ filter: newFilter, scrollY: 0, lastOpenedBookId: null });
   };
 
+  // Custom drag-and-drop book reordering handlers
+  const handleBookDragStart = (id: string, e: DragEvent<HTMLDivElement>) => {
+    draggedIdRef.current = id;
+    setDraggingBookId(id);
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.setData('application/x-webxreader-book', id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleBookDragOver = (targetId: string, e: DragEvent<HTMLDivElement>) => {
+    if (!draggedIdRef.current || draggedIdRef.current === targetId) return;
+    if (e.dataTransfer.types.includes('Files') && !e.dataTransfer.types.includes('application/x-webxreader-book')) {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+
+    if (sortField !== 'custom') {
+      updateSettings({ librarySortField: 'custom' });
+    }
+
+    setCustomOrder((prevOrder) => {
+      const sourceId = draggedIdRef.current;
+      if (!sourceId) return prevOrder;
+
+      const allVisibleIds = filteredBooks.map((b) => b.id);
+      let baseOrder = prevOrder.filter((id) => allVisibleIds.includes(id));
+      for (const id of allVisibleIds) {
+        if (!baseOrder.includes(id)) {
+          baseOrder.push(id);
+        }
+      }
+
+      const fromIdx = baseOrder.indexOf(sourceId);
+      const toIdx = baseOrder.indexOf(targetId);
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prevOrder;
+
+      const next = [...baseOrder];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  };
+
+  const handleBookDragEnd = () => {
+    const sourceId = draggedIdRef.current;
+    draggedIdRef.current = null;
+    setDraggingBookId(null);
+
+    if (sourceId) {
+      updateSettings({
+        librarySortField: 'custom',
+        customBookOrder: customOrder,
+      });
+    }
+  };
+
+  const handleBookDrop = (_targetId: string, e: DragEvent<HTMLDivElement>) => {
+    if (e.dataTransfer.types.includes('application/x-webxreader-book')) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleBookDragEnd();
+    }
+  };
+
   // Book action handlers
   const handleOpenBook = (id: string) => {
     isNavigatingRef.current = true;
@@ -370,7 +455,7 @@ export function LibraryView() {
   // Drag and drop events on entire window/main
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
-    if (e.dataTransfer.types.includes('Files')) {
+    if (e.dataTransfer.types.includes('Files') && !e.dataTransfer.types.includes('application/x-webxreader-book')) {
       setIsDraggingOver(true);
     }
   };
@@ -612,6 +697,12 @@ export function LibraryView() {
                     selectionMode={selectionMode}
                     selected={selectedBookIds.has(book.id)}
                     onToggleSelection={toggleBookSelection}
+                    draggable={!selectionMode}
+                    isDragging={draggingBookId === book.id}
+                    onDragStart={(e) => handleBookDragStart(book.id, e)}
+                    onDragOver={(e) => handleBookDragOver(book.id, e)}
+                    onDrop={(e) => handleBookDrop(book.id, e)}
+                    onDragEnd={handleBookDragEnd}
                   />
                 ))}
               </div>
@@ -632,6 +723,12 @@ export function LibraryView() {
                     selectionMode={selectionMode}
                     selected={selectedBookIds.has(book.id)}
                     onToggleSelection={toggleBookSelection}
+                    draggable={!selectionMode}
+                    isDragging={draggingBookId === book.id}
+                    onDragStart={(e) => handleBookDragStart(book.id, e)}
+                    onDragOver={(e) => handleBookDragOver(book.id, e)}
+                    onDrop={(e) => handleBookDrop(book.id, e)}
+                    onDragEnd={handleBookDragEnd}
                   />
                 ))}
               </div>

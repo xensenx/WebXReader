@@ -46,7 +46,7 @@ const FILTERS: { id: LibraryFilter; label: string }[] = [
 ];
 
 const SORT_OPTIONS = [
-  { value: 'lastOpenedAt', label: 'Recently Read' },
+  { value: 'custom', label: 'Custom Order' },
   { value: 'importedAt', label: 'Recently Added' },
   { value: 'title', label: 'Title' },
   { value: 'author', label: 'Author' },
@@ -128,8 +128,9 @@ export function LibraryToolbar({
           <button
             className={styles.iconBtn}
             onClick={onToggleSortDirection}
-            title={`Sort ${sortDirection === 'asc' ? 'Descending' : 'Ascending'}`}
-            aria-label={`Sort ${sortDirection === 'asc' ? 'Descending' : 'Ascending'}`}
+            disabled={sortField === 'custom'}
+            title={sortField === 'custom' ? 'Sort direction fixed in Custom Order' : `Sort ${sortDirection === 'asc' ? 'Descending' : 'Ascending'}`}
+            aria-label={sortField === 'custom' ? 'Sort direction fixed in Custom Order' : `Sort ${sortDirection === 'asc' ? 'Descending' : 'Ascending'}`}
             type="button"
           >
             <ArrowDownUp size={14} />

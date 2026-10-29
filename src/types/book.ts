@@ -22,7 +22,7 @@ export type TextAlignment = 'left' | 'center' | 'right' | 'justify';
 export type LibraryLayout = 'grid' | 'list';
 
 /** Sort field for library */
-export type SortField = 'title' | 'author' | 'importedAt' | 'lastOpenedAt' | 'progress';
+export type SortField = 'custom' | 'title' | 'author' | 'importedAt' | 'lastOpenedAt' | 'progress';
 
 /** Sort direction */
 export type SortDirection = 'asc' | 'desc';
@@ -285,6 +285,8 @@ export interface UserSettings {
   librarySortField: SortField;
   /** Library sort direction preference */
   librarySortDirection: SortDirection;
+  /** Custom persistent order of book IDs */
+  customBookOrder?: string[];
   /** Auto-detect chapters for TXT */
   autoDetectChapters: boolean;
   /** Import size warning threshold in MB */
@@ -371,6 +373,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   libraryLayout: 'grid',
   librarySortField: 'importedAt',
   librarySortDirection: 'desc',
+  customBookOrder: [],
   autoDetectChapters: true,
   importSizeWarningMB: 50,
   updatedAt: Date.now(),

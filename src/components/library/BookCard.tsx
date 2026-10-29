@@ -32,6 +32,12 @@ interface BookCardProps {
   selectionMode: boolean;
   selected: boolean;
   onToggleSelection: (id: string) => void;
+  draggable?: boolean;
+  isDragging?: boolean;
+  onDragStart?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragEnd?: (e: React.DragEvent<HTMLDivElement>) => void;
 }
 
 export function BookCard({
@@ -47,6 +53,12 @@ export function BookCard({
   selectionMode,
   selected,
   onToggleSelection,
+  draggable,
+  isDragging,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: BookCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -101,8 +113,13 @@ export function BookCard({
 
   return (
     <div
-      className={`${styles.card} ${selected ? styles.cardSelected : ''}`}
+      className={`${styles.card} ${selected ? styles.cardSelected : ''} ${isDragging ? styles.cardDragging : ''}`}
       data-book-id={book.id}
+      draggable={!selectionMode && draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       onClick={handleCardClick}
       role={selectionMode ? 'checkbox' : 'button'}
       tabIndex={0}
