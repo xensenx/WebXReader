@@ -16,3 +16,7 @@ WebXReader is a local-first reading application designed to help you organize, m
 
 > [!NOTE]
 > This Project is under active development, the first stable deployment of this project is published [here](https://webxreader.pages.dev/#/)
+
+## Hosting deployments
+
+Cloudflare Pages remains the primary deployment. Firebase Hosting is configured as a secondary mirror at [webxreader.web.app](https://webxreader.web.app), with production deployments from `main`. See [the Firebase Hosting deployment guide](docs/firebase-hosting.md) for setup and rollback details.
