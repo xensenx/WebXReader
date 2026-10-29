@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "xensenx"
+  },
+  "targets": {
+    "xensenx": {
+      "hosting": {
+        "webxreader": [
+          "webxreader"
+        ]
+      }
+    }
+  }
+}
