@@ -8,11 +8,11 @@ The `Deploy Firebase Hosting mirror` GitHub Actions workflow runs only when code
 
 The app uses React Router's `HashRouter`, so application routes live after `#` and are handled by the client. Firebase does not need a catch-all rewrite; normal static-file requests continue to resolve directly.
 
-## One-time GitHub authorization
+## GitHub authentication
 
-The repository needs an Actions secret named `FIREBASE_SERVICE_ACCOUNT`. Create a dedicated service account in Google Cloud project `xensenx` with the **Firebase Hosting Admin** (`roles/firebasehosting.admin`) and **API Keys Viewer** (`roles/serviceusage.apiKeysViewer`) roles, create a JSON key for it, then add the complete JSON value under GitHub repository **Settings > Secrets and variables > Actions > New repository secret** with that exact name. Keep the downloaded key outside the repository and do not commit it.
+The workflow uses [Google's GitHub Actions auth action](https://github.com/google-github-actions/auth) with Workload Identity Federation (WIF) to impersonate the existing service account. It uses provider `projects/1000429566837/locations/global/workloadIdentityPools/github-actions/providers/github` and service account `firebase-hosting-deployer@xensenx.iam.gserviceaccount.com`. The Google Cloud pool, provider, repository/ref attribute condition, and service-account `roles/iam.workloadIdentityUser` binding are provisioned separately in project `xensenx`.
 
-Firebase's [GitHub Actions setup guide](https://firebase.google.com/docs/hosting/github-integration) can also create the service account and repository secret through `firebase init hosting:github`. If using that wizard, keep this repository's checked-in production workflow as the only live deploy workflow; the wizard may also generate its own workflow files.
+The workflow grants `contents: read` and `id-token: write`. GitHub Actions must be enabled for the repository and allowed to request OIDC tokens. No repository secret or variable is required; in particular, do not add a service-account JSON key. The auth action creates short-lived Application Default Credentials for the Firebase CLI, which deploys only `hosting:webxreader` to project `xensenx`.
 
 ## Rollback
 

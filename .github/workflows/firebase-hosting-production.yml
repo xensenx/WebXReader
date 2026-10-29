@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: firebase-hosting-production
@@ -31,10 +32,17 @@ jobs:
       - name: Build production site
         run: npm run build
 
-      - name: Deploy existing Firebase Hosting site
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        uses: google-github-actions/auth@v3
         with:
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: xensenx
-          target: webxreader
-          channelId: live
+          project_id: xensenx
+          workload_identity_provider: projects/1000429566837/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: firebase-hosting-deployer@xensenx.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Deploy existing Firebase Hosting site
+        run: firebase deploy --only hosting:webxreader --project xensenx --non-interactive
