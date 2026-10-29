@@ -12,6 +12,7 @@ interface UseSettingsResult {
   settings: UserSettings;
   loading: boolean;
   updateSettings: (partial: Partial<UserSettings>) => Promise<void>;
+  resetSettings: () => Promise<void>;
 }
 
 function getSystemTheme(): ThemeName {
@@ -88,6 +89,25 @@ export function useSettings(): UseSettingsResult {
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
+  const resetSettings = useCallback(async () => {
+    settingsChangedRef.current = true;
+    const systemTheme = getSystemTheme();
+    const initial: UserSettings = {
+      ...DEFAULT_SETTINGS,
+      theme: systemTheme,
+      updatedAt: Date.now(),
+    };
+    settingsRef.current = initial;
+    setSettings(initial);
+    applyTheme(systemTheme);
+
+    try {
+      await saveSettings(initial);
+    } catch (err) {
+      console.error('Failed to reset settings:', err);
+    }
+  }, []);
+
   const updateSettings = useCallback(async (partial: Partial<UserSettings>) => {
     settingsChangedRef.current = true;
     const merged: UserSettings = {
@@ -111,5 +131,6 @@ export function useSettings(): UseSettingsResult {
     settings,
     loading,
     updateSettings,
+    resetSettings,
   };
 }

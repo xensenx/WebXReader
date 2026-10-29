@@ -12,6 +12,7 @@ import {
   Download,
   Upload,
   Trash2,
+  RotateCcw,
   ShieldCheck,
   Globe2,
   ExternalLink,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import { useSettingsContext } from '../../app/providers/SettingsContext';
+import { clearLibraryViewState } from '../../features/library/library-state';
 import {
   getStorageEstimate,
   getSettings,
@@ -64,12 +66,13 @@ function GitHubIcon() {
 
 export function SettingsView() {
   const navigate = useNavigate();
-  const { settings, updateSettings } = useSettingsContext();
+  const { settings, updateSettings, resetSettings } = useSettingsContext();
 
   const [storageInfo, setStorageInfo] = useState<{ usage: number; quota: number } | null>(null);
   const [storageCheckComplete, setStorageCheckComplete] = useState(false);
   const [persistent, setPersistent] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -152,6 +155,16 @@ export function SettingsView() {
       alert(`Restore failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleResetSettings = async () => {
+    try {
+      await resetSettings();
+      clearLibraryViewState();
+      setResetConfirmOpen(false);
+    } catch (err) {
+      alert(`Failed to reset site preferences: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -441,6 +454,27 @@ export function SettingsView() {
               </Button>
             </div>
           </div>
+
+          <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
+            <div className={styles.row}>
+              <div className={styles.rowCol}>
+                <span className={styles.rowLabel} style={{ color: 'var(--color-danger)' }}>
+                  Reset Site Preferences
+                </span>
+                <span className={styles.rowDesc}>
+                  Restore all site appearance, typography, layout, custom book arrangement, and reader preferences back to factory defaults. Your library books, bookmarks, and reading progress remain intact.
+                </span>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<RotateCcw size={15} />}
+                onClick={() => setResetConfirmOpen(true)}
+              >
+                Reset Preferences
+              </Button>
+            </div>
+          </div>
         </div>
 
         {/* Support and Contact */}
@@ -551,6 +585,17 @@ export function SettingsView() {
         </div>
 
       </main>
+
+      {/* Reset Preferences Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={resetConfirmOpen}
+        onClose={() => setResetConfirmOpen(false)}
+        onConfirm={handleResetSettings}
+        title="Reset Site Preferences?"
+        message="This restores all appearance, typography, reading defaults, and custom shelf arrangements back to initial settings. Your imported books, bookmarks, and reading progress will NOT be touched."
+        confirmLabel="Reset Preferences"
+        variant="danger"
+      />
 
       {/* Clear Database Confirmation Dialog */}
       <ConfirmDialog

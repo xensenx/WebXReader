@@ -407,6 +407,15 @@ export async function saveSettings(settings: UserSettings): Promise<void> {
   }
 }
 
+export async function clearSettings(): Promise<void> {
+  try {
+    localStorage.removeItem(SETTINGS_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+  await withTransaction(STORES.settings, 'readwrite', (store) => store.clear());
+}
+
 export async function getBookSettings(bookId: string): Promise<BookSettings | undefined> {
   return withTransaction<BookSettings | undefined>(STORES.bookSettings, 'readonly', (store) => store.get(bookId));
 }
