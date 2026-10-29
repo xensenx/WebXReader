@@ -10,7 +10,7 @@ The app uses React Router's `HashRouter`, so application routes live after `#` a
 
 ## One-time GitHub authorization
 
-The repository needs an Actions secret named `FIREBASE_SERVICE_ACCOUNT`. Create a dedicated service account in Google Cloud project `xensenx` with the **Firebase Hosting Admin** role, create a JSON key for it, then add the complete JSON value under GitHub repository **Settings > Secrets and variables > Actions > New repository secret** with that exact name. Keep the downloaded key outside the repository and do not commit it.
+The repository needs an Actions secret named `FIREBASE_SERVICE_ACCOUNT`. Create a dedicated service account in Google Cloud project `xensenx` with the **Firebase Hosting Admin** (`roles/firebasehosting.admin`) and **API Keys Viewer** (`roles/serviceusage.apiKeysViewer`) roles, create a JSON key for it, then add the complete JSON value under GitHub repository **Settings > Secrets and variables > Actions > New repository secret** with that exact name. Keep the downloaded key outside the repository and do not commit it.
 
 Firebase's [GitHub Actions setup guide](https://firebase.google.com/docs/hosting/github-integration) can also create the service account and repository secret through `firebase init hosting:github`. If using that wizard, keep this repository's checked-in production workflow as the only live deploy workflow; the wizard may also generate its own workflow files.
 
