@@ -680,9 +680,11 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   }, [currentPage, isContinuous, totalPages]);
 
   const handleScroll = useCallback(() => {
+    if (previewTransformRef.current !== null) return;
     if (scrollFrameRef.current !== null) return;
     scrollFrameRef.current = requestAnimationFrame(() => {
       scrollFrameRef.current = null;
+      if (previewTransformRef.current !== null) return;
       reportScrollPosition();
     });
   }, [reportScrollPosition]);

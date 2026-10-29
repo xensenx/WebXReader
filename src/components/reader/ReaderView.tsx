@@ -537,23 +537,27 @@ export function ReaderView() {
     setHeaderVisible((p) => !p);
   }, []);
 
-  // Prevent browser zoom inside the reading surface and route the gesture to
-  // the reader. The explicit non-passive listener is required for this.
+  // Prevent browser zoom and native scrolling inside the reading surface during Ctrl+wheel
+  // and route the gesture cleanly to the reader zoom controller.
   useEffect(() => {
     const stage = readerStageRef.current;
     if (!stage) return;
 
     const handleNativeWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
+      const target = event.target as Node | null;
+      if (!stage.contains(target)) return;
+
       event.preventDefault();
+      event.stopPropagation();
       queueWheelZoom(getWheelDeltaPixels(event, stage.querySelector<HTMLElement>('[data-reader-viewport]')), {
         x: event.clientX,
         y: event.clientY,
       });
     };
 
-    stage.addEventListener('wheel', handleNativeWheel, { passive: false });
-    return () => stage.removeEventListener('wheel', handleNativeWheel);
+    window.addEventListener('wheel', handleNativeWheel, { capture: true, passive: false });
+    return () => window.removeEventListener('wheel', handleNativeWheel, true);
   }, [loading, queueWheelZoom]);
 
   useEffect(() => {
