@@ -92,7 +92,7 @@ function AboutWebXReader() {
           <p>
             Your imported books, reading progress, bookmarks, annotations, and preferences are kept
             in this browser. WebXReader has no account system or cloud library. It supports TXT,
-            Markdown, HTML, EPUB, and PDF books, with reading layouts and typography you can adjust.
+            Markdown, HTML, EPUB, PDF, and CBZ comic books, with reading layouts and typography you can adjust.
           </p>
         </section>
 

@@ -198,7 +198,7 @@ export function ImportDialog({
           ? 'Import Results'
           : duplicateBook
           ? 'Duplicate Book Detected'
-          : 'Import Novel'
+          : 'Import Book or Comic'
       }
       size="md"
     >
@@ -322,7 +322,9 @@ export function ImportDialog({
                 </p>
                 <p className={styles.successChapters}>
                   {importedBook.totalChapters}{' '}
-                  {importedBook.totalChapters === 1 ? 'chapter' : 'chapters'} •{' '}
+                  {importedBook.sourceFormat === 'cbz'
+                    ? importedBook.totalChapters === 1 ? 'page' : 'pages'
+                    : importedBook.totalChapters === 1 ? 'chapter' : 'chapters'} •{' '}
                   {importedBook.sourceFormat.toUpperCase()}
                 </p>
               </div>

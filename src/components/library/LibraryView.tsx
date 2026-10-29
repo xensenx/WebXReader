@@ -109,7 +109,8 @@ export function LibraryView() {
           b.title.toLowerCase().includes(q) ||
           b.author.toLowerCase().includes(q) ||
           (b.userTags && b.userTags.some((t) => t.toLowerCase().includes(q))) ||
-          (b.originalFilename && b.originalFilename.toLowerCase().includes(q))
+          (b.originalFilename && b.originalFilename.toLowerCase().includes(q)) ||
+          b.sourceFormat.toLowerCase().includes(q)
       );
     }
 
@@ -419,9 +420,9 @@ export function LibraryView() {
           <EmptyState
             icon={BookOpen}
             title="Your Library is Empty"
-            description="Import a web novel in EPUB, PDF, TXT, Markdown, or HTML format to get started. All books stay safely on your device."
+            description="Import a book or comic in EPUB, PDF, CBZ, TXT, Markdown, or HTML format to get started. All books stay safely on your device."
             action={{
-              label: 'Import First Novel',
+              label: 'Import First Book',
               onClick: () => {
                 setDroppedFiles(null);
                 setImportOpen(true);
@@ -506,7 +507,7 @@ export function LibraryView() {
         <div className={styles.dragOverlay}>
           <div className={styles.dragCard}>
             <Upload size={48} />
-            <span>Drop novel file to import</span>
+            <span>Drop book or comic file to import</span>
           </div>
         </div>
       )}

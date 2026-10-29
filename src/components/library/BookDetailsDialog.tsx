@@ -340,7 +340,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
             <span className={styles.infoValue}>{formatFileSize(book.fileSize)}</span>
           </div>
           <div className={styles.infoItem}>
-            <span>Chapters:</span>
+            <span>{book.sourceFormat === 'cbz' ? 'Pages:' : 'Chapters:'}</span>
             <span className={styles.infoValue}>{book.totalChapters}</span>
           </div>
           <div className={styles.infoItem}>

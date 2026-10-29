@@ -131,7 +131,14 @@ export function DropZone({
           <p className={styles.text}>
             Drag &amp; drop files here, or <span className={styles.link}>browse</span>
           </p>
-          <p className={styles.hint}>Supports EPUB, PDF, TXT, Markdown, HTML</p>
+          <div className={styles.formatPills} aria-label="Supported formats">
+            <span className={styles.formatPill}>EPUB</span>
+            <span className={styles.formatPill}>PDF</span>
+            <span className={styles.formatPill}>CBZ</span>
+            <span className={styles.formatPill}>TXT</span>
+            <span className={styles.formatPill}>MD</span>
+            <span className={styles.formatPill}>HTML</span>
+          </div>
         </>
       )}
     </div>
