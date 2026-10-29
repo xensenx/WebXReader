@@ -102,6 +102,7 @@ export function BookCard({
   return (
     <div
       className={`${styles.card} ${selected ? styles.cardSelected : ''}`}
+      data-book-id={book.id}
       onClick={handleCardClick}
       role={selectionMode ? 'checkbox' : 'button'}
       tabIndex={0}

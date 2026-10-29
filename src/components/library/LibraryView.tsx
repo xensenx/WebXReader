@@ -2,7 +2,12 @@
  * LibraryView component: the primary home screen of WebXReader.
  */
 
-import { useState, useMemo, type DragEvent } from 'react';
+import { useState, useMemo, useEffect, useLayoutEffect, useRef, type DragEvent } from 'react';
+import {
+  getLibraryViewState,
+  saveLibraryViewState,
+  updateLibraryScroll,
+} from '../../features/library/library-state';
 import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
@@ -41,9 +46,13 @@ export function LibraryView() {
   const { books, loading, refreshBooks, removeBook, removeBooks, toggleFavorite, updateReadingStatus, toggleArchive } = useBooks();
   const { settings, updateSettings } = useSettingsContext();
 
+  // Synchronously load saved library state (survives reader visits, format switches & page refreshes)
+  const initialSavedStateRef = useRef(getLibraryViewState());
+  const isRestoredRef = useRef(false);
+
   // Search, filter, and sort state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<LibraryFilter>('all');
+  const [searchQuery, setSearchQuery] = useState(() => initialSavedStateRef.current.searchQuery);
+  const [filter, setFilter] = useState<LibraryFilter>(() => initialSavedStateRef.current.filter);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedBookIds, setSelectedBookIds] = useState<Set<string>>(() => new Set());
 
@@ -198,8 +207,102 @@ export function LibraryView() {
     }
   };
 
+  // Prevent browser's premature scroll snapping on navigation
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+  }, []);
+
+  // Track window scroll position after restoration has completed
+  useEffect(() => {
+    let ticking = false;
+    const onScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          if (isRestoredRef.current) {
+            updateLibraryScroll(window.scrollY);
+          }
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+    };
+  }, []);
+
+  // Restore scroll position when books are ready
+  useLayoutEffect(() => {
+    if (loading) return;
+    if (isRestoredRef.current) return;
+
+    const targetY = initialSavedStateRef.current.scrollY;
+    const targetBookId = initialSavedStateRef.current.lastOpenedBookId;
+
+    if (targetY <= 0 && !targetBookId) {
+      isRestoredRef.current = true;
+      return;
+    }
+
+    let frameId: number | null = null;
+    let attempts = 0;
+    const maxAttempts = 15;
+
+    const attemptRestore = () => {
+      attempts++;
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+
+      if (targetY > 0 && maxScroll >= targetY) {
+        window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
+        isRestoredRef.current = true;
+        return;
+      }
+
+      if (maxScroll > 0) {
+        window.scrollTo({ top: Math.min(targetY, maxScroll), behavior: 'instant' as ScrollBehavior });
+      }
+
+      if (attempts < maxAttempts && maxScroll < targetY) {
+        frameId = requestAnimationFrame(attemptRestore);
+      } else {
+        if (targetY > 0) {
+          window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
+        }
+        isRestoredRef.current = true;
+      }
+    };
+
+    attemptRestore();
+
+    return () => {
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, [loading, filteredBooks.length]);
+
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+    saveLibraryViewState({ searchQuery: query, scrollY: 0, lastOpenedBookId: null });
+  };
+
+  const handleFilterChange = (newFilter: LibraryFilter) => {
+    setFilter(newFilter);
+    saveLibraryViewState({ filter: newFilter, scrollY: 0, lastOpenedBookId: null });
+  };
+
   // Book action handlers
   const handleOpenBook = (id: string) => {
+    saveLibraryViewState({
+      scrollY: window.scrollY,
+      lastOpenedBookId: id,
+      searchQuery,
+      filter,
+    });
     navigate(`/read/${id}`);
   };
 
@@ -338,9 +441,9 @@ export function LibraryView() {
         {/* Toolbar */}
         <LibraryToolbar
           searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
+          onSearchChange={handleSearchChange}
           filter={filter}
-          onFilterChange={setFilter}
+          onFilterChange={handleFilterChange}
           sortField={sortField}
           onSortFieldChange={(field) => updateSettings({ librarySortField: field })}
           sortDirection={sortDirection}
@@ -438,7 +541,7 @@ export function LibraryView() {
             description={`No books matched "${searchQuery}". Try searching by another keyword.`}
             action={{
               label: 'Clear Search',
-              onClick: () => setSearchQuery(''),
+              onClick: () => handleSearchChange(''),
             }}
           />
         )}
@@ -450,7 +553,7 @@ export function LibraryView() {
             description={`You don't have any books matching the "${filter}" filter.`}
             action={{
               label: 'Show All Books',
-              onClick: () => setFilter('all'),
+              onClick: () => handleFilterChange('all'),
             }}
           />
         )}

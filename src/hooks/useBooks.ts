@@ -24,14 +24,22 @@ interface UseBooksResult {
   toggleArchive: (id: string) => Promise<void>;
 }
 
+let cachedBooks: LibraryBook[] | null = null;
+
+export function invalidateBooksCache(): void {
+  cachedBooks = null;
+}
+
 export function useBooks(): UseBooksResult {
-  const [books, setBooks] = useState<LibraryBook[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [books, setBooks] = useState<LibraryBook[]>(() => cachedBooks ?? []);
+  const [loading, setLoading] = useState(() => cachedBooks === null);
   const [error, setError] = useState<string | null>(null);
 
   const refreshBooks = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!cachedBooks) {
+        setLoading(true);
+      }
       setError(null);
       const [allBooks, allProgress] = await Promise.all([listBooks(), listProgress()]);
       const progressByBook = new Map(allProgress.map((progress) => [progress.bookId, progress.overallProgress]));
@@ -55,6 +63,7 @@ export function useBooks(): UseBooksResult {
           return withProgress;
         })
       );
+      cachedBooks = booksWithCovers;
       setBooks(booksWithCovers);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load books';

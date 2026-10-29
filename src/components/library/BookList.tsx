@@ -110,6 +110,7 @@ export function BookList({
   return (
     <div
       className={`${styles.row} ${selected ? styles.rowSelected : ''}`}
+      data-book-id={book.id}
       onClick={handleRowClick}
       role={selectionMode ? 'checkbox' : 'button'}
       tabIndex={0}
