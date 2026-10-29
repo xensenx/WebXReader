@@ -9,6 +9,7 @@ import { DropZone } from '../common/DropZone';
 import { Button } from '../common/Button';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { importFile, type ImportResult } from '../../features/import/import-service';
+import { getAcceptAttribute } from '../../formats';
 import type { Book } from '../../types/book';
 import { useSettingsContext } from '../../app/providers/SettingsContext';
 import styles from './ImportDialog.module.css';
@@ -354,7 +355,7 @@ export function ImportDialog({
             <div className={styles.dropzoneArea}>
               <DropZone
                 onFileDrop={handleFilesDropped}
-                accept=".txt,.epub,.pdf,.cbz,.md,.markdown,.html,.htm,.xhtml"
+                accept={getAcceptAttribute()}
               />
             </div>
 

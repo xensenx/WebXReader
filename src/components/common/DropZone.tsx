@@ -5,6 +5,7 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { Upload } from 'lucide-react';
+import { getAcceptAttribute, getAllFormats } from '../../formats';
 import styles from './DropZone.module.css';
 
 interface DropZoneProps {
@@ -16,7 +17,7 @@ interface DropZoneProps {
 
 export function DropZone({
   onFileDrop,
-  accept,
+  accept = getAcceptAttribute(),
   processing = false,
   className,
 }: DropZoneProps) {
@@ -132,12 +133,11 @@ export function DropZone({
             Drag &amp; drop files here, or <span className={styles.link}>browse</span>
           </p>
           <div className={styles.formatPills} aria-label="Supported formats">
-            <span className={styles.formatPill}>EPUB</span>
-            <span className={styles.formatPill}>PDF</span>
-            <span className={styles.formatPill}>CBZ</span>
-            <span className={styles.formatPill}>TXT</span>
-            <span className={styles.formatPill}>MD</span>
-            <span className={styles.formatPill}>HTML</span>
+            {getAllFormats().map((f) => (
+              <span key={f.id} className={styles.formatPill}>
+                {f.id === 'markdown' ? 'MD' : f.id.toUpperCase()}
+              </span>
+            ))}
           </div>
         </>
       )}

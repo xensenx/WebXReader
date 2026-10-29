@@ -28,9 +28,6 @@ import type { Book, BookContent, Chapter, Bookmark } from '../../types/book';
 import { ScrollReader } from './ScrollReader';
 import { PaginatedReader } from './PaginatedReader';
 import { DoubleSidedReader } from './DoubleSidedReader';
-import type { EpubReaderHandle } from './EpubReader';
-import type { PdfReaderHandle, PdfZoomAnchor } from './PdfReader';
-import type { CbzReaderHandle } from './CbzReader';
 import { TableOfContents } from './TableOfContents';
 import { BookmarkPanel } from './BookmarkPanel';
 import { SearchPanel } from './SearchPanel';
@@ -40,20 +37,28 @@ import { showTransientSearchHighlight } from '../../utils/transient-search-highl
 import { ReaderSettings } from './ReaderSettings';
 import { ProgressBar } from './ProgressBar';
 import { Button } from '../common/Button';
+import {
+  isFixedLayout,
+  formatSupportsFeature,
+  type EpubReaderHandle,
+  type PdfReaderHandle,
+  type PdfZoomAnchor,
+  type CbzReaderHandle,
+} from '../../formats';
 
 import styles from './ReaderView.module.css';
 
-// These engines are large and are only needed after opening an EPUB/PDF.
+// These engines are large and are loaded on demand when opening their respective formats.
 const EpubReader = lazy(async () => {
-  const module = await import('./EpubReader');
+  const module = await import('../../formats/engines/EpubReader');
   return { default: module.EpubReader };
 });
 const PdfReader = lazy(async () => {
-  const module = await import('./PdfReader');
+  const module = await import('../../formats/engines/PdfReader');
   return { default: module.PdfReader };
 });
 const CbzReader = lazy(async () => {
-  const module = await import('./CbzReader');
+  const module = await import('../../formats/engines/CbzReader');
   return { default: module.CbzReader };
 });
 
@@ -278,23 +283,23 @@ export function ReaderView() {
 
   const zoomBy = useCallback((factor: number, point?: { x: number; y: number }) => {
     const anchor = captureZoomAnchor(point?.x, point?.y);
-    const fixedLayout = book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz';
+    const fixedLayout = isFixedLayout(book?.sourceFormat);
     updateZoom(clampReaderZoom(readerZoomRef.current * factor, fixedLayout), fixedLayout, anchor);
   }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
 
   const zoomTo = useCallback((targetZoom: number, point?: { x: number; y: number }) => {
     const anchor = captureZoomAnchor(point?.x, point?.y);
-    const fixedLayout = book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz';
+    const fixedLayout = isFixedLayout(book?.sourceFormat);
     updateZoom(clampReaderZoom(targetZoom, fixedLayout), fixedLayout, anchor);
   }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
 
   const resetZoom = useCallback(() => {
     const anchor = captureZoomAnchor();
-    updateZoom(1, book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz', anchor);
+    updateZoom(1, isFixedLayout(book?.sourceFormat), anchor);
   }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
 
   const queueWheelZoom = useCallback((deltaY: number, point?: { x: number; y: number }) => {
-    const fixedLayout = book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz';
+    const fixedLayout = isFixedLayout(book?.sourceFormat);
     wheelZoomDeltaRef.current += deltaY;
     if (point) wheelZoomPointRef.current = point;
     if (wheelZoomFrameRef.current !== null) return;
@@ -321,7 +326,7 @@ export function ReaderView() {
   }, [book?.sourceFormat, zoomBy]);
 
   const queueTouchZoom = useCallback((zoom: number, point: { x: number; y: number }) => {
-    const fixedLayout = book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz';
+    const fixedLayout = isFixedLayout(book?.sourceFormat);
     touchZoomPendingRef.current = { zoom, point };
     if (touchZoomFrameRef.current !== null) return;
 
@@ -352,7 +357,7 @@ export function ReaderView() {
   useLayoutEffect(() => {
     if (previousReaderZoomRef.current === readerZoom) return;
     previousReaderZoomRef.current = readerZoom;
-    if (book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz' || book?.sourceFormat === 'epub' || !zoomAnchor) return;
+    if (isFixedLayout(book?.sourceFormat) || book?.sourceFormat === 'epub' || !zoomAnchor) return;
 
     const viewport = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
     if (!viewport) return;
@@ -681,7 +686,7 @@ export function ReaderView() {
     const currentProgress = getCurrentProgress() ?? progress;
     const currentFraction = currentProgress?.overallProgress ?? 0;
     const currentChapter = book.tableOfContents.find((c) => c.id === activeChapterId);
-    const bookmarkChapterId = book.sourceFormat === 'pdf' || book.sourceFormat === 'cbz'
+    const bookmarkChapterId = isFixedLayout(book.sourceFormat)
       ? String((currentProgress?.pageIndex ?? 0) + 1)
       : activeChapterId;
     const label = currentChapter
@@ -940,7 +945,7 @@ export function ReaderView() {
           <button
             className={styles.iconBtn}
             onClick={() => zoomBy(1 / 1.1)}
-            disabled={readerZoom <= (isPdf || isCbz ? MIN_PDF_ZOOM : MIN_READER_ZOOM)}
+            disabled={readerZoom <= (isFixedLayout(book?.sourceFormat) ? MIN_PDF_ZOOM : MIN_READER_ZOOM)}
             title="Zoom out (Ctrl/Cmd -)"
             aria-label="Zoom out"
             type="button"
@@ -955,7 +960,7 @@ export function ReaderView() {
           <button
             className={styles.iconBtn}
             onClick={() => zoomBy(1.1)}
-            disabled={readerZoom >= (isPdf || isCbz ? MAX_PDF_ZOOM : MAX_READER_ZOOM)}
+            disabled={readerZoom >= (isFixedLayout(book?.sourceFormat) ? MAX_PDF_ZOOM : MAX_READER_ZOOM)}
             title="Zoom in (Ctrl/Cmd +)"
             aria-label="Zoom in"
             type="button"
@@ -1128,8 +1133,8 @@ export function ReaderView() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         settings={effectiveReaderSettings}
-        doubleSidedSupported={!isPdf}
-        fixedLayout={isPdf || isCbz}
+        doubleSidedSupported={formatSupportsFeature(book?.sourceFormat, 'doubleSided')}
+        fixedLayout={isFixedLayout(book?.sourceFormat)}
         format={book?.sourceFormat}
         onUpdate={updateReaderSettings}
         onUpdateTheme={(theme) => updateGlobalSettings({ theme })}

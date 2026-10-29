@@ -5,6 +5,7 @@
 
 import { exportBackup, restoreBackup, getBook, getBookContent } from '../../core/storage/database';
 import type { BackupData } from '../../types/book';
+import { getFormatMimeType } from '../../formats';
 
 /**
  * Trigger browser file download from Blob.
@@ -68,15 +69,7 @@ export async function downloadOriginalBook(bookId: string): Promise<boolean> {
   const filename = book.originalFilename || `${book.title}.${book.sourceFormat}`;
 
   if (content.originalFile) {
-    const mimeTypes: Record<string, string> = {
-      epub: 'application/epub+zip',
-      pdf: 'application/pdf',
-      cbz: 'application/vnd.comicbook+zip',
-      txt: 'text/plain',
-      markdown: 'text/markdown',
-      html: 'text/html',
-    };
-    const type = mimeTypes[book.sourceFormat] || 'application/octet-stream';
+    const type = getFormatMimeType(book.sourceFormat);
     blob = new Blob([content.originalFile], { type });
   } else if (content.rawText) {
     blob = new Blob([content.rawText], { type: 'text/plain;charset=utf-8' });

@@ -19,6 +19,7 @@ import {
   MoveVertical,
 } from 'lucide-react';
 import type { ThemeName, BookFormat } from '../../types/book';
+import { isFixedLayout, formatSupportsFeature } from '../../formats';
 import type {
   EffectiveReaderSettings,
   ReaderSettingsUpdate,
@@ -70,6 +71,12 @@ export function ReaderSettings({
   format,
 }: ReaderSettingsProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const isFixed = fixedLayout || isFixedLayout(format);
+  const canDoubleSided = doubleSidedSupported && (format ? formatSupportsFeature(format, 'doubleSided') : true);
+  const canReadingDirection = formatSupportsFeature(format, 'readingDirection');
+  const canFitMode = formatSupportsFeature(format, 'fitMode');
+  const canPageGap = formatSupportsFeature(format, 'pageGap');
+  const canTypography = !isFixed && (format ? formatSupportsFeature(format, 'customTypography') : true);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -144,12 +151,12 @@ export function ReaderSettings({
           {/* Reading Mode */}
           <div className={styles.section}>
             <span className={styles.sectionTitle}>Reading Mode</span>
-            {fixedLayout && (
+            {isFixed && (
               <p className={styles.modeHint}>
                 This document preserves its original visual layout. Adjust your reading mode and background theme below.
               </p>
             )}
-            <div className={styles.modeRow} aria-label={fixedLayout ? 'Fixed-layout document' : 'Reading modes'}>
+            <div className={styles.modeRow} aria-label={isFixed ? 'Fixed-layout document' : 'Reading modes'}>
               <button
                 className={`${styles.modeBtn} ${
                   settings.readingMode === 'scroll' ? styles.modeBtnActive : ''
@@ -175,8 +182,8 @@ export function ReaderSettings({
                   settings.readingMode === 'vertical' ? styles.modeBtnActive : ''
                 }`}
                 onClick={() => onUpdate({ readingMode: 'vertical' })}
-                disabled={!doubleSidedSupported}
-                title={!doubleSidedSupported ? 'Double-sided spreads are unavailable for this format.' : undefined}
+                disabled={!canDoubleSided}
+                title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
                 type="button"
               >
                 <Pilcrow size={18} />
@@ -186,7 +193,7 @@ export function ReaderSettings({
           </div>
 
           {/* Comic Reading Direction */}
-          {format === 'cbz' && (
+          {canReadingDirection && (
             <div className={styles.section}>
               <span className={styles.sectionTitle}>Reading Direction</span>
               <div className={styles.modeRow} aria-label="Comic reading direction">
@@ -215,7 +222,7 @@ export function ReaderSettings({
           )}
 
           {/* Comic Page Fit Mode */}
-          {format === 'cbz' && (
+          {canFitMode && (
             <div className={styles.section}>
               <span className={styles.sectionTitle}>Page Fit</span>
               <div className={styles.modeRow} aria-label="Comic page fit mode">
@@ -254,7 +261,7 @@ export function ReaderSettings({
           )}
 
           {/* Comic Page Gap */}
-          {format === 'cbz' && (
+          {canPageGap && (
             <div className={styles.section}>
               <span className={styles.sectionTitle}>Page Gap</span>
               <div className={styles.sliderRow}>
@@ -276,7 +283,7 @@ export function ReaderSettings({
           )}
 
           {/* Font Family */}
-          {!fixedLayout && (
+          {canTypography && (
             <>
               <div className={styles.section}>
                 <span className={styles.sectionTitle}>Font Family</span>

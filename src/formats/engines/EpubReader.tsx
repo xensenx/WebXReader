@@ -10,7 +10,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { EffectiveReaderSettings } from '../../hooks/useReaderSettings';
 import { createTextExcerpt, extractDomText, findTextMatches, findTextRange } from '../../utils/text-search';
 import { showTransientSearchHighlight } from '../../utils/transient-search-highlight';
-import type { ReaderSearchResult } from './search-types';
+import type { ReaderSearchResult } from '../../components/reader/search-types';
 import styles from './EpubReader.module.css';
 
 export interface EpubReaderHandle {

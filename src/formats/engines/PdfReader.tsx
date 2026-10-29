@@ -22,7 +22,7 @@ import { AlertCircle } from 'lucide-react';
 import { pdfjsLib } from '../../core/parsing/pdf-init';
 import { createTextExcerpt, findTextMatches, findTextRange } from '../../utils/text-search';
 import { showTransientSearchHighlight } from '../../utils/transient-search-highlight';
-import type { ReaderSearchResult } from './search-types';
+import type { ReaderSearchResult } from '../../components/reader/search-types';
 import styles from './PdfReader.module.css';
 
 type PdfDocument = Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>;
