@@ -102,6 +102,11 @@
   --reader-max-width: 720px;
 }
 
+::highlight(webx-search-result) {
+  background-color: rgba(250, 204, 21, 0.42);
+  color: inherit;
+}
+
 /* ============================================================
    Theme: Dark
    ============================================================ */

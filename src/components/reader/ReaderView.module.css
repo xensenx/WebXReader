@@ -127,6 +127,11 @@
   transition: padding-top var(--transition-base);
 }
 
+.readerStage ::selection {
+  background: rgba(250, 204, 21, 0.42);
+  color: inherit;
+}
+
 .readerStageFull {
   padding-top: 0;
 }
