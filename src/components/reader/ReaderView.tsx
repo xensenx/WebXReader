@@ -995,7 +995,9 @@ export function ReaderView() {
               fileData={content.originalFile!}
               initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
               readingMode={readerSettings.readingMode}
-              readingDirection={(book?.identifiers?.readingDirection as 'ltr' | 'rtl') || 'ltr'}
+              readingDirection={readerSettings.comicReadingDirection ?? (book?.identifiers?.readingDirection as 'ltr' | 'rtl') ?? 'ltr'}
+              fitMode={readerSettings.comicFitMode ?? 'contain'}
+              pageGap={readerSettings.contentMargin}
               onProgressUpdate={handlePaginatedProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
@@ -1122,6 +1124,7 @@ export function ReaderView() {
         settings={effectiveReaderSettings}
         doubleSidedSupported={!isPdf}
         fixedLayout={isPdf || isCbz}
+        format={book?.sourceFormat}
         onUpdate={updateReaderSettings}
         onUpdateTheme={(theme) => updateGlobalSettings({ theme })}
         onReset={resetBookSettings}

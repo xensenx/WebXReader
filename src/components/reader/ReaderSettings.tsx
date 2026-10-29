@@ -12,8 +12,13 @@ import {
   BookOpen,
   Pilcrow,
   RotateCcw,
+  ArrowRight,
+  ArrowLeft,
+  Maximize2,
+  MoveHorizontal,
+  MoveVertical,
 } from 'lucide-react';
-import type { ThemeName } from '../../types/book';
+import type { ThemeName, BookFormat } from '../../types/book';
 import type {
   EffectiveReaderSettings,
   ReaderSettingsUpdate,
@@ -33,6 +38,8 @@ interface ReaderSettingsProps {
   doubleSidedSupported?: boolean;
   /** PDF keeps its fixed page geometry, but can use scroll or page mode. */
   fixedLayout?: boolean;
+  /** Format of the active book */
+  format?: BookFormat;
 }
 
 const FONT_OPTIONS = [
@@ -60,6 +67,7 @@ export function ReaderSettings({
   onReset,
   doubleSidedSupported = true,
   fixedLayout = false,
+  format,
 }: ReaderSettingsProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -176,6 +184,96 @@ export function ReaderSettings({
               </button>
             </div>
           </div>
+
+          {/* Comic Reading Direction */}
+          {format === 'cbz' && (
+            <div className={styles.section}>
+              <span className={styles.sectionTitle}>Reading Direction</span>
+              <div className={styles.modeRow} aria-label="Comic reading direction">
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.comicReadingDirection !== 'rtl' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ comicReadingDirection: 'ltr' })}
+                  type="button"
+                >
+                  <ArrowRight size={18} />
+                  <span>LTR (Western)</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.comicReadingDirection === 'rtl' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ comicReadingDirection: 'rtl' })}
+                  type="button"
+                >
+                  <ArrowLeft size={18} />
+                  <span>RTL (Manga)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Comic Page Fit Mode */}
+          {format === 'cbz' && (
+            <div className={styles.section}>
+              <span className={styles.sectionTitle}>Page Fit</span>
+              <div className={styles.modeRow} aria-label="Comic page fit mode">
+                <button
+                  className={`${styles.modeBtn} ${
+                    (settings.comicFitMode ?? 'contain') === 'contain' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ comicFitMode: 'contain' })}
+                  type="button"
+                >
+                  <Maximize2 size={18} />
+                  <span>Fit Screen</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.comicFitMode === 'width' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ comicFitMode: 'width' })}
+                  type="button"
+                >
+                  <MoveHorizontal size={18} />
+                  <span>Fit Width</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.comicFitMode === 'height' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ comicFitMode: 'height' })}
+                  type="button"
+                >
+                  <MoveVertical size={18} />
+                  <span>Fit Height</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Comic Page Gap */}
+          {format === 'cbz' && (
+            <div className={styles.section}>
+              <span className={styles.sectionTitle}>Page Gap</span>
+              <div className={styles.sliderRow}>
+                <input
+                  type="range"
+                  className={styles.slider}
+                  min={0}
+                  max={64}
+                  step={4}
+                  value={settings.contentMargin}
+                  onChange={(e) =>
+                    onUpdate({ contentMargin: parseInt(e.target.value, 10) })
+                  }
+                  aria-label="Page gap"
+                />
+                <span className={styles.sliderValue}>{settings.contentMargin}px</span>
+              </div>
+            </div>
+          )}
 
           {/* Font Family */}
           {!fixedLayout && (

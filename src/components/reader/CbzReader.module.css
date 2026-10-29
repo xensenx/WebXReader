@@ -2,47 +2,60 @@
  * Styles for CBZ Comic Reader.
  */
 
-.viewport {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background-color: var(--reader-bg, var(--bg-primary));
+.container {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background-color: var(--reader-bg, var(--bg-primary));
+  color: var(--reader-text, var(--text-primary));
+  overflow: hidden;
+  min-height: 0;
   user-select: none;
   outline: none;
 }
 
-/* Scroll mode container */
-.scrollContainer {
+/* Continuous Vertical Scroll Viewport */
+.viewport {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 24px 16px 80px;
+  position: relative;
+  outline: none;
+}
+
+.pageStack {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16px 0 64px;
-  scroll-behavior: smooth;
-  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  min-height: 100%;
 }
 
-.scrollPageItem {
+/* Individual page wrapper in continuous scroll */
+.pageShell {
+  position: relative;
+  flex: 0 0 auto;
   display: flex;
   justify-content: center;
   align-items: center;
-  width: 100%;
-  margin: 0 auto;
-  min-height: 200px;
-  position: relative;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: rgba(128, 128, 128, 0.06);
+  transition: transform 0.15s ease-out;
 }
 
 .scrollImage {
   display: block;
-  max-width: 100%;
-  height: auto;
-  object-fit: contain;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  user-select: none;
+  -webkit-user-drag: none;
   pointer-events: none;
 }
 
@@ -51,39 +64,39 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 480px;
-  width: 90%;
-  max-width: 720px;
+  min-height: 520px;
+  width: 100%;
   background-color: rgba(128, 128, 128, 0.08);
   border-radius: 4px;
   color: var(--text-secondary);
   font-size: var(--text-sm, 14px);
-  gap: 8px;
+  gap: 12px;
 }
 
 /* Paginated / Spread stage */
 .pagedStage {
   flex: 1;
-  position: relative;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: auto;
-  width: 100%;
-  height: 100%;
+  position: relative;
+  padding: 16px;
 }
 
 .pagedContent {
   display: flex;
   align-items: center;
   justify-content: center;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   transition: transform 0.15s ease-out;
 }
 
 /* Single page view */
-.singlePageWrapper {
+.singleWrapper {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -99,20 +112,21 @@
   justify-content: center;
   width: 100%;
   height: 100%;
-  gap: 4px;
+  position: relative;
 }
 
 .comicImage {
   display: block;
   user-select: none;
   -webkit-user-drag: none;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
   transition: opacity 0.2s ease;
 }
 
 /* Fit modes */
 .fitContain {
-  max-width: 100%;
+  max-width: calc(100vw - 48px);
   max-height: calc(100vh - 120px);
   width: auto;
   height: auto;
@@ -120,29 +134,29 @@
 }
 
 .fitWidth {
-  width: 100%;
-  max-width: 1200px;
+  width: min(100%, 1100px);
   height: auto;
   object-fit: contain;
 }
 
 .fitHeight {
-  height: calc(100vh - 100px);
+  height: calc(100vh - 120px);
   width: auto;
   object-fit: contain;
 }
 
 /* Spread specific image sizing */
 .spreadImage {
-  max-width: 50%;
+  max-width: calc(50% - 16px);
   max-height: calc(100vh - 120px);
   width: auto;
   height: auto;
   object-fit: contain;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+  border-radius: 3px;
 }
 
-/* Interactive navigation hit-areas */
+/* Interactive navigation hit-areas in paged/spread mode */
 .navZone {
   position: absolute;
   top: 0;
@@ -164,69 +178,6 @@
   left: 25%;
   width: 50%;
   cursor: default;
-}
-
-/* Comic quick toolbar overlay */
-.floatingBar {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background-color: var(--bg-primary);
-  border: 1px solid var(--color-border);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-  border-radius: 24px;
-  padding: 4px 12px;
-  opacity: 0.94;
-  backdrop-filter: blur(8px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.floatingBar:hover {
-  opacity: 1;
-}
-
-.barButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 14px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.barButton:hover {
-  background-color: var(--bg-hover, rgba(128, 128, 128, 0.12));
-}
-
-.barButtonActive {
-  background-color: var(--color-primary-light, rgba(59, 130, 246, 0.15));
-  color: var(--color-primary);
-  font-weight: 600;
-}
-
-.barDivider {
-  width: 1px;
-  height: 16px;
-  background-color: var(--color-border);
-}
-
-.pagePill {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  padding: 0 4px;
-  white-space: nowrap;
 }
 
 /* Loading & Error */

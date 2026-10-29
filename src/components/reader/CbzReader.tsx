@@ -2,8 +2,8 @@
  * CBZ Comic Reader for WebXReader.
  *
  * Provides high-performance, responsive comic reading supporting:
- * 1. Webtoon / continuous vertical scroll mode
- * 2. Single-page paginated mode
+ * 1. Webtoon / continuous vertical scroll mode with stable layout and zero page overlap
+ * 2. Single-page paginated mode with keyboard and click-zone navigation
  * 3. Double-page spread mode with Manga (RTL) reading support
  * 4. Lazy blob URL decoding and automatic memory management
  */
@@ -19,11 +19,7 @@ import {
   type MouseEvent,
 } from 'react';
 import JSZip from 'jszip';
-import {
-  ArrowLeftRight,
-  Maximize2,
-  AlertCircle,
-} from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { naturalCompare } from '../../core/parsing/cbz-parser';
 import type { ComicReadingDirection, ComicFitMode } from '../../types/book';
 import styles from './CbzReader.module.css';
@@ -31,8 +27,6 @@ import styles from './CbzReader.module.css';
 export interface CbzReaderHandle {
   goToPage: (pageNum: number) => void;
   goToProgress: (fraction: number) => void;
-  toggleReadingDirection: () => void;
-  setFitMode: (mode: ComicFitMode) => void;
   getCurrentPage: () => number;
   getTotalPages: () => number;
 }
@@ -42,6 +36,8 @@ interface CbzReaderProps {
   initialPage?: number;
   readingMode?: 'scroll' | 'paginated' | 'vertical';
   readingDirection?: ComicReadingDirection;
+  fitMode?: ComicFitMode;
+  pageGap?: number;
   onProgressUpdate: (chapterId: string, progressFraction: number, pageIndex: number) => void;
   onToggleControls?: () => void;
   readerZoom?: number;
@@ -72,9 +68,10 @@ function shouldIgnore(path: string): boolean {
 }
 
 /**
- * Single page item inside vertical scroll mode with lazy-load observer.
+ * Continuous scroll page shell with stable layout preservation.
+ * Once an image loads, it remains mounted so the layout never collapses or flickers.
  */
-function CbzScrollPageItem({
+function CbzScrollPageShell({
   pageIndex,
   total,
   loadUrl,
@@ -89,42 +86,38 @@ function CbzScrollPageItem({
   readerZoom: number;
   fitMode: ComicFitMode;
 }) {
-  const itemRef = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const [shouldLoad, setShouldLoad] = useState(pageIndex < 3);
   const [imgSrc, setImgSrc] = useState<string | undefined>(undefined);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
 
   useEffect(() => {
-    const el = itemRef.current;
+    if (shouldLoad) return;
+    const el = shellRef.current;
     const root = containerRef.current;
     if (!el || !root) return;
 
     if (typeof IntersectionObserver === 'undefined') {
-      setIsVisible(true);
+      setShouldLoad(true);
       return;
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const entry = entries[0];
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-        } else {
-          // Offload offscreen images if distance is large
-          setIsVisible(false);
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldLoad(true);
+          observer.disconnect();
         }
       },
-      { root, rootMargin: '1000px 0px' }
+      { root, rootMargin: '1200px 0px' }
     );
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [containerRef]);
+  }, [shouldLoad, containerRef]);
 
   useEffect(() => {
-    if (!isVisible) {
-      setImgSrc(undefined);
-      return;
-    }
+    if (!shouldLoad || imgSrc) return;
 
     let active = true;
     loadUrl(pageIndex).then((url) => {
@@ -136,32 +129,56 @@ function CbzScrollPageItem({
     return () => {
       active = false;
     };
-  }, [isVisible, pageIndex, loadUrl]);
+  }, [shouldLoad, imgSrc, pageIndex, loadUrl]);
 
-  const fitClass =
-    fitMode === 'width' ? styles.fitWidth : fitMode === 'height' ? styles.fitHeight : styles.fitContain;
+  // Compute sizing styles based on fitMode and readerZoom
+  let widthStyle: string | undefined;
+  let maxWidthStyle: string | undefined;
+  let maxHeightStyle: string | undefined;
+
+  if (fitMode === 'width') {
+    widthStyle = '100%';
+    maxWidthStyle = `${Math.min(100, Math.round(100 * readerZoom))}%`;
+  } else if (fitMode === 'height') {
+    maxHeightStyle = 'calc(100vh - 120px)';
+    widthStyle = 'auto';
+  } else {
+    // contain
+    maxWidthStyle = `min(100%, ${Math.round(850 * readerZoom)}px)`;
+    maxHeightStyle = 'calc(100vh - 120px)';
+  }
 
   return (
     <div
-      ref={itemRef}
-      className={styles.scrollPageItem}
-      data-page-index={pageIndex}
+      ref={shellRef}
+      className={styles.pageShell}
+      data-cbz-page={pageIndex + 1}
       style={{
-        width: fitMode === 'width' ? `${Math.min(100, 100 * readerZoom)}%` : undefined,
+        width: widthStyle,
+        maxWidth: maxWidthStyle,
+        maxHeight: maxHeightStyle,
+        aspectRatio: aspectRatio ? String(aspectRatio) : undefined,
       }}
     >
       {imgSrc ? (
         <img
           src={imgSrc}
           alt={`Page ${pageIndex + 1}`}
-          className={`${styles.scrollImage} ${fitClass}`}
+          className={styles.scrollImage}
           style={{
-            maxWidth: fitMode === 'width' ? '100%' : `${Math.round(100 * readerZoom)}%`,
+            maxWidth: '100%',
+            maxHeight: maxHeightStyle,
+            objectFit: 'contain',
           }}
-          loading="lazy"
+          onLoad={(e) => {
+            const { naturalWidth, naturalHeight } = e.currentTarget;
+            if (naturalWidth && naturalHeight && !aspectRatio) {
+              setAspectRatio(naturalWidth / naturalHeight);
+            }
+          }}
         />
       ) : (
-        <div className={styles.pagePlaceholder}>
+        <div className={styles.pagePlaceholder} style={{ minHeight: 480 }}>
           <div className={styles.spinner} style={{ width: 24, height: 24 }} />
           <span>Page {pageIndex + 1} of {total}</span>
         </div>
@@ -175,7 +192,9 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
     fileData,
     initialPage = 1,
     readingMode = 'scroll',
-    readingDirection: initialReadingDirection = 'ltr',
+    readingDirection = 'ltr',
+    fitMode = 'contain',
+    pageGap = 24,
     onProgressUpdate,
     onToggleControls,
     readerZoom = 1.0,
@@ -186,13 +205,12 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   const [error, setError] = useState<string | null>(null);
   const [pageEntries, setPageEntries] = useState<JSZip.JSZipObject[]>([]);
   const [currentPage, setCurrentPage] = useState(Math.max(1, initialPage));
-  const [direction, setDirection] = useState<ComicReadingDirection>(initialReadingDirection);
-  const [fitMode, setFitMode] = useState<ComicFitMode>('contain');
 
   const viewportRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const pageStackRef = useRef<HTMLDivElement>(null);
   const blobUrlsRef = useRef<Map<number, string>>(new Map());
   const onProgressUpdateRef = useRef(onProgressUpdate);
+  const scrollFrameRef = useRef<number | null>(null);
   onProgressUpdateRef.current = onProgressUpdate;
 
   const totalPages = pageEntries.length;
@@ -209,6 +227,9 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         }
       });
       urls.clear();
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+      }
     };
   }, []);
 
@@ -293,9 +314,9 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       setCurrentPage(target);
       notifyProgress(target - 1);
 
-      if (readingMode === 'scroll' && scrollContainerRef.current) {
-        const el = scrollContainerRef.current.querySelector<HTMLElement>(
-          `[data-page-index="${target - 1}"]`
+      if (readingMode === 'scroll' && viewportRef.current) {
+        const el = viewportRef.current.querySelector<HTMLElement>(
+          `[data-cbz-page="${target}"]`
         );
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -320,10 +341,6 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
     () => ({
       goToPage,
       goToProgress,
-      toggleReadingDirection: () => {
-        setDirection((prev) => (prev === 'ltr' ? 'rtl' : 'ltr'));
-      },
-      setFitMode: (mode) => setFitMode(mode),
       getCurrentPage: () => currentPage,
       getTotalPages: () => totalPages,
     }),
@@ -348,70 +365,39 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         loadPageBlobUrl(idx);
       }
     });
-
-    // Prune distant cached URLs (> 8 pages away) to keep memory bounded
-    const urls = blobUrlsRef.current;
-    if (urls.size > 20) {
-      for (const [idx, url] of urls.entries()) {
-        if (Math.abs(idx - currentIdx) > 8) {
-          try {
-            URL.revokeObjectURL(url);
-          } catch {
-            // ignore
-          }
-          urls.delete(idx);
-        }
-      }
-    }
   }, [currentPage, totalPages, readingMode, loading, loadPageBlobUrl]);
 
-  // Observer for Scroll Mode to update current page and progress as user scrolls
-  useEffect(() => {
+  // Track scroll position in vertical scroll mode
+  const handleScroll = useCallback(() => {
     if (readingMode !== 'scroll' || loading || totalPages === 0) return;
-    const container = scrollContainerRef.current;
-    if (!container) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
 
-    let timeoutId: number | null = null;
-    const handleScroll = () => {
-      if (timeoutId !== null) cancelAnimationFrame(timeoutId);
-      timeoutId = requestAnimationFrame(() => {
-        const items = container.querySelectorAll<HTMLElement>('[data-page-index]');
-        const containerTop = container.getBoundingClientRect().top;
-        let closestIndex = 0;
-        let minDistance = Infinity;
+    if (scrollFrameRef.current !== null) return;
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
 
-        items.forEach((item) => {
-          const rect = item.getBoundingClientRect();
-          const distance = Math.abs(rect.top - containerTop);
-          if (distance < minDistance) {
-            minDistance = distance;
-            const idx = parseInt(item.getAttribute('data-page-index') || '0', 10);
-            closestIndex = idx;
-          }
-        });
+      const viewportTop = viewport.getBoundingClientRect().top + 32;
+      const pages = Array.from(viewport.querySelectorAll<HTMLElement>('[data-cbz-page]'));
+      let visiblePage = currentPage;
 
-        const newPage = closestIndex + 1;
-        setCurrentPage((prev) => {
-          if (prev !== newPage) {
-            notifyProgress(closestIndex);
-            return newPage;
-          }
-          return prev;
-        });
-      });
-    };
+      for (const page of pages) {
+        if (page.getBoundingClientRect().bottom > viewportTop) {
+          visiblePage = Number(page.dataset.cbzPage) || visiblePage;
+          break;
+        }
+      }
 
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      if (timeoutId !== null) cancelAnimationFrame(timeoutId);
-    };
-  }, [readingMode, loading, totalPages, notifyProgress]);
+      if (visiblePage !== currentPage) {
+        setCurrentPage(visiblePage);
+        notifyProgress(visiblePage - 1);
+      }
+    });
+  }, [readingMode, loading, totalPages, currentPage, notifyProgress]);
 
   // Page turns for Single and Double page modes
   const handleNext = useCallback(() => {
     if (readingMode === 'vertical') {
-      // Spread mode
       if (currentPage === 1) {
         goToPage(2);
       } else {
@@ -437,9 +423,18 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {
-      if (readingMode === 'scroll') return;
+      if (readingMode === 'scroll') {
+        if (e.key === 'Home') {
+          e.preventDefault();
+          goToPage(1);
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          goToPage(totalPages);
+        }
+        return;
+      }
 
-      const isRtl = direction === 'rtl';
+      const isRtl = readingDirection === 'rtl';
 
       switch (e.key) {
         case 'ArrowRight':
@@ -474,7 +469,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
           break;
       }
     },
-    [readingMode, direction, handleNext, handlePrev, goToPage, totalPages]
+    [readingMode, readingDirection, handleNext, handlePrev, goToPage, totalPages]
   );
 
   // Handle stage click zones in paginated/spread modes
@@ -485,7 +480,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       const clickX = e.clientX - rect.left;
       const ratio = clickX / rect.width;
 
-      const isRtl = direction === 'rtl';
+      const isRtl = readingDirection === 'rtl';
 
       if (ratio < 0.25) {
         // Left zone
@@ -500,7 +495,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         onToggleControls?.();
       }
     },
-    [direction, handleNext, handlePrev, onToggleControls]
+    [readingDirection, handleNext, handlePrev, onToggleControls]
   );
 
   if (loading) {
@@ -526,7 +521,6 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   const isCover = currentPage === 1;
   const isSpread = readingMode === 'vertical';
 
-  // Determine pages on spread
   let spreadFirstIdx = currentIdx;
   let spreadSecondIdx: number | null = null;
 
@@ -535,7 +529,6 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       spreadFirstIdx = 0;
       spreadSecondIdx = null;
     } else {
-      // Ensure even pair: 1 & 2 (indices for pages 2 & 3), 3 & 4 (pages 4 & 5)
       spreadFirstIdx = currentIdx % 2 === 1 ? currentIdx : currentIdx - 1;
       spreadSecondIdx = spreadFirstIdx + 1 < totalPages ? spreadFirstIdx + 1 : null;
     }
@@ -547,40 +540,50 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   return (
     <div
       ref={viewportRef}
-      className={styles.viewport}
+      className={styles.container}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       role="region"
       aria-label="Comic Book Reader"
     >
-      {/* 1. Vertical Scroll (Webtoon) Mode */}
-      {readingMode === 'scroll' && (
+      {/* 1. Continuous Vertical Scroll (Webtoon) Mode */}
+      {readingMode === 'scroll' ? (
         <div
-          ref={scrollContainerRef}
-          className={styles.scrollContainer}
+          className={styles.viewport}
+          data-reader-viewport="cbz-vertical-scroll"
+          data-current-page={currentPage}
+          onScroll={handleScroll}
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               onToggleControls?.();
             }
           }}
         >
-          {pageEntries.map((_, idx) => (
-            <CbzScrollPageItem
-              key={idx}
-              pageIndex={idx}
-              total={totalPages}
-              loadUrl={loadPageBlobUrl}
-              containerRef={scrollContainerRef}
-              readerZoom={readerZoom}
-              fitMode={fitMode}
-            />
-          ))}
+          <div
+            ref={pageStackRef}
+            className={styles.pageStack}
+            style={{ gap: `${pageGap}px` }}
+          >
+            {pageEntries.map((_, idx) => (
+              <CbzScrollPageShell
+                key={idx}
+                pageIndex={idx}
+                total={totalPages}
+                loadUrl={loadPageBlobUrl}
+                containerRef={viewportRef}
+                readerZoom={readerZoom}
+                fitMode={fitMode}
+              />
+            ))}
+          </div>
         </div>
-      )}
-
-      {/* 2. Paginated (Single / Spread) Mode */}
-      {readingMode !== 'scroll' && (
-        <div className={styles.pagedStage} onClick={handleStageClick}>
+      ) : (
+        /* 2. Paginated (Single / Spread) Mode */
+        <div
+          className={styles.pagedStage}
+          data-reader-viewport="cbz-page"
+          onClick={handleStageClick}
+        >
           <div
             className={styles.pagedContent}
             style={{
@@ -591,15 +594,14 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
               <div
                 className={styles.spreadWrapper}
                 style={{
-                  flexDirection: direction === 'rtl' ? 'row-reverse' : 'row',
+                  flexDirection: readingDirection === 'rtl' ? 'row-reverse' : 'row',
+                  gap: `${Math.max(12, Math.round(pageGap * 0.75))}px`,
                 }}
               >
-                {/* Left (or Right if RTL) page */}
                 <SpreadPageImage
                   pageIndex={spreadFirstIdx}
                   loadUrl={loadPageBlobUrl}
                 />
-                {/* Second page if present */}
                 {spreadSecondIdx !== null && (
                   <SpreadPageImage
                     pageIndex={spreadSecondIdx}
@@ -608,7 +610,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
                 )}
               </div>
             ) : (
-              <div className={styles.singlePageWrapper}>
+              <div className={styles.singleWrapper}>
                 <SinglePageImage
                   pageIndex={currentIdx}
                   loadUrl={loadPageBlobUrl}
@@ -619,48 +621,6 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
           </div>
         </div>
       )}
-
-      {/* Floating Quick Comic Toolbar */}
-      <div className={styles.floatingBar}>
-        <button
-          type="button"
-          className={`${styles.barButton} ${direction === 'rtl' ? styles.barButtonActive : ''}`}
-          onClick={() => setDirection((d) => (d === 'ltr' ? 'rtl' : 'ltr'))}
-          title={direction === 'rtl' ? 'Manga Mode (RTL) Active - Click for Western (LTR)' : 'Western Mode (LTR) - Click for Manga (RTL)'}
-        >
-          <ArrowLeftRight size={14} />
-          <span>{direction === 'rtl' ? 'Manga (RTL)' : 'LTR'}</span>
-        </button>
-
-        <div className={styles.barDivider} />
-
-        <button
-          type="button"
-          className={`${styles.barButton} ${fitMode === 'contain' ? styles.barButtonActive : ''}`}
-          onClick={() => setFitMode('contain')}
-          title="Fit to Screen"
-        >
-          <Maximize2 size={14} />
-          <span>Fit Screen</span>
-        </button>
-
-        <button
-          type="button"
-          className={`${styles.barButton} ${fitMode === 'width' ? styles.barButtonActive : ''}`}
-          onClick={() => setFitMode('width')}
-          title="Fit to Width"
-        >
-          <span>Fit Width</span>
-        </button>
-
-        <div className={styles.barDivider} />
-
-        <span className={styles.pagePill}>
-          {isSpread && spreadSecondIdx !== null
-            ? `Pages ${spreadFirstIdx + 1}–${spreadSecondIdx + 1} / ${totalPages}`
-            : `Page ${currentPage} / ${totalPages}`}
-        </span>
-      </div>
     </div>
   );
 });
@@ -725,7 +685,7 @@ function SpreadPageImage({
 
   if (!src) {
     return (
-      <div className={styles.pagePlaceholder} style={{ minHeight: 360, width: 300 }}>
+      <div className={styles.pagePlaceholder} style={{ minHeight: 360, width: 320 }}>
         <div className={styles.spinner} />
         <span>Page {pageIndex + 1}…</span>
       </div>

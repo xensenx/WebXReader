@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { UserSettings, BookSettings, ReadingMode, TextAlignment } from '../types/book';
+import type { UserSettings, BookSettings, ReadingMode, TextAlignment, ComicReadingDirection, ComicFitMode } from '../types/book';
 import { DEFAULT_SETTINGS } from '../types/book';
 import {
   getSettings,
@@ -25,6 +25,8 @@ export interface EffectiveReaderSettings {
   contentMargin: number;
   readingMode: ReadingMode;
   theme: UserSettings['theme'];
+  comicReadingDirection?: ComicReadingDirection;
+  comicFitMode?: ComicFitMode;
 }
 
 /** Fields that can be overridden per-book */
@@ -56,6 +58,8 @@ function mergeSettings(
     contentMargin: bookOverrides?.contentMargin ?? global.contentMargin,
     readingMode: bookOverrides?.readingMode ?? global.defaultReadingMode,
     theme: global.theme,
+    comicReadingDirection: bookOverrides?.comicReadingDirection,
+    comicFitMode: bookOverrides?.comicFitMode,
   };
 }
 
