@@ -33,6 +33,9 @@ import type { PdfReaderHandle, PdfZoomAnchor } from './PdfReader';
 import { TableOfContents } from './TableOfContents';
 import { BookmarkPanel } from './BookmarkPanel';
 import { SearchPanel } from './SearchPanel';
+import type { ReaderSearchProvider, ReaderSearchResult } from './search-types';
+import { findTextRange } from '../../utils/text-search';
+import { showTransientSearchHighlight } from '../../utils/transient-search-highlight';
 import { ReaderSettings } from './ReaderSettings';
 import { ProgressBar } from './ProgressBar';
 import { Button } from '../common/Button';
@@ -116,6 +119,34 @@ function scrollToReaderElement(element: HTMLElement, behavior: ScrollBehavior = 
   container.scrollTo({
     top: Math.max(0, container.scrollTop + elementRect.top - containerRect.top - 24),
     left: Math.max(0, container.scrollLeft + elementRect.left - containerRect.left - 24),
+    behavior,
+  });
+}
+
+function scrollToReaderRange(range: Range, behavior: ScrollBehavior = 'smooth') {
+  const parent = range.startContainer instanceof HTMLElement
+    ? range.startContainer
+    : range.startContainer.parentElement as HTMLElement | null;
+  const container = parent ? getReaderScrollContainer(parent) : null;
+  if (!container) return;
+
+  const rect = range.getClientRects()[0] || range.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  if (
+    container.dataset.readerViewport === 'vertical-scroll' ||
+    container.dataset.readerViewport === 'pdf-vertical-scroll' ||
+    container.dataset.readerViewport === 'epub-vertical-scroll'
+  ) {
+    container.scrollTo({
+      top: Math.max(0, container.scrollTop + rect.top - containerRect.top - 32),
+      behavior,
+    });
+    return;
+  }
+
+  container.scrollTo({
+    top: Math.max(0, container.scrollTop + rect.top - containerRect.top - 24),
+    left: Math.max(0, container.scrollLeft + rect.left - containerRect.left - 24),
     behavior,
   });
 }
@@ -704,9 +735,34 @@ export function ReaderView() {
     }
   };
 
-  // Handle search result jump
-  const handleSelectSearchResult = (chapterId: string) => {
-    handleSelectChapter(chapterId);
+  // Navigate to the exact result in the active format, then select its text.
+  const handleSelectSearchResult = (result: ReaderSearchResult, query: string) => {
+    if (book?.sourceFormat === 'pdf' && result.pageNumber && pdfReaderRef.current) {
+      void pdfReaderRef.current.goToSearchMatch(result.pageNumber, query, result.matchIndex);
+      return;
+    }
+    if (book?.sourceFormat === 'epub' && result.href && epubReaderRef.current) {
+      void epubReaderRef.current.goToSearchMatch(result.href, query, result.matchIndex);
+      return;
+    }
+
+    setActiveChapterId(result.chapterId);
+    const chapterElement = document.getElementById(`chapter-${result.chapterId}`) ||
+      Array.from(readerStageRef.current?.querySelectorAll<HTMLElement>('[data-chapter-id]') || [])
+        .find((element) => element.dataset.chapterId === result.chapterId);
+    if (!chapterElement) return;
+
+    const textRoot = chapterElement.querySelector('[data-chapter-body]') || chapterElement;
+    const range = findTextRange(textRoot, query, result.matchIndex);
+    if (!range) {
+      scrollToReaderElement(chapterElement);
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      showTransientSearchHighlight(range);
+      scrollToReaderRange(range);
+    });
   };
 
   // Find active chapter title
@@ -718,6 +774,11 @@ export function ReaderView() {
 
   const isEpub = book?.sourceFormat === 'epub' && Boolean(content?.originalFile);
   const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
+  const searchProvider = useCallback<ReaderSearchProvider>((query) => {
+    if (isEpub) return epubReaderRef.current?.search(query) ?? Promise.resolve([]);
+    if (isPdf) return pdfReaderRef.current?.search(query) ?? Promise.resolve([]);
+    return Promise.resolve([]);
+  }, [isEpub, isPdf]);
   const effectiveReadingMode = isPdf && readerSettings.readingMode === 'vertical'
       ? 'paginated'
       : readerSettings.readingMode;
@@ -1017,6 +1078,7 @@ export function ReaderView() {
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
         chapters={chapters}
+        searchProvider={isEpub || isPdf ? searchProvider : undefined}
         onSelectResult={handleSelectSearchResult}
       />
 

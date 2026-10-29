@@ -49,6 +49,13 @@ export function InformationPage({ kind }: InformationPageProps) {
 }
 
 function AboutWebXReader() {
+  const mirrors = [
+    { label: 'Primary', href: 'https://webxreader.web.app/', host: 'webxreader.web.app' },
+    { label: 'Mirror one', href: 'https://webxreader.pages.dev/#/about', host: 'webxreader.pages.dev' },
+    { label: 'Mirror two', href: 'https://webxreader.vercel.app/', host: 'webxreader.vercel.app' },
+    { label: 'Mirror three', href: 'https://webxreader.netlify.app/', host: 'webxreader.netlify.app' },
+  ];
+
   return (
     <article className={styles.card}>
       <div className={styles.cardHeader}>
@@ -102,6 +109,32 @@ function AboutWebXReader() {
             <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">
               Read the AGPL v3.0 <ExternalLink size={15} />
             </a>
+          </div>
+        </section>
+
+        <section className={styles.proseSection}>
+          <h3>Site mirrors</h3>
+          <p>Choose any of the available WebXReader sites.</p>
+          <div className={styles.mirrorGrid}>
+            {mirrors.map((mirror) => (
+              <a
+                key={mirror.label}
+                className={styles.mirrorLink}
+                href={mirror.href}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span className={styles.mirrorCopy}>
+                  <span className={styles.mirrorLabel}>{mirror.label}</span>
+                  <span className={styles.mirrorUrl}>{mirror.host}</span>
+                </span>
+                <ExternalLink size={15} />
+              </a>
+            ))}
+          </div>
+          <div className={styles.summary}>
+            Your library data is not shared between these mirrors. Each site stores books,
+            bookmarks, reading progress, and preferences separately in your browser.
           </div>
         </section>
 

@@ -1,110 +1,126 @@
-/**
- * In-book search panel with live match previews.
- */
+/** In-book search panel with chapter, EPUB, and PDF match previews. */
 
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Search as SearchIcon } from 'lucide-react';
 import type { Chapter } from '../../types/book';
+import { createTextExcerpt, extractDomText, findTextMatches } from '../../utils/text-search';
 import { SearchInput } from '../common/SearchInput';
+import type { ReaderSearchProvider, ReaderSearchResult } from './search-types';
 import styles from './SearchPanel.module.css';
-
-interface SearchResult {
-  chapterId: string;
-  chapterTitle: string;
-  before: string;
-  match: string;
-  after: string;
-  offset: number;
-}
 
 interface SearchPanelProps {
   isOpen: boolean;
   onClose: () => void;
   chapters: Chapter[];
-  onSelectResult: (chapterId: string, textSnippet?: string) => void;
+  searchProvider?: ReaderSearchProvider;
+  onSelectResult: (result: ReaderSearchResult, query: string) => void;
 }
 
 export function SearchPanel({
   isOpen,
   onClose,
   chapters,
+  searchProvider,
   onSelectResult,
 }: SearchPanelProps) {
   const [query, setQuery] = useState('');
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [remoteResults, setRemoteResults] = useState<ReaderSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const normalizedQuery = query.trim();
 
   useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && isOpen) onClose();
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Strip HTML tags for clean text search
-  const cleanChapters = useMemo(() => {
-    return chapters.map((c) => {
-      const text = (c.content || '').replace(/<[^>]+>/g, ' ');
+  const cleanChapters = useMemo(() => chapters
+    .filter((chapter) => Boolean(chapter.content))
+    .map((chapter) => {
+      const document = new DOMParser().parseFromString(chapter.content || '', 'text/html');
+      document.querySelectorAll('script, style, noscript, template').forEach((element) => element.remove());
       return {
-        id: c.id,
-        title: c.title || 'Untitled Chapter',
-        text,
+        id: chapter.id,
+        title: chapter.title || 'Untitled Chapter',
+        text: extractDomText(document.body),
       };
-    });
-  }, [chapters]);
+    }), [chapters]);
 
-  // Perform search across all chapters
-  const results = useMemo(() => {
-    if (!query.trim() || query.length < 2) return [];
-
-    const matches: SearchResult[] = [];
-    const q = query.toLowerCase();
+  const localResults = useMemo(() => {
+    if (!normalizedQuery || normalizedQuery.length < 2) return [];
+    const matches: ReaderSearchResult[] = [];
     const maxResults = 100;
 
-    for (const c of cleanChapters) {
-      let pos = 0;
-      const lower = c.text.toLowerCase();
-
-      while (pos < lower.length && matches.length < maxResults) {
-        const idx = lower.indexOf(q, pos);
-        if (idx === -1) break;
-
-        const start = Math.max(0, idx - 40);
-        const end = Math.min(c.text.length, idx + q.length + 40);
-
+    for (const chapter of cleanChapters) {
+      const chapterMatches = findTextMatches(
+        chapter.text,
+        normalizedQuery,
+        maxResults - matches.length,
+      );
+      chapterMatches.forEach((match, matchIndex) => {
+        const excerpt = createTextExcerpt(chapter.text, match);
         matches.push({
-          chapterId: c.id,
-          chapterTitle: c.title,
-          before: (start > 0 ? '…' : '') + c.text.slice(start, idx),
-          match: c.text.slice(idx, idx + q.length),
-          after: c.text.slice(idx + q.length, end) + (end < c.text.length ? '…' : ''),
-          offset: idx,
+          chapterId: chapter.id,
+          chapterTitle: chapter.title,
+          ...excerpt,
+          offset: match.start,
+          matchIndex,
         });
-
-        pos = idx + q.length;
-      }
-
+      });
       if (matches.length >= maxResults) break;
     }
-
     return matches;
-  }, [cleanChapters, query]);
+  }, [cleanChapters, normalizedQuery]);
+
+  useEffect(() => {
+    if (!searchProvider || !isOpen || normalizedQuery.length < 2) {
+      setRemoteResults([]);
+      setSearching(false);
+      setSearchError(false);
+      return;
+    }
+
+    let active = true;
+    setRemoteResults([]);
+    setSearching(true);
+    setSearchError(false);
+    const timer = window.setTimeout(() => {
+      searchProvider(normalizedQuery)
+        .then((results) => {
+          if (active) setRemoteResults(results);
+        })
+        .catch(() => {
+          if (active) setSearchError(true);
+        })
+        .finally(() => {
+          if (active) setSearching(false);
+        });
+    }, 220);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [isOpen, normalizedQuery, searchProvider]);
 
   if (!isOpen) return null;
+
+  const results = searchProvider ? remoteResults : localResults;
 
   return (
     <div
       className={styles.overlay}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
       }}
       role="dialog"
       aria-modal="true"
       aria-label="In-book Search"
     >
-      <div ref={panelRef} className={styles.panel}>
+      <div className={styles.panel}>
         <div className={styles.header}>
           <h2 className={styles.title}>Search in Book</h2>
           <button
@@ -121,49 +137,60 @@ export function SearchPanel({
           <SearchInput
             value={query}
             onChange={setQuery}
-            placeholder="Type text to search…"
+            placeholder="Search this book…"
           />
         </div>
 
-        {query.trim().length >= 2 && (
-          <div className={styles.resultsHeader}>
-            Found {results.length} {results.length === 1 ? 'result' : 'results'}
+        {normalizedQuery.length >= 2 && (
+          <div className={styles.resultsHeader} aria-live="polite">
+            {searching
+              ? 'Searching book…'
+              : `Found ${results.length} ${results.length === 1 ? 'result' : 'results'}`}
           </div>
         )}
 
         <div className={styles.resultsList}>
-          {query.trim().length < 2 ? (
+          {normalizedQuery.length < 2 ? (
             <div className={styles.emptyState}>
               <SearchIcon size={32} style={{ margin: '0 auto 8px', opacity: 0.5 }} />
               <p>Type at least 2 characters to search</p>
             </div>
+          ) : searching ? (
+            <div className={styles.emptyState}>
+              <p>Searching the book text…</p>
+            </div>
+          ) : searchError ? (
+            <div className={styles.emptyState}>
+              <p>Search could not read this book. Try another phrase.</p>
+            </div>
           ) : results.length === 0 ? (
             <div className={styles.emptyState}>
-              <p>No matches found for "{query}"</p>
+              <p>No matches found for “{normalizedQuery}”</p>
             </div>
           ) : (
-            results.map((r, i) => (
+            results.map((result, index) => (
               <div
-                key={`${r.chapterId}-${r.offset}-${i}`}
+                key={`${result.chapterId}-${result.offset}-${index}`}
                 className={styles.resultItem}
                 onClick={() => {
-                  onSelectResult(r.chapterId, r.match);
+                  onSelectResult(result, normalizedQuery);
                   onClose();
                 }}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    onSelectResult(r.chapterId, r.match);
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelectResult(result, normalizedQuery);
                     onClose();
                   }
                 }}
               >
-                <div className={styles.chapterName}>{r.chapterTitle}</div>
+                <div className={styles.chapterName}>{result.chapterTitle}</div>
                 <div className={styles.excerpt}>
-                  <span>{r.before}</span>
-                  <span className={styles.highlight}>{r.match}</span>
-                  <span>{r.after}</span>
+                  <span>{result.before}</span>
+                  <span className={styles.highlight}>{result.match}</span>
+                  <span>{result.after}</span>
                 </div>
               </div>
             ))

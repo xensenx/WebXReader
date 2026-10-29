@@ -20,6 +20,9 @@ import {
 } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { pdfjsLib } from '../../core/parsing/pdf-init';
+import { createTextExcerpt, findTextMatches, findTextRange } from '../../utils/text-search';
+import { showTransientSearchHighlight } from '../../utils/transient-search-highlight';
+import type { ReaderSearchResult } from './search-types';
 import styles from './PdfReader.module.css';
 
 type PdfDocument = Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>;
@@ -35,6 +38,8 @@ export interface PdfReaderHandle {
   goToPage: (pageNum: number) => void;
   goToProgress: (fraction: number) => void;
   previewZoom: (zoom: number, anchor: PdfZoomAnchor) => void;
+  search: (query: string) => Promise<ReaderSearchResult[]>;
+  goToSearchMatch: (pageNumber: number, query: string, matchIndex: number) => Promise<void>;
 }
 
 export interface PdfZoomAnchor {
@@ -61,6 +66,11 @@ interface PdfReaderProps {
 interface PageSize {
   width: number;
   height: number;
+}
+
+interface PdfSearchPage {
+  pageNumber: number;
+  text: string;
 }
 
 interface PdfZoomPreviewTransform {
@@ -330,6 +340,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   const onProgressUpdateRef = useRef(onProgressUpdate);
   const scrollFrameRef = useRef<number | null>(null);
   const previousReaderZoomRef = useRef(readerZoom);
+  const searchIndexRef = useRef<{ document: PdfDocument; promise: Promise<PdfSearchPage[]> } | null>(null);
   onProgressUpdateRef.current = onProgressUpdate;
 
   useEffect(() => {
@@ -398,9 +409,95 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     requestAnimationFrame(() => scrollToPage(clamped, behavior));
   }, [scrollToPage, totalPages]);
 
+  const searchPdf = useCallback(async (query: string): Promise<ReaderSearchResult[]> => {
+    const normalizedQuery = query.trim();
+    if (!pdfDoc || normalizedQuery.length < 2) return [];
+
+    if (searchIndexRef.current?.document !== pdfDoc) {
+      const document = pdfDoc;
+      const promise = (async () => {
+        const pages: PdfSearchPage[] = [];
+        const batchSize = 6;
+        for (let start = 1; start <= document.numPages; start += batchSize) {
+          const batch = await Promise.all(Array.from(
+            { length: Math.min(batchSize, document.numPages - start + 1) },
+            async (_, offset) => {
+              const pageNumber = start + offset;
+              try {
+                const page = await document.getPage(pageNumber);
+                const content = await page.getTextContent();
+                let text = '';
+                for (const item of content.items) {
+                  if (!('str' in item)) continue;
+                  if (text && !/\s$/.test(text) && item.str && !/^\s/.test(item.str)) text += ' ';
+                  text += item.str;
+                  if (item.hasEOL && !text.endsWith('\n')) text += '\n';
+                }
+                return { pageNumber, text };
+              } catch {
+                return { pageNumber, text: '' };
+              }
+            },
+          ));
+          pages.push(...batch);
+          // Yield between batches so large PDFs do not monopolize the UI thread.
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        }
+        return pages;
+      })();
+      searchIndexRef.current = { document: pdfDoc, promise };
+    }
+
+    const pages = await searchIndexRef.current.promise;
+    const results: ReaderSearchResult[] = [];
+    for (const page of pages) {
+      const matches = findTextMatches(page.text, normalizedQuery, 100 - results.length, true);
+      matches.forEach((match, matchIndex) => {
+        results.push({
+          chapterId: String(page.pageNumber),
+          chapterTitle: `Page ${page.pageNumber}`,
+          ...createTextExcerpt(page.text, match),
+          offset: match.start,
+          matchIndex,
+          pageNumber: page.pageNumber,
+        });
+      });
+      if (results.length >= 100) break;
+    }
+    return results;
+  }, [pdfDoc]);
+
+  const goToSearchMatch = useCallback(async (pageNumber: number, query: string, matchIndex: number) => {
+    goToPage(pageNumber, 'auto');
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const page = pageStackRef.current?.querySelector<HTMLElement>(`[data-pdf-page="${pageNumber}"]`);
+      const textLayer = page?.querySelector<HTMLElement>(`.${styles.textLayer}`);
+      if (textLayer?.textContent?.trim()) {
+        const range = findTextRange(textLayer, query, matchIndex, true);
+        if (range) {
+          showTransientSearchHighlight(range);
+          const rect = range.getBoundingClientRect();
+          const viewportRect = viewport.getBoundingClientRect();
+          viewport.scrollTo({
+            top: viewport.scrollTop + rect.top - viewportRect.top - viewport.clientHeight * 0.35,
+            left: viewport.scrollLeft + rect.left - viewportRect.left - 24,
+            behavior: 'smooth',
+          });
+          return;
+        }
+      }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
+    }
+  }, [goToPage]);
+
   useImperativeHandle(ref, () => ({
     goToPage: (pageNum: number) => goToPage(pageNum),
     previewZoom,
+    search: searchPdf,
+    goToSearchMatch,
     goToProgress: (fraction: number) => {
       const viewport = viewportRef.current;
       const clamped = Math.min(1, Math.max(0, fraction));
@@ -415,7 +512,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         requestAnimationFrame(() => scrollToPage(page));
       }
     },
-  }), [goToPage, previewZoom, scrollToPage, totalPages]);
+  }), [goToPage, goToSearchMatch, previewZoom, scrollToPage, searchPdf, totalPages]);
 
   useEffect(() => {
     let active = true;

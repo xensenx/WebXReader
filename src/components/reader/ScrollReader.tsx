@@ -205,6 +205,7 @@ export const ScrollReader = memo(function ScrollReader({
 
             <div
               className={styles.chapterBody}
+              data-chapter-body="true"
               dangerouslySetInnerHTML={{ __html: chapter.content || '' }}
             />
 
