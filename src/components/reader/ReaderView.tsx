@@ -556,8 +556,8 @@ export function ReaderView() {
       });
     };
 
-    window.addEventListener('wheel', handleNativeWheel, { capture: true, passive: false });
-    return () => window.removeEventListener('wheel', handleNativeWheel, true);
+    stage.addEventListener('wheel', handleNativeWheel, { capture: true, passive: false });
+    return () => stage.removeEventListener('wheel', handleNativeWheel, true);
   }, [loading, queueWheelZoom]);
 
   useEffect(() => {

@@ -28,6 +28,7 @@
   padding: 24px 16px 80px;
   position: relative;
   outline: none;
+  scroll-behavior: auto;
 }
 
 .pageStack {
@@ -91,6 +92,7 @@
   position: relative;
   padding: 24px 16px;
   outline: none;
+  scroll-behavior: auto;
 }
 
 .pagedContent {
