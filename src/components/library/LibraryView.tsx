@@ -49,6 +49,8 @@ export function LibraryView() {
   // Synchronously load saved library state (survives reader visits, format switches & page refreshes)
   const initialSavedStateRef = useRef(getLibraryViewState());
   const isRestoredRef = useRef(false);
+  const isNavigatingRef = useRef(false);
+  const scrollRafRef = useRef<number | null>(null);
 
   // Search, filter, and sort state
   const [searchQuery, setSearchQuery] = useState(() => initialSavedStateRef.current.searchQuery);
@@ -216,21 +218,32 @@ export function LibraryView() {
 
   // Track window scroll position after restoration has completed
   useEffect(() => {
-    let ticking = false;
+    isNavigatingRef.current = false;
+
     const onScroll = () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          if (isRestoredRef.current) {
-            updateLibraryScroll(window.scrollY);
-          }
-          ticking = false;
-        });
-        ticking = true;
-      }
+      if (isNavigatingRef.current || !isRestoredRef.current) return;
+      if (scrollRafRef.current !== null) return;
+
+      scrollRafRef.current = window.requestAnimationFrame(() => {
+        scrollRafRef.current = null;
+        if (!isNavigatingRef.current && isRestoredRef.current) {
+          const currentY = Math.max(
+            window.scrollY || 0,
+            document.documentElement.scrollTop || 0,
+            document.body.scrollTop || 0
+          );
+          updateLibraryScroll(currentY);
+        }
+      });
     };
 
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => {
+      isNavigatingRef.current = true;
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
       window.removeEventListener('scroll', onScroll);
     };
   }, []);
@@ -256,20 +269,29 @@ export function LibraryView() {
       attempts++;
       const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
 
+      // Find target book card if available for dual-anchoring
+      const targetCard = targetBookId
+        ? document.querySelector<HTMLElement>(`[data-book-id="${targetBookId}"]`)
+        : null;
+
       if (targetY > 0 && maxScroll >= targetY) {
         window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
         isRestoredRef.current = true;
         return;
       }
 
-      if (maxScroll > 0) {
+      if (maxScroll > 0 && targetY > 0) {
         window.scrollTo({ top: Math.min(targetY, maxScroll), behavior: 'instant' as ScrollBehavior });
       }
 
-      if (attempts < maxAttempts && maxScroll < targetY) {
+      if (attempts < maxAttempts) {
         frameId = requestAnimationFrame(attemptRestore);
       } else {
-        if (targetY > 0) {
+        if (targetY > 0 && maxScroll >= targetY) {
+          window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
+        } else if (targetCard) {
+          targetCard.scrollIntoView({ block: 'center', behavior: 'instant' });
+        } else if (targetY > 0) {
           window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
         }
         isRestoredRef.current = true;
@@ -297,8 +319,21 @@ export function LibraryView() {
 
   // Book action handlers
   const handleOpenBook = (id: string) => {
+    isNavigatingRef.current = true;
+    isRestoredRef.current = false;
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = null;
+    }
+
+    const currentY = Math.max(
+      window.scrollY || 0,
+      document.documentElement.scrollTop || 0,
+      document.body.scrollTop || 0
+    );
+
     saveLibraryViewState({
-      scrollY: window.scrollY,
+      scrollY: currentY,
       lastOpenedBookId: id,
       searchQuery,
       filter,

@@ -25,7 +25,7 @@ let inMemoryState: LibraryViewState | null = null;
  */
 export function getLibraryViewState(): LibraryViewState {
   if (inMemoryState) {
-    return inMemoryState;
+    return { ...inMemoryState };
   }
 
   try {
@@ -40,7 +40,7 @@ export function getLibraryViewState(): LibraryViewState {
           filter: typeof parsed.filter === 'string' ? (parsed.filter as LibraryFilter) : 'all',
           timestamp: typeof parsed.timestamp === 'number' ? parsed.timestamp : Date.now(),
         };
-        return inMemoryState;
+        return { ...inMemoryState };
       }
     }
   } catch {
@@ -55,7 +55,7 @@ export function getLibraryViewState(): LibraryViewState {
     timestamp: Date.now(),
   };
 
-  return inMemoryState;
+  return { ...inMemoryState };
 }
 
 /**
