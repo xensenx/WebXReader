@@ -4,7 +4,7 @@
  */
 
 /** Supported import formats */
-export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf';
+export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf' | 'cbz';
 
 /** Reading status of a book */
 export type ReadingStatus = 'unread' | 'reading' | 'completed';
@@ -32,6 +32,12 @@ export type LibraryFilter = 'all' | 'reading' | 'unread' | 'completed' | 'favori
 
 /** Highlight color options */
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink' | 'orange';
+
+/** Comic reading direction */
+export type ComicReadingDirection = 'ltr' | 'rtl';
+
+/** Comic fit mode */
+export type ComicFitMode = 'contain' | 'width' | 'height';
 
 /**
  * A chapter/section within a book.
@@ -313,6 +319,10 @@ export interface BookSettings {
   maxContentWidth?: number;
   /** Override content margin */
   contentMargin?: number;
+  /** Override comic reading direction (ltr or rtl) */
+  comicReadingDirection?: ComicReadingDirection;
+  /** Override comic page fit mode */
+  comicFitMode?: ComicFitMode;
   /** Last updated */
   updatedAt: number;
 }

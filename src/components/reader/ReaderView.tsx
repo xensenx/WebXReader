@@ -30,6 +30,7 @@ import { PaginatedReader } from './PaginatedReader';
 import { DoubleSidedReader } from './DoubleSidedReader';
 import type { EpubReaderHandle } from './EpubReader';
 import type { PdfReaderHandle, PdfZoomAnchor } from './PdfReader';
+import type { CbzReaderHandle } from './CbzReader';
 import { TableOfContents } from './TableOfContents';
 import { BookmarkPanel } from './BookmarkPanel';
 import { SearchPanel } from './SearchPanel';
@@ -50,6 +51,10 @@ const EpubReader = lazy(async () => {
 const PdfReader = lazy(async () => {
   const module = await import('./PdfReader');
   return { default: module.PdfReader };
+});
+const CbzReader = lazy(async () => {
+  const module = await import('./CbzReader');
+  return { default: module.CbzReader };
 });
 
 const MIN_READER_ZOOM = 0.5;
@@ -207,6 +212,7 @@ export function ReaderView() {
 
   const epubReaderRef = useRef<EpubReaderHandle>(null);
   const pdfReaderRef = useRef<PdfReaderHandle>(null);
+  const cbzReaderRef = useRef<CbzReaderHandle>(null);
   const flushRef = useRef(flush);
   useEffect(() => {
     flushRef.current = flush;
@@ -271,23 +277,23 @@ export function ReaderView() {
 
   const zoomBy = useCallback((factor: number, point?: { x: number; y: number }) => {
     const anchor = captureZoomAnchor(point?.x, point?.y);
-    const fixedLayout = book?.sourceFormat === 'pdf';
+    const fixedLayout = book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz';
     updateZoom(clampReaderZoom(readerZoomRef.current * factor, fixedLayout), fixedLayout, anchor);
   }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
 
   const zoomTo = useCallback((targetZoom: number, point?: { x: number; y: number }) => {
     const anchor = captureZoomAnchor(point?.x, point?.y);
-    const fixedLayout = book?.sourceFormat === 'pdf';
+    const fixedLayout = book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz';
     updateZoom(clampReaderZoom(targetZoom, fixedLayout), fixedLayout, anchor);
   }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
 
   const resetZoom = useCallback(() => {
     const anchor = captureZoomAnchor();
-    updateZoom(1, book?.sourceFormat === 'pdf', anchor);
+    updateZoom(1, book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz', anchor);
   }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
 
   const queueWheelZoom = useCallback((deltaY: number, point?: { x: number; y: number }) => {
-    const fixedLayout = book?.sourceFormat === 'pdf';
+    const fixedLayout = book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz';
     wheelZoomDeltaRef.current += deltaY;
     if (point) wheelZoomPointRef.current = point;
     if (wheelZoomFrameRef.current !== null) return;
@@ -314,7 +320,7 @@ export function ReaderView() {
   }, [book?.sourceFormat, zoomBy]);
 
   const queueTouchZoom = useCallback((zoom: number, point: { x: number; y: number }) => {
-    const fixedLayout = book?.sourceFormat === 'pdf';
+    const fixedLayout = book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz';
     touchZoomPendingRef.current = { zoom, point };
     if (touchZoomFrameRef.current !== null) return;
 
@@ -670,7 +676,7 @@ export function ReaderView() {
     const currentProgress = getCurrentProgress() ?? progress;
     const currentFraction = currentProgress?.overallProgress ?? 0;
     const currentChapter = book.tableOfContents.find((c) => c.id === activeChapterId);
-    const bookmarkChapterId = book.sourceFormat === 'pdf'
+    const bookmarkChapterId = book.sourceFormat === 'pdf' || book.sourceFormat === 'cbz'
       ? String((currentProgress?.pageIndex ?? 0) + 1)
       : activeChapterId;
     const label = currentChapter
@@ -690,6 +696,11 @@ export function ReaderView() {
   const handleSelectBookmark = (bm: Bookmark) => {
     if (book?.sourceFormat === 'epub' && bm.epubCfi && epubReaderRef.current) {
       epubReaderRef.current.goToCfi(bm.epubCfi);
+    } else if (book?.sourceFormat === 'cbz' && bm.chapterId && cbzReaderRef.current) {
+      const page = parseInt(bm.chapterId, 10);
+      if (!isNaN(page)) {
+        cbzReaderRef.current.goToPage(page);
+      }
     } else if (book?.sourceFormat === 'pdf' && bm.chapterId && pdfReaderRef.current) {
       const page = parseInt(bm.chapterId, 10);
       if (!isNaN(page)) {
@@ -724,6 +735,11 @@ export function ReaderView() {
 
     if (book?.sourceFormat === 'epub' && chapter?.href && epubReaderRef.current) {
       epubReaderRef.current.goToHref(chapter.href);
+    } else if (book?.sourceFormat === 'cbz' && chapter?.href && cbzReaderRef.current) {
+      const page = parseInt(chapter.href, 10);
+      if (!isNaN(page)) {
+        cbzReaderRef.current.goToPage(page);
+      }
     } else if (book?.sourceFormat === 'pdf' && chapter?.href && pdfReaderRef.current) {
       const page = parseInt(chapter.href, 10);
       if (!isNaN(page)) {
@@ -774,6 +790,7 @@ export function ReaderView() {
 
   const isEpub = book?.sourceFormat === 'epub' && Boolean(content?.originalFile);
   const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
+  const isCbz = book?.sourceFormat === 'cbz' && Boolean(content?.originalFile);
   const searchProvider = useCallback<ReaderSearchProvider>((query) => {
     if (isEpub) return epubReaderRef.current?.search(query) ?? Promise.resolve([]);
     if (isPdf) return pdfReaderRef.current?.search(query) ?? Promise.resolve([]);
@@ -918,7 +935,7 @@ export function ReaderView() {
           <button
             className={styles.iconBtn}
             onClick={() => zoomBy(1 / 1.1)}
-            disabled={readerZoom <= (isPdf ? MIN_PDF_ZOOM : MIN_READER_ZOOM)}
+            disabled={readerZoom <= (isPdf || isCbz ? MIN_PDF_ZOOM : MIN_READER_ZOOM)}
             title="Zoom out (Ctrl/Cmd -)"
             aria-label="Zoom out"
             type="button"
@@ -933,7 +950,7 @@ export function ReaderView() {
           <button
             className={styles.iconBtn}
             onClick={() => zoomBy(1.1)}
-            disabled={readerZoom >= (isPdf ? MAX_PDF_ZOOM : MAX_READER_ZOOM)}
+            disabled={readerZoom >= (isPdf || isCbz ? MAX_PDF_ZOOM : MAX_READER_ZOOM)}
             title="Zoom in (Ctrl/Cmd +)"
             aria-label="Zoom in"
             type="button"
@@ -971,6 +988,17 @@ export function ReaderView() {
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
+            />
+          ) : isCbz ? (
+            <CbzReader
+              ref={cbzReaderRef}
+              fileData={content.originalFile!}
+              initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
+              readingMode={readerSettings.readingMode}
+              readingDirection={(book?.identifiers?.readingDirection as 'ltr' | 'rtl') || 'ltr'}
+              onProgressUpdate={handlePaginatedProgress}
+              onToggleControls={handleToggleControls}
+              readerZoom={readerZoom}
             />
           ) : isEpub ? (
             <EpubReader
@@ -1032,6 +1060,11 @@ export function ReaderView() {
         chapterTitle={currentChapterTitle}
         onSeek={(fraction) => {
           if (isPdf) {
+
+          if (isCbz) {
+            cbzReaderRef.current?.goToProgress(fraction);
+            return;
+          }
             pdfReaderRef.current?.goToProgress(fraction);
             return;
           }
@@ -1088,7 +1121,7 @@ export function ReaderView() {
         onClose={() => setSettingsOpen(false)}
         settings={effectiveReaderSettings}
         doubleSidedSupported={!isPdf}
-        fixedLayout={isPdf}
+        fixedLayout={isPdf || isCbz}
         onUpdate={updateReaderSettings}
         onUpdateTheme={(theme) => updateGlobalSettings({ theme })}
         onReset={resetBookSettings}

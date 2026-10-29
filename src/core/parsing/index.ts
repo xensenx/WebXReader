@@ -16,3 +16,6 @@ export type { EpubParseResult } from './epub-parser';
 
 export { parsePdf } from './pdf-parser';
 export type { PdfParseResult } from './pdf-parser';
+
+export { parseCbz } from './cbz-parser';
+export type { CbzParseResult } from './cbz-parser';

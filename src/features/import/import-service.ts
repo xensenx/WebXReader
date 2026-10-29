@@ -20,6 +20,7 @@ import { parseMarkdown } from '../../core/parsing/markdown-parser';
 import { parseHtml } from '../../core/parsing/html-parser';
 import { parseEpub } from '../../core/parsing/epub-parser';
 import { parsePdf } from '../../core/parsing/pdf-parser';
+import { parseCbz } from '../../core/parsing/cbz-parser';
 
 /** Options for the import process */
 export interface ImportOptions {
@@ -53,6 +54,7 @@ const EXTENSION_TO_FORMAT: Record<string, BookFormat> = {
   txt: 'txt',
   epub: 'epub',
   pdf: 'pdf',
+  cbz: 'cbz',
   md: 'markdown',
   markdown: 'markdown',
   html: 'html',
@@ -316,6 +318,45 @@ async function importPdf(
 }
 
 /**
+ * Imports a CBZ (Comic Book Zip) file.
+ */
+async function importCbz(
+  file: File,
+  contentHash: string,
+  bookId: string,
+  arrayBuffer: ArrayBuffer
+): Promise<{ book: Book; content: BookContent; coverImage?: string }> {
+  const { metadata, tableOfContents, coverImage, readingDirection } = await parseCbz(arrayBuffer);
+
+  const identifiers = { ...(metadata.identifiers || {}) };
+  if (readingDirection) {
+    identifiers.readingDirection = readingDirection;
+  }
+
+  const book = createBook({
+    id: bookId,
+    format: 'cbz',
+    filename: file.name,
+    fileSize: file.size,
+    contentHash,
+    metadata: {
+      ...metadata,
+      identifiers,
+    },
+    tableOfContents,
+    coverImage,
+  });
+
+  const content: BookContent = {
+    bookId,
+    originalFile: arrayBuffer,
+    format: 'cbz',
+  };
+
+  return { book, content, coverImage };
+}
+
+/**
  * Main import function.
  * Accepts a File object, validates it, parses it, checks for duplicates,
  * and persists the book data to IndexedDB.
@@ -417,6 +458,13 @@ export async function importFile(
         }
         case 'pdf': {
           const result = await importPdf(file, contentHash, bookId, arrayBuffer);
+          book = result.book;
+          content = result.content;
+          coverImage = result.coverImage;
+          break;
+        }
+        case 'cbz': {
+          const result = await importCbz(file, contentHash, bookId, arrayBuffer);
           book = result.book;
           content = result.content;
           coverImage = result.coverImage;

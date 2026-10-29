@@ -28,6 +28,7 @@ export default defineConfig({
         manualChunks(id: string) {
           if (id.includes('epubjs')) return 'vendor-epub';
           if (id.includes('pdfjs-dist')) return 'vendor-pdf';
+          if (id.includes('jszip')) return 'vendor-zip';
           if (id.includes('marked') || id.includes('dompurify')) return 'vendor-parser';
           if (id.includes('lucide-react')) return 'vendor-icons';
           if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/react-router-dom')) {

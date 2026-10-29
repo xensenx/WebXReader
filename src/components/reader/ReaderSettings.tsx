@@ -138,7 +138,7 @@ export function ReaderSettings({
             <span className={styles.sectionTitle}>Reading Mode</span>
             {fixedLayout && (
               <p className={styles.modeHint}>
-                This PDF keeps its original page layout. Vertical Scroll keeps all pages in one native scroll surface; Pages lets you scroll within the current page and turn pages deliberately.
+                This document preserves its original visual layout. Adjust your reading mode and background theme below.
               </p>
             )}
             <div className={styles.modeRow} aria-label={fixedLayout ? 'Fixed-layout document' : 'Reading modes'}>
@@ -167,8 +167,8 @@ export function ReaderSettings({
                   settings.readingMode === 'vertical' ? styles.modeBtnActive : ''
                 }`}
                 onClick={() => onUpdate({ readingMode: 'vertical' })}
-                disabled={!doubleSidedSupported || fixedLayout}
-                title={!doubleSidedSupported ? 'Double-sided spreads are unavailable for fixed-layout PDFs.' : undefined}
+                disabled={!doubleSidedSupported}
+                title={!doubleSidedSupported ? 'Double-sided spreads are unavailable for this format.' : undefined}
                 type="button"
               >
                 <Pilcrow size={18} />
@@ -178,199 +178,203 @@ export function ReaderSettings({
           </div>
 
           {/* Font Family */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>Font Family</span>
-            <DropdownSelect
-              className={styles.select}
-              value={settings.fontFamily}
-              onChange={(value) => onUpdate({ fontFamily: value })}
-              ariaLabel="Font Family"
-              options={FONT_OPTIONS}
-            />
-          </div>
+          {!fixedLayout && (
+            <>
+              <div className={styles.section}>
+                <span className={styles.sectionTitle}>Font Family</span>
+                <DropdownSelect
+                  className={styles.select}
+                  value={settings.fontFamily}
+                  onChange={(value) => onUpdate({ fontFamily: value })}
+                  ariaLabel="Font Family"
+                  options={FONT_OPTIONS}
+                />
+              </div>
 
-          {/* Font Size */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>Font Size</span>
-            <div className={styles.stepperRow}>
-              <button
-                className={styles.stepperBtn}
-                onClick={() => onUpdate({ fontSize: Math.max(12, settings.fontSize - 1) })}
-                type="button"
-                aria-label="Decrease font size"
-              >
-                -
-              </button>
-              <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
-                {settings.fontSize}px
-              </span>
-              <button
-                className={styles.stepperBtn}
-                onClick={() => onUpdate({ fontSize: Math.min(36, settings.fontSize + 1) })}
-                type="button"
-                aria-label="Increase font size"
-              >
-                +
-              </button>
-            </div>
-          </div>
+              {/* Font Size */}
+              <div className={styles.section}>
+                <span className={styles.sectionTitle}>Font Size</span>
+                <div className={styles.stepperRow}>
+                  <button
+                    className={styles.stepperBtn}
+                    onClick={() => onUpdate({ fontSize: Math.max(12, settings.fontSize - 1) })}
+                    type="button"
+                    aria-label="Decrease font size"
+                  >
+                    -
+                  </button>
+                  <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
+                    {settings.fontSize}px
+                  </span>
+                  <button
+                    className={styles.stepperBtn}
+                    onClick={() => onUpdate({ fontSize: Math.min(36, settings.fontSize + 1) })}
+                    type="button"
+                    aria-label="Increase font size"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
 
-          {/* Line Height */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>Line Spacing</span>
-            <div className={styles.sliderRow}>
-              <input
-                type="range"
-                className={styles.slider}
-                min={1.2}
-                max={2.6}
-                step={0.1}
-                value={settings.lineHeight}
-                onChange={(e) => onUpdate({ lineHeight: parseFloat(e.target.value) })}
-                aria-label="Line spacing"
-              />
-              <span className={styles.sliderValue}>{settings.lineHeight.toFixed(1)}x</span>
-            </div>
-          </div>
+              {/* Line Height */}
+              <div className={styles.section}>
+                <span className={styles.sectionTitle}>Line Spacing</span>
+                <div className={styles.sliderRow}>
+                  <input
+                    type="range"
+                    className={styles.slider}
+                    min={1.2}
+                    max={2.6}
+                    step={0.1}
+                    value={settings.lineHeight}
+                    onChange={(e) => onUpdate({ lineHeight: parseFloat(e.target.value) })}
+                    aria-label="Line spacing"
+                  />
+                  <span className={styles.sliderValue}>{settings.lineHeight.toFixed(1)}x</span>
+                </div>
+              </div>
 
-          {/* Paragraph Spacing */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>Paragraph Spacing</span>
-            <div className={styles.sliderRow}>
-              <input
-                type="range"
-                className={styles.slider}
-                min={0.4}
-                max={2.5}
-                step={0.1}
-                value={settings.paragraphSpacing}
-                onChange={(e) =>
-                  onUpdate({ paragraphSpacing: parseFloat(e.target.value) })
-                }
-                aria-label="Paragraph spacing"
-              />
-              <span className={styles.sliderValue}>
-                {settings.paragraphSpacing.toFixed(1)}em
-              </span>
-            </div>
-          </div>
+              {/* Paragraph Spacing */}
+              <div className={styles.section}>
+                <span className={styles.sectionTitle}>Paragraph Spacing</span>
+                <div className={styles.sliderRow}>
+                  <input
+                    type="range"
+                    className={styles.slider}
+                    min={0.4}
+                    max={2.5}
+                    step={0.1}
+                    value={settings.paragraphSpacing}
+                    onChange={(e) =>
+                      onUpdate({ paragraphSpacing: parseFloat(e.target.value) })
+                    }
+                    aria-label="Paragraph spacing"
+                  />
+                  <span className={styles.sliderValue}>
+                    {settings.paragraphSpacing.toFixed(1)}em
+                  </span>
+                </div>
+              </div>
 
-          {/* Letter Spacing */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>Letter Spacing</span>
-            <div className={styles.sliderRow}>
-              <input
-                type="range"
-                className={styles.slider}
-                min={-0.5}
-                max={2.5}
-                step={0.25}
-                value={settings.letterSpacing}
-                onChange={(e) =>
-                  onUpdate({ letterSpacing: parseFloat(e.target.value) })
-                }
-                aria-label="Letter spacing"
-              />
-              <span className={styles.sliderValue}>
-                {settings.letterSpacing.toFixed(1)}px
-              </span>
-            </div>
-          </div>
+              {/* Letter Spacing */}
+              <div className={styles.section}>
+                <span className={styles.sectionTitle}>Letter Spacing</span>
+                <div className={styles.sliderRow}>
+                  <input
+                    type="range"
+                    className={styles.slider}
+                    min={-0.5}
+                    max={2.5}
+                    step={0.25}
+                    value={settings.letterSpacing}
+                    onChange={(e) =>
+                      onUpdate({ letterSpacing: parseFloat(e.target.value) })
+                    }
+                    aria-label="Letter spacing"
+                  />
+                  <span className={styles.sliderValue}>
+                    {settings.letterSpacing.toFixed(1)}px
+                  </span>
+                </div>
+              </div>
 
-          {/* Text Alignment */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>Text Alignment</span>
-            <div className={styles.alignRow}>
-              <button
-                className={`${styles.alignBtn} ${
-                  settings.textAlign === 'left' ? styles.alignBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ textAlign: 'left' })}
-                title="Left Align"
-                type="button"
-              >
-                <AlignLeft size={18} />
-              </button>
-              <button
-                className={`${styles.alignBtn} ${
-                  settings.textAlign === 'center' ? styles.alignBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ textAlign: 'center' })}
-                title="Center Align"
-                type="button"
-              >
-                <AlignCenter size={18} />
-              </button>
-              <button
-                className={`${styles.alignBtn} ${
-                  settings.textAlign === 'justify' ? styles.alignBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ textAlign: 'justify' })}
-                title="Justify Align"
-                type="button"
-              >
-                <AlignJustify size={18} />
-              </button>
-            </div>
-          </div>
+              {/* Text Alignment */}
+              <div className={styles.section}>
+                <span className={styles.sectionTitle}>Text Alignment</span>
+                <div className={styles.alignRow}>
+                  <button
+                    className={`${styles.alignBtn} ${
+                      settings.textAlign === 'left' ? styles.alignBtnActive : ''
+                    }`}
+                    onClick={() => onUpdate({ textAlign: 'left' })}
+                    title="Left Align"
+                    type="button"
+                  >
+                    <AlignLeft size={18} />
+                  </button>
+                  <button
+                    className={`${styles.alignBtn} ${
+                      settings.textAlign === 'center' ? styles.alignBtnActive : ''
+                    }`}
+                    onClick={() => onUpdate({ textAlign: 'center' })}
+                    title="Center Align"
+                    type="button"
+                  >
+                    <AlignCenter size={18} />
+                  </button>
+                  <button
+                    className={`${styles.alignBtn} ${
+                      settings.textAlign === 'justify' ? styles.alignBtnActive : ''
+                    }`}
+                    onClick={() => onUpdate({ textAlign: 'justify' })}
+                    title="Justify Align"
+                    type="button"
+                  >
+                    <AlignJustify size={18} />
+                  </button>
+                </div>
+              </div>
 
-          {/* Paragraph Indent */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>First Line Indent</span>
-            <div className={styles.sliderRow}>
-              <input
-                type="range"
-                className={styles.slider}
-                min={0}
-                max={3}
-                step={0.5}
-                value={settings.textIndent}
-                onChange={(e) => onUpdate({ textIndent: parseFloat(e.target.value) })}
-                aria-label="First line indent"
-              />
-              <span className={styles.sliderValue}>{settings.textIndent}em</span>
-            </div>
-          </div>
+              {/* Paragraph Indent */}
+              <div className={styles.section}>
+                <span className={styles.sectionTitle}>First Line Indent</span>
+                <div className={styles.sliderRow}>
+                  <input
+                    type="range"
+                    className={styles.slider}
+                    min={0}
+                    max={3}
+                    step={0.5}
+                    value={settings.textIndent}
+                    onChange={(e) => onUpdate({ textIndent: parseFloat(e.target.value) })}
+                    aria-label="First line indent"
+                  />
+                  <span className={styles.sliderValue}>{settings.textIndent}em</span>
+                </div>
+              </div>
 
-          {/* Content Max Width */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>Page Width</span>
-            <div className={styles.sliderRow}>
-              <input
-                type="range"
-                className={styles.slider}
-                min={500}
-                max={1100}
-                step={20}
-                value={settings.maxContentWidth}
-                onChange={(e) =>
-                  onUpdate({ maxContentWidth: parseInt(e.target.value, 10) })
-                }
-                aria-label="Page width"
-              />
-              <span className={styles.sliderValue}>{settings.maxContentWidth}px</span>
-            </div>
-          </div>
+              {/* Content Max Width */}
+              <div className={styles.section}>
+                <span className={styles.sectionTitle}>Page Width</span>
+                <div className={styles.sliderRow}>
+                  <input
+                    type="range"
+                    className={styles.slider}
+                    min={500}
+                    max={1100}
+                    step={20}
+                    value={settings.maxContentWidth}
+                    onChange={(e) =>
+                      onUpdate({ maxContentWidth: parseInt(e.target.value, 10) })
+                    }
+                    aria-label="Page width"
+                  />
+                  <span className={styles.sliderValue}>{settings.maxContentWidth}px</span>
+                </div>
+              </div>
 
-          {/* Margin */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>Margins</span>
-            <div className={styles.sliderRow}>
-              <input
-                type="range"
-                className={styles.slider}
-                min={12}
-                max={64}
-                step={4}
-                value={settings.contentMargin}
-                onChange={(e) =>
-                  onUpdate({ contentMargin: parseInt(e.target.value, 10) })
-                }
-                aria-label="Page margins"
-              />
-              <span className={styles.sliderValue}>{settings.contentMargin}px</span>
-            </div>
-          </div>
+              {/* Margin */}
+              <div className={styles.section}>
+                <span className={styles.sectionTitle}>Margins</span>
+                <div className={styles.sliderRow}>
+                  <input
+                    type="range"
+                    className={styles.slider}
+                    min={12}
+                    max={64}
+                    step={4}
+                    value={settings.contentMargin}
+                    onChange={(e) =>
+                      onUpdate({ contentMargin: parseInt(e.target.value, 10) })
+                    }
+                    aria-label="Page margins"
+                  />
+                  <span className={styles.sliderValue}>{settings.contentMargin}px</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className={styles.footer}>

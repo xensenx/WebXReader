@@ -71,6 +71,7 @@ export async function downloadOriginalBook(bookId: string): Promise<boolean> {
     const mimeTypes: Record<string, string> = {
       epub: 'application/epub+zip',
       pdf: 'application/pdf',
+      cbz: 'application/vnd.comicbook+zip',
       txt: 'text/plain',
       markdown: 'text/markdown',
       html: 'text/html',

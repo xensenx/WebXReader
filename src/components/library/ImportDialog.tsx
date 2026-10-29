@@ -352,7 +352,7 @@ export function ImportDialog({
             <div className={styles.dropzoneArea}>
               <DropZone
                 onFileDrop={handleFilesDropped}
-                accept=".txt,.epub,.pdf,.md,.markdown,.html,.htm,.xhtml"
+                accept=".txt,.epub,.pdf,.cbz,.md,.markdown,.html,.htm,.xhtml"
               />
             </div>
 

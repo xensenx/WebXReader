@@ -1,0 +1,257 @@
+/**
+ * Styles for CBZ Comic Reader.
+ */
+
+.viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--reader-bg, var(--bg-primary));
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  outline: none;
+}
+
+/* Scroll mode container */
+.scrollContainer {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0 64px;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scrollPageItem {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  margin: 0 auto;
+  min-height: 200px;
+  position: relative;
+}
+
+.scrollImage {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+}
+
+.pagePlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 480px;
+  width: 90%;
+  max-width: 720px;
+  background-color: rgba(128, 128, 128, 0.08);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm, 14px);
+  gap: 8px;
+}
+
+/* Paginated / Spread stage */
+.pagedStage {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  width: 100%;
+  height: 100%;
+}
+
+.pagedContent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+  transition: transform 0.15s ease-out;
+}
+
+/* Single page view */
+.singlePageWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* Double-page spread view */
+.spreadWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  gap: 4px;
+}
+
+.comicImage {
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  transition: opacity 0.2s ease;
+}
+
+/* Fit modes */
+.fitContain {
+  max-width: 100%;
+  max-height: calc(100vh - 120px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.fitWidth {
+  width: 100%;
+  max-width: 1200px;
+  height: auto;
+  object-fit: contain;
+}
+
+.fitHeight {
+  height: calc(100vh - 100px);
+  width: auto;
+  object-fit: contain;
+}
+
+/* Spread specific image sizing */
+.spreadImage {
+  max-width: 50%;
+  max-height: calc(100vh - 120px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+/* Interactive navigation hit-areas */
+.navZone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 25%;
+  z-index: 10;
+  cursor: pointer;
+}
+
+.navZoneLeft {
+  left: 0;
+}
+
+.navZoneRight {
+  right: 0;
+}
+
+.navZoneCenter {
+  left: 25%;
+  width: 50%;
+  cursor: default;
+}
+
+/* Comic quick toolbar overlay */
+.floatingBar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  border-radius: 24px;
+  padding: 4px 12px;
+  opacity: 0.94;
+  backdrop-filter: blur(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.floatingBar:hover {
+  opacity: 1;
+}
+
+.barButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.barButton:hover {
+  background-color: var(--bg-hover, rgba(128, 128, 128, 0.12));
+}
+
+.barButtonActive {
+  background-color: var(--color-primary-light, rgba(59, 130, 246, 0.15));
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.barDivider {
+  width: 1px;
+  height: 16px;
+  background-color: var(--color-border);
+}
+
+.pagePill {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+/* Loading & Error */
+.loadingContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  gap: 16px;
+  color: var(--text-secondary);
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(128, 128, 128, 0.2);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
