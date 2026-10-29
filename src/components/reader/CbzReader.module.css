@@ -34,7 +34,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   min-height: 100%;
 }
 
@@ -49,11 +50,12 @@
   border-radius: 4px;
   overflow: hidden;
   background-color: rgba(128, 128, 128, 0.06);
-  transition: transform 0.15s ease-out;
 }
 
 .scrollImage {
   display: block;
+  width: 100%;
+  height: auto;
   user-select: none;
   -webkit-user-drag: none;
   pointer-events: none;
@@ -76,23 +78,29 @@
 /* Paginated / Spread stage */
 .pagedStage {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   position: relative;
-  padding: 16px;
+  padding: 24px 16px;
+  outline: none;
 }
 
 .pagedContent {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
-  transition: transform 0.15s ease-out;
+  width: max-content;
+  height: max-content;
+  min-width: 100%;
+  min-height: 100%;
 }
 
 /* Single page view */
@@ -100,8 +108,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
   position: relative;
 }
 
@@ -110,8 +116,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
   position: relative;
 }
 
@@ -124,36 +128,13 @@
   transition: opacity 0.2s ease;
 }
 
-/* Fit modes */
-.fitContain {
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 120px);
-  width: auto;
-  height: auto;
-  object-fit: contain;
-}
-
-.fitWidth {
-  width: min(100%, 1100px);
-  height: auto;
-  object-fit: contain;
-}
-
-.fitHeight {
-  height: calc(100vh - 120px);
-  width: auto;
-  object-fit: contain;
-}
-
-/* Spread specific image sizing */
 .spreadImage {
-  max-width: calc(50% - 16px);
-  max-height: calc(100vh - 120px);
-  width: auto;
-  height: auto;
-  object-fit: contain;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
   border-radius: 3px;
+  object-fit: contain;
 }
 
 /* Interactive navigation hit-areas in paged/spread mode */

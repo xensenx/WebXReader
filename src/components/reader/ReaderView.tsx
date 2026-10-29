@@ -228,13 +228,13 @@ export function ReaderView() {
     const y = clientY ?? viewportRect.top + viewportRect.height / 2;
     const viewportX = Math.max(0, Math.min(viewport.clientWidth, x - viewportRect.left));
     const viewportY = Math.max(0, Math.min(viewport.clientHeight, y - viewportRect.top));
-    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page]');
+    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page], [data-cbz-page]');
     const page = hitPage && stage.contains(hitPage) ? hitPage : null;
     const pageRect = page?.getBoundingClientRect();
 
     return {
       id: ++zoomAnchorIdRef.current,
-      pageNumber: page ? Number(page.dataset.pdfPage) : undefined,
+      pageNumber: page ? Number(page.dataset.pdfPage || page.dataset.cbzPage) : undefined,
       pageX: pageRect?.width ? Math.max(0, Math.min(1, (x - pageRect.left) / pageRect.width)) : undefined,
       pageY: pageRect?.height ? Math.max(0, Math.min(1, (y - pageRect.top) / pageRect.height)) : undefined,
       viewportX,
@@ -258,6 +258,7 @@ export function ReaderView() {
     if (activeAnchor) {
       pdfZoomAnchorRef.current = activeAnchor;
       pdfReaderRef.current?.previewZoom(nextZoom, activeAnchor);
+      cbzReaderRef.current?.previewZoom(nextZoom, activeAnchor);
     }
     if (zoomLabelRef.current) {
       const percent = Math.round(nextZoom * 100);
@@ -351,7 +352,7 @@ export function ReaderView() {
   useLayoutEffect(() => {
     if (previousReaderZoomRef.current === readerZoom) return;
     previousReaderZoomRef.current = readerZoom;
-    if (book?.sourceFormat === 'pdf' || book?.sourceFormat === 'epub' || !zoomAnchor) return;
+    if (book?.sourceFormat === 'pdf' || book?.sourceFormat === 'cbz' || book?.sourceFormat === 'epub' || !zoomAnchor) return;
 
     const viewport = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
     if (!viewport) return;
@@ -1001,6 +1002,7 @@ export function ReaderView() {
               onProgressUpdate={handlePaginatedProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
+              zoomAnchor={zoomAnchor}
             />
           ) : isEpub ? (
             <EpubReader
