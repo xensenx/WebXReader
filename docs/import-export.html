@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Import &amp; Backup — WebXReader Documentation</title>
+  <meta name="description" content="The import pipeline (validation, SHA-256 dedup, format dispatch, atomic persistence) and the JSON backup format including restore semantics and single-book export.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Import &amp; Backup</h1>
+  <p class="lede">Two services own the movement of books in and out of the library:
+  <code>src/features/import/import-service.ts</code> turns a dropped file into a validated,
+  hash-deduplicated <code>Book</code> + <code>BookContent</code> pair, and
+  <code>src/features/export/backup-service.ts</code> moves the whole library (or one book) out as
+  JSON/binaries and back in. Both sit on the storage layer described in
+  <a href="storage.html">Storage &amp; Persistence</a>.</p>
+
+  <h2 id="pipeline">The import pipeline</h2>
+  <p><code>importFile(file, options?)</code> runs one file through nine fixed steps. Every step is
+  fail-fast and returns a structured <code>ImportError</code> rather than throwing, which lets the
+  multi-file import dialog collect per-file outcomes:</p>
+  <ol class="steps">
+    <li><b>Reject empty files</b><span>only <code>file.size === 0</code> is rejected, with
+    <code>'The selected file is empty (0 bytes.)'</code>. There is no hard maximum size — see the
+    warning callout below.</span></li>
+    <li><b>Detect format</b><span><code>detectFormatFromFilename(file.name)</code> looks the extension
+    up in the format registry (<a href="formats.html">Formats</a>). Unknown extensions return an error
+    listing every supported extension via <code>getAllSupportedExtensions()</code>.</span></li>
+    <li><b>Read the buffer</b><span><code>readFileAsArrayBuffer(file)</code> — needed for hashing and,
+    for binary formats, kept as the stored payload.</span></li>
+    <li><b>Hash it</b><span><code>computeHash()</code> produces the <code>contentHash</code>: SHA-256
+    via <code>crypto.subtle.digest</code>, rendered as hex
+    (<code>src/utils/index.ts</code>).</span></li>
+    <li><b>Dedup</b><span>unless <code>forceImport</code> is set, <code>findBookByHash(hash)</code>
+    checks the library; a match short-circuits to
+    <code>{ success: true, isDuplicate: true, existingBookId }</code>.</span></li>
+    <li><b>Allocate an id</b><span><code>generateId()</code> — a UUID v4
+    (<code>crypto.randomUUID()</code> with a fallback).</span></li>
+    <li><b>Parse</b><span><code>formatDef.parse(file, { autoDetectChapters, textEncoding })</code>
+    produces metadata, a table of contents, chapters and optionally a cover. Parsing failures are
+    reported as <code>&quot;Failed to parse &lt;FORMAT&gt; file: …&quot;</code>. Format-specific
+    behavior is documented in <a href="formats.html">Formats</a>.</span></li>
+    <li><b>Build the records</b><span>a normalized <code>Book</code> and a
+    <code>BookContent</code> (field defaults in <a href="#defaults">Import defaults</a>;
+    <code>originalFile</code> is the parser-delivered binary or the raw buffer when the format
+    declares <code>requiresOriginalFile</code>).</span></li>
+    <li><b>Persist atomically</b><span><code>saveBookBundle(book, content, coverData?)</code> writes
+    everything in one IndexedDB transaction; on abort the whole import is rolled back
+    (<a href="storage.html#atomic-transactions">Storage → Atomic transactions</a>).</span></li>
+  </ol>
+  <pre><code class="language-ts">// The result union you get back:
+interface ImportSuccess {
+  success: true;
+  book: Book;              // the imported record — or the EXISTING book for duplicates
+  isDuplicate: boolean;
+  existingBookId?: string; // set only when isDuplicate is true
+}
+interface ImportError { success: false; error: string; }
+type ImportResult = ImportSuccess | ImportError;
+
+interface ImportOptions {
+  autoDetectChapters?: boolean; // default true  — TXT chapter detection
+  forceImport?: boolean;        // default false — skip the duplicate check
+  textEncoding?: string;        // optional decoder label for text formats
+}</code></pre>
+  <p>The UI layer (<code>src/components/library/ImportDialog.tsx</code>) queues multiple files,
+  surfaces per-file results, and shows a size warning once a file passes the threshold from
+  settings.</p>
+
+  <h2 id="validation">Size validation and the warning threshold</h2>
+  <p>Validation is deliberately minimal:</p>
+  <div class="callout callout--info">
+    <div class="callout__label">NO HARD SIZE CAP</div>
+    <p>The only rejection based on size is <strong>0 bytes</strong>. Large files are handled by an
+    advisory, not a gate: when a file exceeds <code>UserSettings.importSizeWarningMB</code>
+    (default <strong>50 MB</strong>, clamped to 1–5000 in the settings UI) the import dialog shows a
+    warning, and you can still proceed. Full-binary parsing of big EPUB/PDF/CBZ files happens
+    entirely in the browser, so the practical limiter is memory, not code — as advice, import
+    multi-hundred-MB files one at a time and consider whether you need the original binary at all
+    before turning on formats that keep it.</p>
+  </div>
+
+  <h2 id="dedup">Deduplication &amp; <code>forceImport</code></h2>
+  <p>The dedup key is the <strong>SHA-256 of the file bytes</strong>, stored on the book as
+  <code>contentHash</code> and indexed in IndexedDB. Consequences worth internalizing:</p>
+  <ul>
+    <li><strong>Byte-identical files dedup.</strong> The result is still <code>success: true</code>,
+    but <code>isDuplicate</code> carries the existing book — the dialog highlights this case rather
+    than adding a second copy.</li>
+    <li><strong>Any byte change breaks dedup.</strong> Re-saving a TXT with a different newline
+    convention or an EPUB with repacked metadata yields a different hash and imports as a new book.
+    If you expect "same book, repacked" to dedup, it will not — the hash is of the file, not the
+    title or ISBN.</li>
+    <li><strong><code>forceImport: true</code></strong> skips step 5 entirely, producing a genuine
+    second copy with its own id. The restore path (below) does the analogous check against both
+    <code>id</code> and <code>contentHash</code>.</li>
+  </ul>
+
+  <h2 id="defaults">Import defaults on the Book record</h2>
+  <p><code>createBook()</code> normalizes whatever the parser produced against these rules:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Value at import</th></tr></thead>
+    <tbody>
+      <tr><td><code>title</code></td><td>Parser metadata title, else derived from the filename: extension stripped, runs of <code>_</code> <code>-</code> <code>.</code> collapsed to spaces, trimmed; empty result falls back to <code>'Untitled'</code>. So <code>the_great_chase.final.txt</code> → <em>the great chase final</em>.</td></tr>
+      <tr><td><code>author</code></td><td>Parser metadata, else <code>'Unknown Author'</code></td></tr>
+      <tr><td><code>description</code> / <code>language</code> / <code>publisher</code> / <code>publicationDate</code> / <code>identifiers</code></td><td>Parser values or empty defaults (<code>''</code> / <code>{}</code>)</td></tr>
+      <tr><td><code>userTags</code></td><td><code>[]</code></td></tr>
+      <tr><td><code>userRating</code></td><td><code>null</code></td></tr>
+      <tr><td><code>favorite</code> / <code>archived</code></td><td><code>false</code></td></tr>
+      <tr><td><code>readingStatus</code></td><td><code>'unread'</code></td></tr>
+      <tr><td><code>lastOpenedAt</code></td><td><code>null</code> — set on first open by the progress hook</td></tr>
+      <tr><td><code>totalChapters</code></td><td><code>tableOfContents.length</code>, falling back to <code>1</code></td></tr>
+      <tr><td><code>importedAt</code> / <code>updatedAt</code></td><td>Both set to the same <code>Date.now()</code> stamp</td></tr>
+      <tr><td><code>coverImage</code> / <code>originalCoverImage</code></td><td>Parser cover (or absent); the original import cover is preserved as the reset target for later user edits — see <a href="data-model.html#book">Data Model → Book</a></td></tr>
+    </tbody>
+  </table></div>
+  <p>On <code>BookContent</code>: <code>chapters</code> and <code>rawText</code> come from the parser
+  (TXT keeps raw text so chapter detection can be re-run), and <code>originalFile</code> holds the
+  binary for EPUB/PDF/CBZ — either the parser's own payload or, when none, the raw array buffer if
+  the format declared <code>requiresOriginalFile</code>.</p>
+
+  <h2 id="backup-download">Downloading a library backup</h2>
+  <p><code>downloadLibraryBackup()</code> calls <code>exportBackup()</code>, serializes with
+  <code>JSON.stringify(backup, null, 2)</code>, and triggers a download named
+  <code>webxreader-backup-YYYY-MM-DD.json</code> (UTC date from the current timestamp). The blob is
+  typed <code>application/json</code> and its object URL is revoked 2 seconds after the synthetic
+  anchor click. The full field-by-field spec of the JSON lives in
+  <a href="data-model.html#backupdata">Data Model → BackupData</a>; version-specific differences are
+  what matter here:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Aspect</th><th>Version 1</th><th>Version 2 (current)</th></tr></thead>
+    <tbody>
+      <tr><td><code>contents</code> array</td><td>absent — backups carry metadata, progress, bookmarks, annotations and settings only</td><td>present — JSON-safe payloads per book</td></tr>
+      <tr><td>Binary original files (EPUB/PDF/CBZ)</td><td>not representable</td><td><code>originalFileBase64</code> per content record</td></tr>
+      <tr><td>Text payloads</td><td>not representable</td><td><code>rawText</code> / <code>chapters</code> per content record</td></tr>
+      <tr><td>Accepted by restore</td><td>yes</td><td>yes</td></tr>
+      <tr><td>Restore when no matching <code>contents</code> entry exists</td><td>Book restores without a body, and an error string <em>is</em> pushed ("Backup does not contain content for …")</td><td>Book restores without a body, with no error string</td></tr>
+    </tbody>
+  </table></div>
+  <p>Internally, binaries are encoded by <code>toBase64</code> in <strong>0x8000-byte (32 KiB)
+  chunks</strong> accumulated through <code>String.fromCharCode</code> before one <code>btoa</code>
+  call — chunking avoids blowing the call stack on large arguments; decoding is the mirror operation
+  (<code>atob</code> plus an explicit byte-wise copy into a new <code>ArrayBuffer</code>). The exact
+  helpers are shown in <a href="storage.html#base64">Storage → base64 encoding helpers</a>.</p>
+  <p>The filename logic, verbatim in intent:</p>
+  <pre><code class="language-ts">const dateStr = new Date().toISOString().split('T')[0];          // UTC date
+const filename = `webxreader-backup-${dateStr}.json`;             // e.g. webxreader-backup-2027-10-30.json
+const json = JSON.stringify(backup, null, 2);                     // pretty-printed, 2-space indent
+const blob = new Blob([json], { type: 'application/json' });
+// synthetic &lt;a download&gt; click; object URL revoked after 2 seconds</code></pre>
+  <details><summary>Can you hand-edit a backup file?</summary>
+  <p>Yes, within limits — restore validation is structural, not cryptographic. Practical guidance:
+  <ul>
+    <li>You may <strong>remove</strong> whole entries from <code>books</code>, <code>progress</code>,
+    <code>bookmarks</code>, <code>annotations</code> or <code>bookSettings</code>; orphaned
+    child records for removed books are filtered out automatically during restore anyway.</li>
+    <li>You may edit text fields such as titles, tags or note strings.</li>
+    <li>You must keep the structure intact: version (<code>1</code> or <code>2</code>), the
+    <code>exportedAt</code> number, all top-level arrays present (possibly empty), and every book's
+    <code>id</code>, <code>title</code>, <code>contentHash</code> and <code>sourceFormat</code> —
+    <code>isBookRecord()</code> rejects anything else, and a malformed book is skipped rather than
+    imported.</li>
+    <li>Never hand-edit <code>originalFileBase64</code> — a stray character corrupts the binary
+    payload, and the decode failure fails the whole restore.</li>
+    <li>Be aware that imported files you change this way still do not re-derive
+    <code>contentHash</code>, so a *modified title* book retains its real dedup identity.</li>
+  </ul>
+  </details>
+
+  <p>The UI layer (<code>src/components/library/ImportDialog.tsx</code>) wraps the service in a
+  multi-file workflow — see <a href="#queue">The import dialog</a>.</p>
+
+  <h2 id="errors">The error catalog</h2>
+  <p>Every failure path in <code>importFile</code> produces a single-line, human-readable
+  <code>error</code> string. Knowing the exact catalog makes UI and test expectations precise:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Condition</th><th>Emitted error</th><th>Retryable how?</th></tr></thead>
+    <tbody>
+      <tr><td><code>file.size === 0</code></td><td><code>The selected file is empty (0 bytes.)</code></td><td>Gives the user a real, non-empty file</td></tr>
+      <tr><td>Extension not in the registry</td><td><code>Unsupported file type: "&lt;ext&gt;". Supported formats: &lt;all extensions listed&gt;</code></td><td>Rename with a supported extension only if the content truly matches it</td></tr>
+      <tr><td><code>readFileAsArrayBuffer</code> throws</td><td><code>Failed to read file: &lt;message&gt;</code></td><td>Usually permissions or an unreadable device; try re-adding the file</td></tr>
+      <tr><td><code>formatDef.parse</code> throws</td><td><code>Failed to parse &lt;FORMAT&gt; file: &lt;message&gt;</code></td><td>Corrupt or malformed source; verify the file opens elsewhere (see <a href="formats.html">Formats</a>)</td></tr>
+      <tr><td><code>saveBookBundle</code> rejects</td><td><code>Failed to save book: &lt;message&gt;</code> — commonly the rolled-back-transaction message</td><td>Typically quota pressure; free space or reduce storage, then retry</td></tr>
+      <tr><td>Anything outside the guarded steps</td><td><code>Import failed unexpectedly: &lt;message&gt;</code></td><td>Report — this indicates an unhandled case in the pipeline itself</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout callout--warning">
+    <div class="callout__label">ERRORS, NOT EXCEPTIONS</div>
+    <p>Expected failures are <strong>never</strong> thrown across the service boundary —
+    <code>importFile</code> resolves with <code>{ success: false, error }</code>. Only genuinely
+    unexpected conditions land in the catch-all branch. Callers should branch on
+    <code>result.success</code>, not on try/catch.</p>
+  </div>
+
+  <h2 id="queue">The import dialog queue</h2>
+  <p>ImportDialog maintains a file queue rather than one-at-a-time processing: you can drop a whole
+  folder's worth of mixed-format files, and each entry resolves to its own
+  <code>ImportResult</code> so one bad file does not abort the batch. Two settings-driven behaviors
+  per entry:</p>
+  <ul>
+    <li>A <strong>size warning</strong> appears when a file exceeds
+    <code>settings.importSizeWarningMB</code> (default 50 MB) — advisory only, and the threshold is
+    configurable 1–5000.</li>
+    <li>Dedup results get a dedicated modal: on <code>isDuplicate</code> the dialog opens a
+    <strong>"Duplicate Book Detected"</strong> panel naming the existing book — "A book with matching
+    content already exists in your library" — and offers either skipping or importing anyway
+    (the latter re-invokes <code>importFile</code> with <code>forceImport: true</code> for that
+    file). Queue rows afterwards are labeled <em>Imported</em>, <em>Skipped duplicate</em>, or
+    <em>Failed</em>.</li>
+  </ul>
+  <p>Under the hood the queue relies on the same primitives featured in the pipeline table above —
+  the mechanics are unchanged per file.</p>
+
+  <h2 id="hashing">Hash &amp; id helpers behind the pipeline</h2>
+  <p>Two tiny utilities from <code>src/utils/index.ts</code> carry all of the identity semantics —
+  worth reading in full because so much downstream behavior (dedup, restore skipping, cascade
+  deletes) keys off their outputs:</p>
+  <pre><code class="language-ts">// Identity: UUID v4, with a string-template fallback for older environments
+export function generateId(): string {
+  if (typeof crypto !== 'undefined' &amp;&amp; crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) =&gt; {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r &amp; 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// Dedup identity: SHA-256 of the exact file bytes, as a hex string
+export async function computeHash(data: ArrayBuffer): Promise&lt;string&gt; {
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) =&gt; b.toString(16).padStart(2, '0')).join('');
+}</code></pre>
+  <details><summary>Why hash the raw file instead of parsed content?</summary>
+  <p>Hashing the <code>ArrayBuffer</code> before parsing keeps the check format-agnostic and cheap —
+  the digest of the same file is deterministic no matter which parser would have handled it, and the
+  result doubles as a stable, indexable string column on every <code>Book</code>. Hashing parsed
+  chapter text instead would mean running the full parser just to detect a duplicate, and would
+  make binary formats (EPUB, PDF, CBZ) awkward to fingerprint meaningfully. The trade-off, as noted
+  in <a href="#dedup">dedup</a>, is that semantics-equal files with byte differences count as
+  different books.</p>
+  </details>
+
+  <h3 id="backup-format">The backup format by example</h3>
+  <p>A minimal, valid version-1 backup text books restore cleanly from (shortened hashes, two
+  chapters):</p>
+  <pre><code class="language-json">{
+  "version": 1,
+  "exportedAt": 1767139200000,
+  "appVersion": "1.0.0",
+  "books": [
+    {
+      "id": "3f2b8f4a-9c1e-4d02-b6a7-8e5f0a1c2d3e",
+      "title": "Short Story Notes",
+      "author": "Unknown Author",
+      "description": "",
+      "language": "en",
+      "publisher": "",
+      "publicationDate": "",
+      "identifiers": {},
+      "sourceFormat": "txt",
+      "originalFilename": "short-story-notes.txt",
+      "fileSize": 4311,
+      "contentHash": "9f2a...7e",
+      "importedAt": 1767049200000,
+      "updatedAt": 1767049200000,
+      "userTags": [],
+      "userRating": null,
+      "favorite": false,
+      "archived": false,
+      "readingStatus": "reading",
+      "lastOpenedAt": 1767120000000,
+      "tableOfContents": [
+        { "id": "ch-1", "title": "Opening", "level": 0, "order": 0 },
+        { "id": "ch-2", "title": "The Turn", "level": 0, "order": 1 }
+      ],
+      "totalChapters": 2
+    }
+  ],
+  "progress": [
+    {
+      "bookId": "3f2b8f4a-9c1e-4d02-b6a7-8e5f0a1c2d3e",
+      "chapterId": "ch-2",
+      "chapterProgress": 0.4,
+      "overallProgress": 0.62,
+      "scrollPosition": 8123,
+      "pageIndex": 0,
+      "readingMode": "scroll",
+      "lastUpdatedAt": 1767120000000
+    }
+  ],
+  "bookmarks": [],
+  "annotations": [],
+  "settings": {
+    "id": "global",
+    "theme": "sepia",
+    "defaultReadingMode": "scroll",
+    "fontFamily": "Georgia, serif",
+    "fontSize": 18,
+    "lineHeight": 1.7,
+    "paragraphSpacing": 1.0,
+    "letterSpacing": 0,
+    "wordSpacing": 0,
+    "textAlign": "left",
+    "textIndent": 0,
+    "maxContentWidth": 720,
+    "contentMargin": 24,
+    "libraryLayout": "grid",
+    "librarySortField": "importedAt",
+    "librarySortDirection": "desc",
+    "customBookOrder": [],
+    "autoDetectChapters": true,
+    "importSizeWarningMB": 50,
+    "updatedAt": 1767050000000
+  },
+  "bookSettings": []
+}</code></pre>
+  <p>The same book under version 2 gains the content payload — <code>contents</code> with
+  <code>rawText</code> for text formats or <code>originalFileBase64</code> for EPUB/PDF/CBZ
+  (fabricated short value here):</p>
+  <pre><code class="language-json">{
+  "version": 2,
+  "exportedAt": 1767139200000,
+  "appVersion": "1.0.0",
+  "books": [ { "id": "3f2b8f4a-…", "title": "Short Story Notes", "sourceFormat": "txt", "contentHash": "9f2a...7e" } ],
+  "progress": [],
+  "bookmarks": [],
+  "annotations": [],
+  "bookSettings": [],
+  "settings": { "id": "global", "theme": "sepia" },
+  "contents": [
+    {
+      "bookId": "3f2b8f4a-9c1e-4d02-b6a7-8e5f0a1c2d3e",
+      "format": "txt",
+      "rawText": "Opening\n\nIt began, as most conclusions do, in reverse…"
+    }
+  ]
+}</code></pre>
+  <pre><code class="language-json">{
+  "version": 2,
+  "exportedAt": 1767139200000,
+  "appVersion": "1.0.0",
+  "books": [ { "id": "b1c2d3e4-…", "title": "Vintage Atlas", "sourceFormat": "epub", "contentHash": "1c4f...ab" } ],
+  "progress": [],
+  "bookmarks": [],
+  "annotations": [],
+  "bookSettings": [],
+  "settings": { "id": "global", "theme": "dark" },
+  "contents": [
+    {
+      "bookId": "b1c2d3e4-5678-4abc-9def-112233445566",
+      "format": "epub",
+      "originalFileBase64": "AAAA"
+    }
+  ]
+}</code></pre>
+  <div class="callout callout--danger">
+    <div class="callout__label">KNOWN GAP: HARDCODED appVersion</div>
+    <p><code>exportBackup()</code> stamps <code>appVersion: '1.0.0'</code> verbatim, while
+    <code>package.json</code> reads <code>0.0.0</code>. The field is informational — restore
+    validation keys off <code>version</code> (the format version), never <code>appVersion</code> —
+    but be aware that any tooling or provenance logic reading <code>appVersion</code> sees a value
+    that does not track the actual release.</p>
+  </div>
+
+  <h2 id="restore">Restoring a backup</h2>
+  <p><code>restoreLibraryBackup(file)</code> reads the file as text, <code>JSON.parse</code>s it (a
+  parse failure surfaces as <code>"Failed to parse backup file: …"</code>) and hands the object to
+  <code>restoreBackup()</code> in <code>database.ts</code>. The step-by-step mechanics are in
+  <a href="storage.html#restore">Storage → The restore path</a>; the user-visible contract:</p>
+  <ul>
+    <li><strong>Restore is additive and duplicate-safe.</strong> Books whose <code>id</code> or
+    <code>contentHash</code> already exists are skipped and noted in the returned
+    <code>errors</code> strings — resetting your library first is <em>not</em> required, and skipping
+    is reported as information, not failure.</li>
+    <li><strong>Everything per-book is scoped to restorable books.</strong> Progress records,
+    bookmarks, annotations and per-book settings only re-attach if their <code>bookId</code> belongs
+    to a book that survived dedup, so nothing references a book that is not there.</li>
+    <li><strong>The restore is one atomic transaction.</strong> Any error aborts and rolls back all
+    writes; partial installs are impossible. Global settings are applied afterwards, on success
+    only.</li>
+    <li><strong>Version handling.</strong> Both v1 and v2 envelopes are accepted; v1 books restore
+    their metadata and annotations but no bodies — appropriate for metadata-only backups.</li>
+    <li><strong>Content is sanitized.</strong> Every restored chapter body passes
+    <code>sanitizeReaderHtml()</code>; the security reasoning is in
+    <a href="storage.html#restore">Storage → restore path</a>.</li>
+  </ul>
+  <div class="callout callout--warning">
+    <div class="callout__label">TITLES CAN RESOLVE DIFFERENTLY / COVERS DO NOT TRAVEL</div>
+    <p>Two practical notes when moving between devices: restored books keep their stored
+    <code>readingStatus</code> and progress, so do <em>not</em> expect them to show as unread; and
+    <code>BackupData</code> has no cover field — covers regenerate only where the format provides
+    them, so a restored book may briefly lack a cover image until appropriate handling regenerates
+    one.</p>
+  </div>
+
+  <h2 id="download-original">Exporting a single book</h2>
+  <p><code>downloadOriginalBook(bookId)</code> grabs the book and its content record and picks the
+  best available representation — this is the "export original" action in the library UI:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Priority</th><th>Source payload</th><th>Download</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>content.originalFile</code></td><td>The original binary, typed via <code>getFormatMimeType(book.sourceFormat)</code>; filename is <code>book.originalFilename</code></td></tr>
+      <tr><td>2</td><td><code>content.rawText</code></td><td>Plain text, <code>text/plain;charset=utf-8</code></td></tr>
+      <tr><td>3</td><td><code>content.chapters</code></td><td>Reconstructed text: chapter titles prefixed, HTML tags stripped via <code>/&lt;[^&gt;]+&gt;/g</code> → <code>'\n'</code>, runs of 3+ newlines collapsed to a blank line, chapters joined with <code>'\n\n--- \n\n'</code></td></tr>
+      <tr><td>—</td><td>none of the above</td><td>throws <code>'No exportable content available for this book.'</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>Missing book or content records throw
+  <code>&quot;Book or book content not found&quot;</code>. Note the asymmetry with the dedup discussion:
+  this reconstruction path is why even v1-backup-restored TXT books (no <code>rawText</code>, but
+  <code>chapters</code> present) can still be exported — they just export as <strong>reconstructed
+  plain text, not the original file</strong>.</p>
+
+  <h2 id="workflows">Practical workflows</h2>
+  <ol class="steps">
+    <li><b>Set up a backup habit</b><span>Export a JSON backup after significant import or highlight
+    sessions, and archive the file somewhere the browser cannot evict. As advice, add the date from
+    the filename to your diligence check rather than overwriting one file — versions accumulate.</span></li>
+    <li><b>Move to a new device</b><span>Export v2 on the old browser, then restore on the new one.
+    Restored books keep their ids and hashes, so — after optionally importing the same files if you
+    did not back up contents — dedup will not create double copies.</span></li>
+    <li><b>Replace a book's file</b><span>There is no replace-in-place path. Import with
+    <code>forceImport</code> (or after editing the old copy out), accepting that a second library
+    entry exists; bookmarks and annotations do not migrate between the two ids.</span></li>
+    <li><b>Test round-trips</b><span>Import → annotate → export → delete book → restore is the
+    shortest loop that exercises hash dedup, restore sanitization, and error reporting at once. The
+    automated equivalents live in the storage and backup suites — see
+    <a href="testing.html">Testing &amp; Quality</a>.</span></li>
+  </ol>
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

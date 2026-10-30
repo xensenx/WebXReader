@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Library &amp; Metadata — WebXReader Documentation</title>
+  <meta name="description" content="Inside LibraryView: filters, sorting, drag-and-drop ordering, bulk selection, the book details dialog, cover editor, and import queue.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Library &amp; Metadata</h1>
+  <p class="lede">The library is the app's home screen and its most stateful view. This chapter walks
+  through <code>LibraryView</code> composition, the view-state persistence layer, the custom
+  drag-and-drop ordering algorithm, bulk operations, the details dialog with its cover editor, and
+  the import dialog queue — everything between "books in IndexedDB" and "books on screen".</p>
+
+  <h2 id="composition">Composition map</h2>
+  <p><code>src/components/library/LibraryView.tsx</code> is the orchestrator (~1,080 lines) and owns
+  nearly all view state. It composes these children:</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Component (src/components/library/)</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td><code>LibraryToolbar.tsx</code></td><td>Search box, filter chips, sort selector, layout toggle, selection entry points, import button.</td></tr>
+      <tr><td><code>BookCard.tsx</code></td><td>Grid item: cover image (or fallback with the title's initial + format label), progress bar, selection semantics, keyboard activation, drag pointer handling. Has its own <code>onKeyDown</code> handler.</td></tr>
+      <tr><td><code>BookList.tsx</code></td><td>List rows for the list layout: compact row with title/author/progress; also has an <code>onKeyDown</code> activation handler.</td></tr>
+      <tr><td><code>ImportDialog.tsx</code></td><td>Multi-file import queue with per-file status (see <a href="#import-dialog">below</a>).</td></tr>
+      <tr><td><code>BookDetailsDialog.tsx</code></td><td>Metadata editing, tags, rating, favorite/archive/status, cover editor (see <a href="#details-dialog">below</a>).</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Data comes from one hook: <code>useBooks()</code>, which returns
+  <code>{ books: LibraryBook[], loading, error, refreshBooks, removeBook, removeBooks, toggleFavorite,
+  updateReadingStatus, toggleArchive }</code>. <code>LibraryBook = Book &amp; { readingProgress }</code>
+  with the progress derived from the progress store — never persisted as part of the book record
+  (see <a href="architecture.html#hooks">Architecture</a> for the caching details).</p>
+
+  <div class="callout callout--info">
+    <div class="callout__label">ACTIVATION PATTERN</div>
+    <p><strong>Fact:</strong> accessible button/card activation is implemented directly in
+    <code>LibraryView.tsx</code>, with matching <code>onKeyDown</code> handlers in
+    <code>BookCard.tsx</code> and <code>BookList.tsx</code> — cards are real focusable elements
+    (<code>tabIndex 0</code>) that act on <kbd>Enter</kbd> and <kbd>Space</kbd>, and double as
+    <code>role="checkbox"</code> with <code>aria-checked</code> during selection mode. <em>Advice:</em>
+    copy this pattern (role swap + key handling on the container, guarded by
+    <code>e.target !== e.currentTarget</code>) for new selectable library artifacts instead of
+    layering a nested button.</p>
+  </div>
+
+  <h2 id="view-state">View state: search, filter, sort, layout</h2>
+  <p>The library remembers itself across navigation using
+  <code>src/features/library/library-state.ts</code>, which exports
+  <code>getLibraryViewState</code>, <code>saveLibraryViewState</code>,
+  <code>updateLibraryScroll</code>, and <code>clearLibraryViewState</code>. State lives in
+  <code>sessionStorage</code> under the key <code>webxreader_library_view_state</code>, mirrored in a
+  module-level in-memory copy for synchronous reads during component lifecycles.</p>
+
+  <p><code>LibraryViewState</code> is:</p>
+  <pre><code class="language-ts">{
+  scrollY: number;          // clamped to >= 0, rounded
+  lastOpenedBookId?: string | null;
+  searchQuery: string;
+  filter: LibraryFilter;    // defaults back to 'all' if unrecognized
+  timestamp: number;        // set to Date.now() on every save
+}</code></pre>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Piece of state</th><th>Type</th><th>Where it persists</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Search</td><td><code>searchQuery</code></td><td>sessionStorage (view state)</td><td>Restored on next mount so returning from a book keeps the query.</td></tr>
+      <tr><td>Filter</td><td><code>LibraryFilter</code>: <code>'all' | 'reading' | 'unread' | 'completed' | 'favorites' | 'archived'</code></td><td>sessionStorage (view state)</td><td>Failed parses silently fall back to <code>'all'</code>.</td></tr>
+      <tr><td>Sort field / direction</td><td><code>librarySortField</code>, <code>librarySortDirection</code> on <code>UserSettings</code></td><td>IndexedDB settings row</td><td>Long-lived preference, not session state — see <a href="#sorting">sorting</a>.</td></tr>
+      <tr><td>Layout</td><td><code>'grid' | 'list'</code></td><td>IndexedDB settings row</td><td>Chosen in the toolbar.</td></tr>
+      <tr><td>Custom order</td><td><code>customBookOrder?: string[]</code></td><td>IndexedDB settings row</td><td>Only consulted when <code>librarySortField === 'custom'</code>.</td></tr>
+      <tr><td>Scroll position</td><td><code>scrollY</code></td><td>sessionStorage (view state)</td><td><code>updateLibraryScroll</code> clamps and rounds; unmount scroll events are gated so a leaving view doesn't clobber the saved value with 0.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>The settings page does the same for itself through
+  <code>src/components/settings/settingsScrollRestoration.ts</code>, which additionally records an
+  anchor element id and its offset so long settings pages restore to the exact section. All of these
+  writers swallow storage exceptions — degraded persistence never breaks rendering.</p>
+
+  <div class="callout callout--info">
+    <div class="callout__label">WHY SESSIONSTORAGE AND NOT THEME-LIKE PERSISTENCE</div>
+    <p>View state is <em>contextual</em>: it should die with the tab. Sorting, layout and book order
+    are <em>preferences</em>: they belong in the settings document so they survive restarts. Keep new
+    library state on the correct side of that line.</p>
+  </div>
+
+  <h2 id="lifecycle">Lifecycle</h2>
+  <p>Conceptual flow on each mount:</p>
+  <ol class="steps">
+    <li><b>Mount</b><span><code>LibraryView</code> reads the persisted view state synchronously (memory first, sessionStorage fallback) to seed search query and filter.</span></li>
+    <li><b>Hydrate books</b><span><code>useBooks()</code> loads <code>listBooks()</code> and <code>listProgress()</code> in parallel, derives <code>readingProgress</code> per book (forced to <code>1</code> for <code>completed</code> status), and re-reads covers from the covers store when <code>coverImage</code> is not a <code>data:</code>/<code>blob:</code> URL.</span></li>
+    <li><b>Hydrate settings</b><span>Layout, sort field/direction, and <code>customBookOrder</code> arrive via <code>SettingsContext</code>; a <code>useEffect</code> copies new <code>customBookOrder</code> values into local state when they exist.</span></li>
+    <li><b>Apply ordering pipeline</b><span>filter → search → sort → custom-order overlay produce the rendered list.</span></li>
+    <li><b>User interaction</b><span>sorts/filters write back to <code>UserSettings</code>, scrolls update the session state, and the cycle continues without remounting.</span></li>
+  </ol>
+
+  <h2 id="sorting">Sorting and the custom order field</h2>
+  <p>Sort configuration is a pair of <code>UserSettings</code> fields:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Setting</th><th>Values</th><th>Default</th></tr></thead>
+    <tbody>
+      <tr><td><code>librarySortField</code></td><td><code>'custom' | 'title' | 'author' | 'importedAt' | 'lastOpenedAt' | 'progress'</code></td><td><code>'importedAt'</code></td></tr>
+      <tr><td><code>librarySortDirection</code></td><td><code>'asc' | 'desc'</code></td><td><code>'desc'</code></td></tr>
+      <tr><td><code>customBookOrder</code></td><td><code>string[]</code> of book ids</td><td><code>[]</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <p><code>library-custom-order.test.ts</code> (<a href="testing.html#library-custom-order">Testing
+  &amp; Quality</a>) locks this behavior. The key rule: <strong>when
+  <code>librarySortField !== 'custom'</code>, the order array is ignored entirely</strong>, so a
+  one-time drag does not get reverted by a later re-sort — both simply stop interacting. Dragging a
+  card automatically switches the sort field to <code>'custom'</code>:
+  <code>updateSettings({ librarySortField: 'custom', customBookOrder: finalOrder })</code> happens at
+  drop time.</p>
+
+  <h2 id="drag-order">Custom drag-and-drop ordering, conceptually</h2>
+  <p><code>LibraryView</code> implements ordering without any drag-and-drop library. The mechanism has
+  three cooperating parts:</p>
+  <ol class="steps">
+    <li><b>Pointer capture</b><span><code>onPointerDown</code> on a card calls
+    <code>e.currentTarget.setPointerCapture(e.pointerId)</code>, so the entire gesture — including
+    pointers that leave the card — keeps delivering events to the dragged element. No global mousemove
+    listeners on <code>window</code>, no event leakage between simultaneous gestures.</span></li>
+    <li><b>FLIP hit-testing</b><span>The current visual positions of the cards are captured before the
+    drag perturbs layout (the code comments call this out at the top of the interaction block). Cards'
+    <em>layout slots</em> move immediately while a FLIP transform visually translates each card from
+    its old position; hit-testing against the captured rectangles decides which neighbor a dragged
+    card previews as its target slot.</span></li>
+    <li><b>Persist on drop</b><span>The final order is written via
+    <code>updateSettings({ librarySortField: 'custom', customBookOrder: finalOrder })</code>, then the
+    local copy is explicitly reset from <code>settings.customBookOrder ?? []</code> so the persisted
+    source of truth and the visual order are re-anchored in the same tick. Recent commits
+    (<code>fix(library): stabilize drag reorder previews</code>) hardened this area — it is
+    deliberately subtle.</span></li>
+  </ol>
+
+  <div class="callout callout--tip">
+    <div class="callout__label">ADVICE: EXTENDING THE ORDERING</div>
+    <p>Because both layouts consume the same ordered id list, the mechanism works with the
+    <strong>grid and the list</strong> alike — keep any new layout reading the same effective-order
+    helper instead of re-sorting locally. If you touch the FLIP code, run
+    <code>vitest run src/test/library-custom-order.test.ts</code> and test with a real pointer drag,
+    since the unit tests cover the ordering function, not the gesture.</p>
+  </div>
+
+  <h2 id="bulk">Bulk selection</h2>
+  <p>Selection state is a <code>Set&lt;string&gt;</code> of book ids in <code>LibraryView</code>.
+  While active, cards switch to <code>role="checkbox"</code> semantics; a bulk action bar renders with
+  a count line ("<strong>N</strong> book selected / books selected") and the following operations:</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Bulk action</th><th>Implementation</th></tr></thead>
+    <tbody>
+      <tr><td>Delete</td><td>Opens a <code>ConfirmDialog</code> ("Delete N book(s)?") warning that all reading progress, bookmarks and annotations are removed from the device; then <code>removeBooks(ids)</code>, deleting one by one with a final refresh.</td></tr>
+      <tr><td>Favorite</td><td>Toggles favorite across all currently selected books (looped updates through <code>updateBook</code>).</td></tr>
+      <tr><td>Archive / Unarchive</td><td>Label flips based on whether every selected book is already archived.</td></tr>
+      <tr><td>Status: mark reading / mark unread</td><td>Disabled unless at least one selected book isn't already in the target state.</td></tr>
+      <tr><td>Clear selection</td><td>Negative-state ghost button.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Buttons use availability derived from the selected set (e.g. "Unarchive" vs "Archive" based on
+  <code>selectedBooks.every(book =&gt; book.archived)</code>) rather than relying on the user to
+  interpret disabled state. Failures alert with the underlying error message.</p>
+
+  <h2 id="book-card">Anatomy of a book card / list row</h2>
+  <ul>
+    <li><strong>Cover:</strong> <code>&lt;img loading="lazy" draggable={false}&gt;</code> when
+    <code>coverImage</code> exists, otherwise a fallback tile with the uppercased initial of
+    <code>book.title</code> and the <code>sourceFormat</code> label.</li>
+    <li><strong>Reading progress:</strong> computed as a rounded percentage. The rule in
+    <code>BookCard</code>: trivially 100 for <code>'completed'</code>, 0 for <code>'unread'</code>,
+    otherwise the derived <code>readingProgress</code> clamped to 0–1 and multiplied by 100. Cards
+    render a thin progress bar beneath the cover.</li>
+    <li><strong>Selection state:</strong> a <code>selected</code> modifier class and the
+    <code>aria-checked</code> wiring described above; dragging adds a
+    <code>cardDragging</code> class and the dragged cover is marked
+    <code>data-drag-preview</code> for the FLIP system.</li>
+    <li><strong>Keyboard:</strong> <kbd>Enter</kbd>/<kbd>Space</kbd> activate the card (open details or
+    enter selection depending on current mode) — <kbd>Esc</kbd> exits selection when handled by the
+    container (<code>LibraryView</code>'s own <code>onKeyDown</code>).</li>
+  </ul>
+
+  <h2 id="details-dialog">Book details dialog</h2>
+  <p><code>BookDetailsDialog</code> opens from a card activation. It is where user-curated metadata
+  lives; the persisted <code>Book</code> fields it edits are:</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type on Book</th><th>Editing model</th></tr></thead>
+    <tbody>
+      <tr><td><code>userTags</code></td><td><code>string[]</code></td><td>Comma-separated text input, parsed on save.</td></tr>
+      <tr><td><code>userRating</code></td><td><code>number | null</code> (1–5)</td><td>Star control; unset stays <code>null</code>.</td></tr>
+      <tr><td><code>favorite</code></td><td><code>boolean</code></td><td>Toggle.</td></tr>
+      <tr><td><code>archived</code></td><td><code>boolean</code></td><td>Toggle — archived books appear only under the <code>archived</code> filter.</td></tr>
+      <tr><td><code>readingStatus</code></td><td><code>'unread' | 'reading' | 'completed'</code></td><td>Instant, goes through <code>updateBook</code>; also drives card progress display rules.</td></tr>
+      <tr><td><code>coverImage</code></td><td><code>string?</code></td><td>Cover editor — next section.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Read-only facts are shown alongside: original filename, size (via
+  <code>formatFileSize</code>), import date, language, publisher and publication date, plus the
+  <code>contentHash</code>-driven dedup identity built at import (<a href="import-export.html">Import
+  &amp; Backup</a>). The dialog always reports which format the book is
+  (<code>sourceFormat</code>) so you know why some tab sections differ.</p>
+
+  <h2 id="cover-editor">Cover editor</h2>
+  <p>All validation and resizing happens in <code>src/utils/cover-image.ts</code>. Constants are
+  fixed:</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Constant</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>MAX_COVER_FILE_SIZE = 20 MB</code></td><td>Files above it are rejected with "Choose an image smaller than 20 MB." (URL downloads check <code>content-length</code> too).</td></tr>
+      <tr><td><code>MAX_COVER_EDGE = 1200 px</code></td><td>Output images are downscaled so the longest edge is ≤ 1200&thinsp;px.</td></tr>
+      <tr><td><code>MAX_COVER_PIXELS = 40,000,000</code></td><td>Giant-but-legal-dimension images (decompression bombs) fail dimension validation before a canvas is touched.</td></tr>
+      <tr><td>Encoders used</td><td><code>canvas.toDataURL('image/webp', 0.86)</code> — WebP at quality 0.86 is the persisted format.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Both entry paths are exported:</p>
+  <ul>
+    <li><code>prepareCoverFile(file)</code> rejects non-<code>image/*</code> files, then decodes via
+    <code>createImageBitmap</code> when available (falling back to an <code>&lt;img&gt;</code> +
+    object URL), resizes, and returns a WebP data URL.</li>
+    <li><code>importCoverFromUrl(url)</code> accepts <strong>only <code>http:</code> or
+    <code>https:</code> URLs</strong> and refuses credentials embedded in the URL (it also drops
+    <code>credentials: 'omit'</code> on the fetch). The result is a
+    <code>CoverImageResult { data, width, height, isRemote }</code>.</li>
+  </ul>
+
+  <div class="callout callout--warning">
+    <div class="callout__label">CORS FAILURE FALLBACK (THE URL IMPORT STORY)</div>
+    <p>Many hosts serve <code>&lt;img&gt;</code> display happily but block cross-origin <em>downloads</em>.
+    When the <code>fetch</code> throws, the editor does not abort: it loads the URL in an
+    <code>&lt;img&gt;</code> just to read <code>naturalWidth/naturalHeight</code>, then keeps the
+    validated URL as-is with <code>isRemote: true</code>. Consequences: the cover renders, costs no
+    local storage, but requires network (and its availability) forever after — unlike local covers,
+    which are WebP data URLs in the covers store (<a href="storage.html">Storage &amp;
+    Persistence</a>). The input only helps if it is a <em>direct image link</em>; HTML pages are
+    rejected by content-type.</p>
+  </div>
+
+  <p>Saving the cover calls the storage pair <code>saveCover</code> / <code>updateBookAndCover</code>
+  so the cover blob and the book's reference update atomically. The dialog also tracks
+  <code>originalCoverImage</code>: the first cover ever captured at import is preserved on the book
+  (<code>Book.originalCoverImage</code>) and powers the <strong>Reset to original</strong> action.
+  The reset affordance appears only when the current cover differs from the original
+  (<code>canResetCover = coverImage !== (originalCoverImage || '')</code>), and offers
+  "Reset to default" when the book never had a cover at all.</p>
+
+  <h2 id="import-dialog">Import dialog</h2>
+  <p><code>ImportDialog</code> manages a multi-file queue and is the only importer UI — parsing itself
+  is delegated to <code>importFile</code> from
+  <code>src/features/import/import-service.ts</code> (documented step by step in
+  <a href="import-export.html">Import &amp; Backup</a>). Behaviors:</p>
+
+  <ul>
+    <li><strong>Size warning:</strong> the threshold is
+    <code>settings.importSizeWarningMB × 1024 × 1024</code>. Files over it show
+    <code>Large file (X MB). Processing locally; this may take a moment…</code> and continue rather
+    than blocking. The setting itself defaults to <strong>50</strong> and is
+    <strong>clamped to 1..5000</strong> in <code>SettingsView</code> (use
+    <code>clamp(n, 1, 5000)</code> semantics when writing to it).</li>
+    <li><strong>Queue + statuses:</strong> each file gets a status line rendered as
+    <code>Imported</code>, <code>Skipped duplicate</code> (when dedup hit an existing
+    <code>contentHash</code>), or <code>Failed</code>, driven by the
+    <code>import-service</code> result (<code>result.isDuplicate</code> plus the thrown error text).
+    Duplicates surface the existing book id/metadata so you can jump to it instead of blind
+    re-import.</li>
+    <li><strong>autoDetectChapters:</strong> checkbox mirrors the app-level
+    <code>UserSettings.autoDetectChapters</code> setting and is passed into the import call; parsing
+    honors it by splitting TXT/MD/HTML on heading patterns (<a href="formats.html">Formats &amp;
+    Parsers</a>).</li>
+  </ul>
+
+  <div class="callout callout--tip">
+    <div class="callout__label">ADVICE: TESTING IMPORT UI CHANGES</div>
+    <p><code>components.test.tsx</code> already renders <code>ImportDialog</code> with basic
+    interactions. Prefer querying <em>user-visible strings</em> ("Imported", "Failed") over internal
+    classes — Vitest's CSS Modules strategy is <code>non-scoped</code>, so class assertions work but
+    tie your test to implementation detail (<a href="testing.html#conventions">Testing &amp;
+    Quality</a>).</p>
+  </div>
+
+  <h2 id="delete-flow">Delete flow</h2>
+  <ol class="steps">
+    <li><b>Trigger</b><span>Single delete from the details dialog, or bulk delete from the selection bar; both open <code>ConfirmDialog</code> from <code>src/components/common/</code> because the operation is irreversible.</span></li>
+    <li><b>Cascade</b><span><code>deleteBook(id)</code> (in <code>core/storage/database.ts</code>) removes the book <em>and all associated rows</em>: content, reading progress, bookmarks, annotations, per-book settings, and the cover. There is no soft delete.</span></li>
+    <li><b>Refresh</b><span><code>useBooks</code> re-reads (and updates its module cache) so counts and cards update without a manual reload.</span></li>
+  </ol>
+
+  <div class="callout callout--info">
+    <div class="callout__label">CONFIRMDIALOG IS THE PATTERN FOR RISKY OPERATIONS</div>
+    <p>The codebase deliberately routes every destructive or hard-to-undo action (single delete, bulk
+    delete, settings reset) through <code>ConfirmDialog</code>. If you add a risky operation, use it;
+    the pairing of an explicit warning copy plus a non-default destructive button is what keeps bulk
+    mistakes recoverable via <a href="import-export.html#backup">backups</a>.</p>
+  </div>
+
+  <h2 id="known-gaps">Known gaps and risks</h2>
+  <ul>
+    <li><strong>No pagination or virtualization.</strong> The library renders <em>one flat sorted
+    list</em> — every filtered book has a DOM node with a (lazy-loaded) image. There is no windowing
+    library and no "load more" boundary. <em>Advice:</em> this is fine up to a few hundred books; if
+    you read collections in the thousands, weigh virtualization before assuming the browser will cope
+    with drag reordering plus enough img elements.</li>
+    <li><strong>Drag reorder depends on browser pointer capture support</strong> (all modern browsers;
+    <code>setPointerCapture</code> is the whole gesture model). Touch drag on mobile layout is
+    inherently more fragile than mouse drag.</li>
+    <li><strong>Remote covers (<code>isRemote: true</code>) fail offline</strong> — the CORS fallback
+    intentionally trades offline reliability for storage (see the warning above). Export
+    considerations for these covers are discussed in <a href="import-export.html">Import &amp;
+    Backup</a>.</li>
+  </ul>
+
+  <div class="callout callout--danger">
+    <div class="callout__label">LONG LIBRARY, DENSE LIST</div>
+    <p>With no virtualization, a thousand-card grid keeps a thousand <code>coverContainer</code> nodes
+    alive (even with lazy images) and every drag pass re-runs FLIP placement over the whole grid. If
+    you routinely import at that scale, keep backups small per export run and consider archiving
+    finished books — filters reduce the rendered set, so archiving is currently the cheapest
+    "pagination".</p>
+  </div>
+
+  <h2 id="cross-refs">Where this connects</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Topic</th><th>Chapter</th></tr></thead>
+    <tbody>
+      <tr><td><code>Book</code>, <code>UserSettings</code> full field reference and <code>DEFAULT_SETTINGS</code></td><td><a href="data-model.html">Data Model</a></td></tr>
+      <tr><td>covers / bookSettings / progress IndexedDB stores, <code>updateBookAndCover</code> transaction</td><td><a href="storage.html">Storage &amp; Persistence</a></td></tr>
+      <tr><td>import pipeline, dedup via <code>contentHash</code>, backups that <em>contain</em> the library state</td><td><a href="import-export.html">Import &amp; Backup</a></td></tr>
+      <tr><td>how parsed chapters become <code>tableOfContents</code> + <code>totalChapters</code></td><td><a href="formats.html">Formats &amp; Parsers</a></td></tr>
+      <tr><td>opening <code>#/read/:bookId</code> and how scroll restoration into the reader works</td><td><a href="reader.html">Reader Engine</a></td></tr>
+      <tr><td><code>library-state</code> and <code>library-custom-order</code> test suites</td><td><a href="testing.html">Testing &amp; Quality</a></td></tr>
+    </tbody>
+  </table></div>
+
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

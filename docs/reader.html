@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reader Engine — WebXReader Documentation</title>
+  <meta name="description" content="Inside the WebXReader reading surface: engine selection, zoom, keyboard shortcuts, progress persistence, resume, in-book search, and reader settings.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Reader Engine</h1>
+  <p class="lede">
+    The reading surface is split into a shared shell, <code>ReaderView.tsx</code>, and a set of
+    swappable engines that each render one category of book: <code>ScrollReader</code>,
+    <code>PaginatedReader</code>, <code>DoubleSidedReader</code>, plus the heavyweight
+    <code>EpubReader</code>, <code>PdfReader</code>, and <code>CbzReader</code> engines. This
+    chapter covers how engines are chosen and lazy-loaded, the unified zoom system, keyboard
+    routing, how progress is saved and restored per format, in-book search, and how reader
+    settings are gated by format capabilities.
+  </p>
+
+  <h2 id="components">Component inventory</h2>
+  <p>Everything under <code>src/components/reader/</code>, by responsibility:</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>File</th><th>Role</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ReaderView.tsx</code></td>
+          <td>Shell and orchestrator (~1040 lines)</td>
+          <td>Loads book + content, picks the engine, hosts drawers, owns zoom, owns the global keyboard map, drives progress save/restore.</td>
+        </tr>
+        <tr>
+          <td><code>ScrollReader.tsx</code></td>
+          <td>Reflowable continuous-scroll engine</td>
+          <td>Renders sanitized chapter HTML; reports chapter id + scroll fraction + pixel position.</td>
+        </tr>
+        <tr>
+          <td><code>PaginatedReader.tsx</code></td>
+          <td>Reflowable paginated engine</td>
+          <td>Single-page mode over the same chapter data; page keys <b>both</b> report progress and accept navigation.</td>
+        </tr>
+        <tr>
+          <td><code>DoubleSidedReader.tsx</code></td>
+          <td>Vertical "double-sided" spread (stub)</td>
+          <td>Currently a tiny (~6 line) component: the vertical reading mode reserved for the <code>doubleSided</code> capability.</td>
+        </tr>
+        <tr>
+          <td><code>EpubReader.tsx</code></td>
+          <td>EPUB engine (~738 lines)</td>
+          <td>epubjs rendering inside an iframe; CFI-based progress.</td>
+        </tr>
+        <tr>
+          <td><code>PdfReader.tsx</code></td>
+          <td>PDF engine (~697 lines)</td>
+          <td>pdf.js page canvas rendering with anchor-pivot zoom.</td>
+        </tr>
+        <tr>
+          <td><code>CbzReader.tsx</code></td>
+          <td>Comic engine (~835 lines)</td>
+          <td>Webtoon scroll, paginated, and double-spread RTL manga modes; lazy blob URLs; binary-search page tracking.</td>
+        </tr>
+        <tr>
+          <td><code>TableOfContents.tsx</code></td>
+          <td>TOC drawer</td>
+          <td>Renders the <code>Chapter</code> tree parsed by the format layer.</td>
+        </tr>
+        <tr>
+          <td><code>BookmarkPanel.tsx</code></td>
+          <td>Bookmark drawer</td>
+          <td>Lists, creates, and jumps to bookmarks (format-specific position encodings).</td>
+        </tr>
+        <tr>
+          <td><code>SearchPanel.tsx</code></td>
+          <td>Search drawer</td>
+          <td>Consumes <code>src/utils/text-search.ts</code> to find, highlight, and navigate matches.</td>
+        </tr>
+        <tr>
+          <td><code>ReaderSettings.tsx</code></td>
+          <td>Settings drawer (~479 lines)</td>
+          <td>Theme, typography, and comic controls gated by registry capability flags.</td>
+        </tr>
+        <tr>
+          <td><code>ProgressBar.tsx</code></td>
+          <td>Bottom progress scrubber</td>
+          <td>Displays overall progress and supports <code>onSeek</code> to arbitrary fractions.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="routing">Routing and composition</h2>
+  <p>
+    The route <code>/read/:bookId</code> is registered under a <b>HashRouter</b> in
+    <code>App.tsx</code>, so deep links like <code>index.html#/read/abc123</code> work on static
+    hosting without a server rewrite. When the route mounts, ReaderView loads the
+    <code>Book</code> and <code>BookContent</code> records from the database
+    (<a href="data-model.html">Data Model</a>) — if either is missing it renders an error state
+    instead of a reader.
+  </p>
+  <p>The full-screen layout composes four regions:</p>
+  <ol class="steps">
+    <li><b>Hideable header</b><span>Title, header-visibility toggle button, chapter title, fullscreen control, and the zoom controls. Toggled with <kbd>H</kbd> or the in-header button.</span></li>
+    <li><b>Engine stage</b><span>A <code>&lt;div&gt;</code> ref'd as <code>readerStageRef</code> that hosts exactly one active engine instance and carries the capture-phase zoom listeners.</span></li>
+    <li><b>Drawers</b><span><code>TableOfContents</code>, <code>BookmarkPanel</code>, <code>SearchPanel</code>, and <code>ReaderSettings</code>. <kbd>Esc</kbd> closes all of them in one step; each drawer additionally installs its own window-level Escape listener as a second line of defense.</span></li>
+    <li><b>Progress bar</b><span>The bottom <code>ProgressBar</code> shows overall progress and accepts a scrub to seek.</span></li>
+  </ol>
+
+  <h2 id="engine-selection">Engine selection and lazy loading</h2>
+  <p>
+    Two decisions drive engine selection: <b>which family</b> (fixed-layout engine vs reflowable
+    mode) and <b>which reading mode</b> (<code>scroll</code>, <code>paginated</code>, or
+    <code>vertical</code>). The heavy engines are only downloaded when actually needed:
+  </p>
+  <pre><code class="language-ts">const EpubReader = lazy(async () =&gt; {
+  const module = await import('../../formats/engines/EpubReader');
+  return { default: module.EpubReader };
+});
+/* same for PdfReader, CbzReader */</code></pre>
+  <p>
+    The three DOM engines — <code>ScrollReader</code>, <code>PaginatedReader</code>, and the
+    <code>DoubleSidedReader</code> stub — are statically imported instead: they are needed by
+    nearly every book format and cost little to bundle.
+  </p>
+
+  <h3 id="selection-rules">Selection rules</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Condition</th><th>Engine</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Book is EPUB <b>or</b> PDF <b>or</b> CBZ and <code>content.originalFile</code> is present</td>
+          <td><code>EpubReader</code> / <code>PdfReader</code> / <code>CbzReader</code></td>
+        </tr>
+        <tr>
+          <td>Those ids but <code>originalFile</code> missing</td>
+          <td>Fall through to the reflowable DOM engines against whatever parsed chapters exist — see the <a href="formats.html#requires-original-file">formats warning</a>.</td>
+        </tr>
+        <tr>
+          <td>Reflowable, reading mode <code>scroll</code></td>
+          <td><code>ScrollReader</code></td>
+        </tr>
+        <tr>
+          <td>Reflowable, reading mode <code>paginated</code></td>
+          <td><code>PaginatedReader</code></td>
+        </tr>
+        <tr>
+          <td>Reflowable, reading mode <code>vertical</code></td>
+          <td><code>DoubleSidedReader</code> (the stub)</td>
+        </tr>
+        <tr>
+          <td>PDF, reading mode <code>vertical</code></td>
+          <td>Forced to <code>'paginated'</code>: <code>effectiveReadingMode</code> rewrites an unsupported vertical request for fixed-layout PDF.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout--info">
+    <div class="callout__label">INFO — CBZ READING DIRECTION RESOLUTION</div>
+    <p>
+      CBZ page-turn direction resolves as <b>user setting → book metadata → default</b>:
+      <code>readerSettings.comicReadingDirection ?? (book?.identifiers?.readingDirection) ?? 'ltr'</code>.
+      The middle term is exactly where the parser deposits a <code>readingDirection</code> value
+      extracted from the archive — see <a href="formats.html#cbz">Formats — CBZ</a>. Fit mode
+      defaults to <code>'contain'</code> and <code>pageGap</code> seeds from
+      <code>readerSettings.contentMargin</code>.
+    </p>
+  </div>
+
+  <h2 id="zoom">Unified zoom system</h2>
+  <p>
+    All three zoom-capable engines (EPUB via renderer scaling, PDF and CBZ via re-rendered
+    canvases) share one controller in ReaderView. Zoom is tracked as <code>readerZoom</code> and
+    clamped to format-dependent bounds, declared verbatim at the top of
+    <code>ReaderView.tsx</code>:
+  </p>
+  <pre><code class="language-ts">const MIN_READER_ZOOM = 0.5;
+const MAX_READER_ZOOM = 3;
+const MIN_PDF_ZOOM = 0.24;
+const MAX_PDF_ZOOM = 8;</code></pre>
+  <p>
+    Reflowable books use the <code>READER</code> bounds; fixed-layout books — anything for which
+    <code>isFixedLayout(book.sourceFormat)</code> is true — get the wider <code>PDF</code>
+    bounds, where the 0.24 floor supports reading page-bleed and small print.
+    <kbd>Ctrl</kbd>+<kbd>0</kbd> resets to 1.0.
+  </p>
+
+  <h3 id="wheel-zoom">Ctrl+wheel zoom</h3>
+  <p>
+    The ReaderView <b>stage intercepts wheel at capture phase</b>, <code>preventDefault()</code>
+    + <code>stopPropagation()</code>, and only matches events with <code>ctrlKey</code> or
+    <code>metaKey</code> from targets inside the stage. This stops both browser zoom and native
+    scroller interference, then the gesture is routed to the controller. The handler
+    normalizes <code>deltaMode</code> differences into pixels before applying the exponential
+    step:
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th><code>deltaMode</code></th><th>Multiplier applied to <code>deltaY</code></th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>DOM_DELTA_LINE</code></td><td>× 16 (line scroll granularity → pixels)</td></tr>
+        <tr><td><code>DOM_DELTA_PAGE</code></td><td>× viewport <code>clientHeight</code> (falls back to <code>window.innerHeight</code> when no viewport element)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Then the zoom factor is computed and applied around a cursor pivot:</p>
+  <pre><code class="language-ts">zoomBy(Math.exp(-delta * 0.0008), latestPoint);</code></pre>
+  <p>
+    Exponential steps keep the effective zoom <i>relative</i> (each wheel notch multiplies the
+    previous value) instead of adding flat units, so zooming near either bound never produces a
+    jarring one-notch jump.
+  </p>
+
+  <h3 id="spread-anchor">Zoom anchors (PDF / CBZ)</h3>
+  <p>
+    For fixed-layout stacking, PDF and CBZ share the anchor-pivot protocol: ReaderView captures
+    a snapshot of what the user was looking at — the page element under the cursor and the
+    fractional position within both page and viewport (<code>PdfZoomAnchor</code> /
+    <code>CbzZoomAnchor</code>, re-exported from <code>src/formats/index.ts</code>) — and the
+    engine's <code>previewZoom(zoom, anchor)</code> re-renders pages keeping that exact point
+    stationary. Zoom is applied optimistically as a preview and then committed so rapid wheel
+    gestures do not queue jittered repaints.
+  </p>
+
+  <h3 id="pinch">Pinch zoom</h3>
+  <p>
+    Two-finger touch gestures on the stage measure the pinch distance and compute
+    <code>startZoom * gesture.distance / start.distance</code>, then the new zoom is fed through
+    a <code>requestAnimationFrame</code> queue that coalesces multiple touchmove events per
+    frame into a single smooth zoom update. <kbd>Ctrl</kbd>+<kbd>+</kbd> /
+    <kbd>Ctrl</kbd>+<kbd>-</kbd> keyboard zoom shares the same <code>zoomBy</code> path (factor
+    <code>1.1</code> and <code>1 / 1.1</code>).
+  </p>
+
+  <h2 id="keyboard">Keyboard shortcuts</h2>
+  <p>
+    A single global <code>keydown</code> listener on <code>window</code> dispatches reader-wide
+    shortcuts. It early-returns whenever the event target is an <code>INPUT</code>,
+    <code>TEXTAREA</code>, or <code>contentEditable</code> element, so typing in the search box
+    or a bookmark title never triggers keys like <code>/</code> or <code>b</code>.
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Keys</th><th>Action</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><kbd>H</kbd></td><td>Toggle header visibility.</td></tr>
+        <tr><td><kbd>F</kbd></td><td>Toggle fullscreen: <code>document.documentElement.requestFullscreen()</code> / <code>exitFullscreen()</code>.</td></tr>
+        <tr><td><kbd>T</kbd></td><td>Toggle the table-of-contents drawer.</td></tr>
+        <tr><td><kbd>B</kbd></td><td>Toggle the bookmarks drawer.</td></tr>
+        <tr><td><kbd>S</kbd></td><td>Toggle the settings drawer.</td></tr>
+        <tr><td><kbd>/</kbd></td><td>Toggle the search drawer.</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Close all drawers.</td></tr>
+        <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>+</kbd>, <kbd>=</kbd>, or <kbd>NumpadAdd</kbd></td><td><code>zoomBy(1.1)</code>.</td></tr>
+        <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>-</kbd> or <kbd>NumpadSubtract</kbd></td><td><code>zoomBy(1 / 1.1)</code>.</td></tr>
+        <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>0</kbd></td><td><code>resetZoom()</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 id="engine-keys">In-engine navigation</h3>
+  <p>
+    Arrow and page keys are handled <b>inside each engine</b>, which is why the mapping differs
+    per format:
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Engine</th><th>Next</th><th>Previous</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>PaginatedReader</code> &amp; <code>EpubReader</code></td>
+          <td><kbd>→</kbd> <kbd>↓</kbd> <kbd>PageDown</kbd> <kbd>Space</kbd></td>
+          <td><kbd>←</kbd> <kbd>↑</kbd> <kbd>PageUp</kbd></td>
+          <td>Turns one display page per keypress.</td>
+        </tr>
+        <tr>
+          <td><code>CbzReader</code></td>
+          <td><kbd>PageDown</kbd> <kbd>Space</kbd> <kbd>↓</kbd></td>
+          <td><kbd>↑</kbd> <kbd>PageUp</kbd></td>
+          <td>Scroll-step keys; <kbd>→</kbd>/<kbd>←</kbd> do a full page turn, direction flips with reading direction (RTL manga).</td>
+        </tr>
+        <tr>
+          <td><code>ProgressBar</code></td>
+          <td><kbd>→</kbd>/<kbd>↓</kbd> steps the scrubber</td>
+          <td><kbd>←</kbd>/<kbd>↑</kbd></td>
+          <td>Arrow keys step the scrubber when it has focus, for keyboard-driven seek.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout callout--tip">
+    <div class="callout__label">TIP — LIBRARY-LEVEL KEYS</div>
+    <p>
+      Library surfaces also respond to keyboard input: <code>BookCard.tsx</code>,
+      <code>BookList.tsx</code>, and <code>LibraryView.tsx</code> each install their own
+      handler for navigation and open actions. Full per-event detail lives in
+      <a href="library.html">Library</a>; this chapter intentionally does not duplicate it.
+    </p>
+  </div>
+
+  <h2 id="progress">Progress and resume</h2>
+  <p>
+    Saving and restoring positions is funneled through
+    <code>src/hooks/useReadingProgress.ts</code>. The hook's return surface is small:
+  </p>
+  <pre><code class="language-ts">return { progress, loading, updateProgress, flush, getCurrentProgress };</code></pre>
+
+  <h3 id="progress-write">Write path</h3>
+  <ul>
+    <li>
+      <b>Debounced save.</b> <code>updateProgress(partial)</code> merges into the in-memory
+      record and schedules a <b>2000 ms</b> debounced persist (a new update inside the window
+      coalesces into one IndexedDB write).
+    </li>
+    <li>
+      <b>Book record refresh.</b> When <code>persistProgress</code> runs it also updates the
+      <code>Book</code> record: stamps <code>lastOpenedAt</code>/<code>updatedAt</code> and
+      derives <code>readingStatus</code> — <code>overallProgress &gt;= 0.98</code> becomes
+      <code>'completed'</code>; anything above zero becomes <code>'reading'</code>. The book
+      record is only rewritten when the status actually changed, or when
+      <code>Date.now() - lastOpenedAt &gt; 30000</code>, so library sort order does not churn on
+      every save.
+    </li>
+    <li>
+      <b>React churn control.</b> <code>updateProgress</code> triggers a re-render only when the
+      rounded integer percent, <code>chapterId</code>, or <code>pageIndex</code> actually
+      changes — fractional pixel noise during scrolling is swallowed without state updates.
+    </li>
+    <li>
+      <b>Forced flush.</b> <code>flush()</code> persists immediately and cancels the pending
+      debounce. ReaderView invokes it on <code>bookId</code> change and on unmount via a
+      <code>flushRef</code> indirection, and calls it before navigating to <code>'/'</code>, so
+      closing or switching books cannot lose the last-second position.
+    </li>
+    <li>
+      <b>Synced reads.</b> <code>getCurrentProgress()</code> reads a synced ref so callers get
+      the very latest value without a closure-stale <code>progress</code>.
+    </li>
+  </ul>
+
+  <h3 id="restore">Restore path</h3>
+  <p>
+    Once the content record loads, ReaderView takes the previously-saved
+    <code>ReadingProgress</code> — whose record shape is
+    <code>{ scrollPosition, chapterId, pageIndex, epubCfi, overallProgress, readingMode }</code> —
+    and freezes it into <code>initialProgressRef</code> as <code>restoreLocation</code>. It is
+    passed to the selected engine as its <b>initial</b> position, so a book opens exactly where
+    it closed, before any live progress reporting begins. Which fields matter depends on the
+    format:
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Format / mode</th><th>Initial position prop(s)</th><th>Live progress callback</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>EPUB (<code>EpubReader</code>)</td>
+          <td><code>initialCfi={restoreLocation?.epubCfi}</code></td>
+          <td><code>handleEpubProgress(cfi, fraction, href)</code> stores <code>epubCfi</code> and matches the TOC chapter by normalized href (strip <code>#</code>; accept equality or endsWith in either direction).</td>
+        </tr>
+        <tr>
+          <td>PDF (<code>PdfReader</code>)</td>
+          <td><code>initialPage={restoreLocation.pageIndex + 1}</code> — 0-based stored → 1-based engine</td>
+          <td><code>handlePaginatedProgress</code>.</td>
+        </tr>
+        <tr>
+          <td>CBZ (<code>CbzReader</code>)</td>
+          <td>Same as PDF: 0-based stored → 1-based engine</td>
+          <td>Same structure as PDF via its own handler; page tracking uses O(log&#8202;N) binary search over rendered page offsets.</td>
+        </tr>
+        <tr>
+          <td>Scroll (TXT/MD/HTML)</td>
+          <td><code>initialScrollPosition</code> (px), <code>initialChapterId</code>, <code>initialProgressFraction</code>, <code>initialProgressMode</code></td>
+          <td>Record holds <code>chapterId</code> + <code>scrollPosition</code> + fraction, with reading mode <code>'scroll'</code>.</td>
+        </tr>
+        <tr>
+          <td>Paginated</td>
+          <td><code>initialPageIndex</code> + fraction</td>
+          <td>Same record fields under a paginated reading mode.</td>
+        </tr>
+        <tr>
+          <td>Vertical (<code>DoubleSidedReader</code>)</td>
+          <td><code>initialPageIndex</code> + fraction</td>
+          <td>Stored under <code>pageIndex</code> via <code>handleDoubleSidedProgress</code> with reading mode <code>'vertical'</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout--warning">
+    <div class="callout__label">WARNING — FIXED-LAYOUT BOOKMARK IDS</div>
+    <p>
+      For fixed-layout formats a bookmark's <code>chapterId</code> is not a chapter id at all:
+      it is the <b>stringified page number</b>, <code>(pageIndex ?? 0) + 1</code>. Jump code
+      parses it back with <code>parseInt(bm.chapterId)</code> and calls
+      <code>pdfReaderRef.current.goToPage(page)</code> / <code>cbzReaderRef.current.goToPage(page)</code>.
+      Nothing else may reinterpret <code>chapterId</code> for PDF/CBZ — or delete a bookmark
+      round trip expecting real chapter ids.
+    </p>
+  </div>
+
+  <h3 id="bookmarks-jump">Bookmark resume per format</h3>
+  <p>
+    The same per-format positioning extends to bookmarks. EPUB stores a canonical
+    <code>epubCfi</code> and jumps via <code>epubReaderRef.current.goToCfi(bm.epubCfi)</code>.
+    PDF and CBZ store the stringified page number above and jump via
+    <code>goToPage(parseInt(bm.chapterId))</code>. Reflowable DOM bookmarks recover from
+    <code>chapterId</code> + <code>scrollPosition</code> (ScrollReader) or
+    <code>pageIndex</code> (PaginatedReader / vertical) exactly like the restore path.
+  </p>
+
+  <h2 id="seek">Seeking from the progress bar</h2>
+  <p>
+    The bottom <code>ProgressBar</code> understands a scrub gesture: when the user clicks or
+    drags, <code>onSeek(fraction)</code> fires with the target fraction and ReaderView routes it
+    to the active engine:
+  </p>
+  <ul>
+    <li>
+      <b>Handle-based engines.</b> EPUB, PDF, and CBZ engines each expose
+      <code>goToProgress(fraction)</code> on their handle (<code>EpubReaderHandle</code>,
+      <code>PdfReaderHandle</code>, <code>CbzReaderHandle</code>), so a scrub becomes
+      <code>goToProgress(fraction)</code> on the active ref.
+    </li>
+    <li>
+      <b>DOM engines.</b> <code>ScrollReader</code>/<code>PaginatedReader</code>/vertical mode
+      scroll the viewport proportionally: the target fraction is converted into a chapter and
+      pixel/offset position, then applied directly to the scrolling element.
+    </li>
+  </ul>
+  <p>
+    Seek, keyboard arrows on the scrubber, TOC jumps, and manual scrolling all have exactly one
+    internal consumer — <code>updateProgress</code> — which guarantees the persisted record
+    reflects whatever last moved the reading position, regardless of how it moved.
+  </p>
+
+  <h2 id="search">In-book full-text search</h2>
+  <p>
+    Search is powered entirely by pure DOM utilities in <code>src/utils/text-search.ts</code>;
+    no index is kept for text chapters — <code>SearchPanel.tsx</code> scans on demand. The
+    exported API:
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Function</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>extractDomText(root)</code></td>
+          <td>TreeWalker over the chapter subtree producing plain text. Skips <code>script</code>, <code>style</code>, <code>noscript</code>, and <code>template</code> nodes; emits <code>'\n'</code> between distinct block tags so word boundaries don't merge paragraphs.</td>
+        </tr>
+        <tr>
+          <td><code>findTextMatches(text, query, maxMatches = 100, compactWhitespace = false)</code></td>
+          <td>Case-insensitive scan with offset maps linking text offsets back to DOM positions, capped at <code>maxMatches</code>. Optional whitespace compaction so line-wrapped sentences match.</td>
+        </tr>
+        <tr>
+          <td><code>findTextRange(root, query, occurrence = 0)</code></td>
+          <td>Returns a <code>Range</code> for the Nth match so the panel can select, highlight, and scroll to it precisely.</td>
+        </tr>
+        <tr>
+          <td><code>createTextExcerpt(text, match, radius = 42)</code></td>
+          <td>Builds the search hit row as <code>{ before, match, after }</code> off a ±42-character radius with '…' ellipsis decorators.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    <code>SearchPanel</code> composes these: it runs <code>extractDomText</code> →
+    <code>findTextMatches</code> to build result rows (excerpt per hit via
+    <code>createTextExcerpt</code>), then on selection converts the hit to a
+    <code>findTextRange</code> result and scrolls to it. Highlighting is a CSS Custom Highlight
+    API style, rendered via <code>::highlight(webx-search-result)</code> with
+    <code>rgba(250,204,21,.42)</code> in <code>src/styles/globals.css</code>.
+  </p>
+  <div class="callout callout--info">
+    <div class="callout__label">INFO — SEARCH CAPABILITY GATING</div>
+    <p>
+      Search is not universally available: the <code>search</code> capability flag on
+      <code>FormatCapabilities</code> (see <a href="formats.html#capability-matrix">Formats —
+      capability matrix</a>) is <code>false</code> for CBZ, so the search drawer is suppressed
+      for comics. PDF search reports through the pdf.js engine rather than a DOM scan.
+    </p>
+  </div>
+
+  <h2 id="settings">Reader settings</h2>
+  <p>
+    Reader settings come from <code>useReaderSettings(bookId)</code>, a per-book overlay where
+    <b>per-book values win over globals</b>, with two exceptions: <code>wordSpacing</code> and
+    <code>theme</code> are <b>always global</b> so visual identity stays consistent across
+    book switches. Settings are edited in the <code>ReaderSettings.tsx</code> drawer (~479
+    lines) — theme (light / dark / <b>sepia</b>), typography, spacing, and per-comic controls —
+    and applied by the shell with a <code>data-theme</code> attribute on the reader root
+    <code>&lt;div&gt;</code>.
+  </p>
+
+  <h3 id="setting-gating">Capability gating</h3>
+  <p>
+    The settings drawer asks the registry what a given book can support, using exactly these
+    helpers from <code>src/formats/index.ts</code>:
+  </p>
+  <pre><code class="language-ts">const canDoubleSided = doubleSidedSupported &amp;&amp;
+  (format ? formatSupportsFeature(format, 'doubleSided') : true);
+const canReadingDirection = formatSupportsFeature(format, 'readingDirection');
+const canFitMode = formatSupportsFeature(format, 'fitMode');
+const canPageGap = formatSupportsFeature(format, 'pageGap');
+const canTypography = !isFixed &amp;&amp;
+  (format ? formatSupportsFeature(format, 'customTypography') : true);</code></pre>
+  <p>In practice this means:</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Format</th><th>Hidden in the drawer</th><th>Shown</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>PDF (fixed layout)</td>
+          <td>Typography: font, line height, text size, paragraph margins (<code>customTypography</code> is <code>false</code>).</td>
+          <td>Reading mode (vertical forced to paginated), zoom, search.</td>
+        </tr>
+        <tr>
+          <td>CBZ (fixed layout)</td>
+          <td>Search and typography. The <code>search</code> capability is <code>false</code>, so the search drawer is suppressed entirely.</td>
+          <td>Comic controls: reading direction (LTR/RTL), fit mode, page gap seeded from <code>readerSettings.contentMargin</code>.</td>
+        </tr>
+        <tr>
+          <td>EPUB</td>
+          <td>Nothing special.</td>
+          <td>Typography, zoom, search, reading modes — the most complete controls set.</td>
+        </tr>
+        <tr>
+          <td>TXT / MD / HTML</td>
+          <td>Zoom (the <code>zoom</code> capability is <code>false</code> — no canvas to scale).</td>
+          <td>Typography, all three reflowable reading modes, search.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout--danger">
+    <div class="callout__label">DANGER — NEVER BYPASS THE CAPABILITY GATES</div>
+    <p>
+      Adding a setting control whose visibility is not backed by a
+      <code>formatSupportsFeature</code> check breaks the contract between the registry and the
+      UI. A user could re-open typography controls on a PDF, mutate the stored setting, and hit
+      concrete rendering bugs when the engine ignores the field. Always route through the
+      capability row — if a control has no supporting flag, <a
+      href="formats.html#adding-a-format">add one to the format definition first</a>.
+    </p>
+  </div>
+
+  <h2 id="engine-internals">Engine internals at a glance</h2>
+  <p>
+    A quick orientation to what each heavy engine actually does at render time — enough to know
+    which file to open, details live in the code and in <a href="architecture.html">Architecture</a>:
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Engine</th><th>Render model</th><th>Position tracking</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>EpubReader</b></td>
+          <td>epubjs renders book content inside a sandboxed iframe; chapters stream through the renderer as the user moves.</td>
+          <td>Canonical epub CFI strings for progress, restore, and bookmarks.</td>
+        </tr>
+        <tr>
+          <td><b>PdfReader</b></td>
+          <td>pdf.js canvases per visible page; re-rendered on zoom with the shared anchor-pivot protocol.</td>
+          <td>1-based page index — always converted at the boundary from the 0-based stored <code>pageIndex</code>.</td>
+        </tr>
+        <tr>
+          <td><b>CbzReader</b></td>
+          <td><code>&lt;img&gt;</code> elements fed by lazily-created blob URLs from the stored archive buffer; webtoon scroll, paginated, and double-spread RTL modes.</td>
+          <td>O(log&#8202;N) binary search over rendered page offsets so figuring out the current page is cheap even mid-flick.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="related">Related chapters</h2>
+  <ul>
+    <li><a href="formats.html">Formats &amp; Parsers</a> — where the parsed data and capability flags driving everything above come from.</li>
+    <li><a href="storage.html">Storage</a> — where <code>Book</code>, <code>BookContent</code>, progress records, and bookmarks live.</li>
+    <li><a href="library.html">Library</a> — the keyboard surface this chapter deliberately skips, and where books launch into the reader.</li>
+    <li><a href="getting-started.html">Getting Started</a> — shortcuts users hit first when they open their first book.</li>
+  </ul>
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

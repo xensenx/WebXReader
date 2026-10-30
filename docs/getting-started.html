@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Started — WebXReader Documentation</title>
+  <meta name="description" content="Prerequisites, installation, development, production build, tests and linting for the WebXReader codebase.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Getting Started</h1>
+  <p class="lede">Everything you need to clone, run, build, test and ship WebXReader. The project has <strong>no
+  environment variables, no secrets, and no backend</strong> — a Node install and the repository are enough.</p>
+
+  <h2 id="prerequisites">Prerequisites</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Requirement</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>Node.js</td><td><strong>22.x</strong> — the CI workflow pins Node 22 (<code>.github/workflows/firebase-hosting-production.yml</code>). Any modern Node item ≥ 20 works locally; 22 is the tested baseline.</td></tr>
+      <tr><td>npm</td><td>Comes with Node. CI uses <code>npm ci</code>, so a regular install is fine for development.</td></tr>
+      <tr><td>A browser with IndexedDB + OPFS-grade APIs</td><td>Any evergreen Chromium/Firefox/Safari. The app targets ES2022 JavaScript (<code>vite.config.ts</code>, <code>build.target</code>).</td></tr>
+      <tr><td>Optional: Python not required</td><td>No Python-based toolchain; the whole pipeline is npm-only.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout callout--info">
+    <div class="callout__label">NO ENV CONFIG NEEDED</div>
+    <p>There are no <code>.env.*</code> files, <code>import.meta.env</code> reads, or required API keys anywhere in the source. The Firebase project credentials used by CI are wired through GitHub's Workload Identity Federation with id-tokens, never repo secrets — see <a href="deployment.html#ci-cd">PWA &amp; Deployment → CI/CD</a>.</p>
+  </div>
+
+  <h2 id="install-and-run">Install and run</h2>
+  <pre><code class="language-bash">git clone &lt;your-fork-url&gt; webxreader
+cd webxreader
+npm install        # or: npm ci (reproduces the lockfile exactly)
+
+npm run dev        # Vite dev server, default http://localhost:5173</code></pre>
+  <p>The dev server talks to <code>src/</code> directly with native ES modules and HMR. Because <code>index.html</code>
+  detects development hostnames (<code>localhost</code>, <code>127.0.0.1</code>, <code>::1</code>) and
+  <strong>unregisters any existing service worker and purges <code>webxreader-*</code> caches</strong>, you get clean
+  reloads without stale-PWA problems while developing.</p>
+
+  <h2 id="production-build">Production build &amp; preview</h2>
+  <pre><code class="language-bash">npm run build      # tsc -b (typecheck via project references) then vite build
+npm run preview    # builds first (npm run build && vite preview) at http://localhost:4173 (strict port)</code></pre>
+  <p>Build output goes to <code>dist/</code>. <code>npm run preview</code> serves it at port <strong>4173 strictly</strong>
+  (<code>vite.config.ts</code> sets <code>preview.port = 4173, strictPort = true</code>).
+  Use preview mode to verify PWA behavior: on non-<code>localhost</code> origins the service worker will actually
+  register and the install prompt becomes available.</p>
+
+  <h3 id="chunks">What the build produces</h3>
+  <p><code>vite.config.ts</code> pins <code>target: 'es2022'</code>, emits sourcemaps, aliases <code>@</code> →
+  <code>./src</code>, and hand-splits vendor chunks via <code>rollupOptions.output.manualChunks</code>:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Chunk</th><th>Contains</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><code>vendor-epub</code></td><td><code>epubjs</code></td><td>Loaded lazily only when an EPUB reader opens</td></tr>
+      <tr><td><code>vendor-pdf</code></td><td><code>pdfjs-dist</code></td><td>Loaded lazily only for PDF books</td></tr>
+      <tr><td><code>vendor-zip</code></td><td><code>jszip</code></td><td>Loaded when a CBZ is parsed, plus backup base64-free restore downloads</td></tr>
+      <tr><td><code>vendor-parser</code></td><td><code>marked</code>, <code>dompurify</code></td><td>Markdown + sanitization on demand</td></tr>
+      <tr><td><code>vendor-icons</code></td><td><code>lucide-react</code></td><td>Icon tree-shaking, avoids UI-code mixing</td></tr>
+      <tr><td><code>vendor-react</code></td><td><code>react</code>, <code>react-dom</code>, <code>react-router-dom</code></td><td>Stable framework layer, long-term caching</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="tests">Tests</h2>
+  <pre><code class="language-bash">npm test                 # vitest run (one-shot, CI mode)
+npm run test:watch       # vitest in watch mode</code></pre>
+  <ul>
+    <li><strong>Runner:</strong> Vitest 5, configured inside <code>vite.config.ts</code> — <code>globals: true</code>, <code>environment: 'jsdom'</code>, <code>setupFiles: ['./src/test/setup.ts']</code>, CSS modules <code>classNameStrategy: 'non-scoped'</code>.</li>
+    <li><strong>IndexedDB:</strong> <code>fake-indexeddb/auto</code> gives the environment a real IndexedDB-compatible object store database so storage logic is tested end-to-end without a browser.</li>
+    <li><strong>12 suites</strong> cover storage, import, dedup, backup/restore, parsers, the format registry, library ordering + state, component rendering, and an XSS-regression suite. See <a href="testing.html">Testing &amp; Quality</a> for a description of every file.</li>
+  </ul>
+
+  <h2 id="lint">Lint</h2>
+  <pre><code class="language-bash">npm run lint             # oxlint</code></pre>
+  <p>The project uses <a href="https://oxc.rs/" target="_blank" rel="noopener">oxlint</a> with repository-local config in
+  <code>.oxlintrc.json</code>. There is no ESLint Prettier ESLint setup to fight — a single fast linter, no formatters
+  configured (keep code style consistent manually with neighboring lines: 2-space TypeScript indentation,
+  single quotes with semicolons, React function components with hooks).</p>
+
+  <h2 id="scripts-summary">All npm scripts, at a glance</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Script</th><th>Command</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>dev</code></td><td><code>vite</code></td><td>Dev server + HMR</td></tr>
+      <tr><td><code>build</code></td><td><code>tsc -b && vite build</code></td><td>Typecheck &amp; bundle to <code>dist/</code></td></tr>
+      <tr><td><code>preview</code></td><td><code>npm run build && vite preview</code></td><td>Serve <code>dist/</code> at :4173</td></tr>
+      <tr><td><code>lint</code></td><td><code>oxlint</code></td><td>Fast static analysis</td></tr>
+      <tr><td><code>test</code></td><td><code>vitest run</code></td><td>Full test pass</td></tr>
+      <tr><td><code>test:watch</code></td><td><code>vitest</code></td><td>Watch mode</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="project-layout-quick">Where everything lives (quick map)</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/main.tsx</code></td><td>Bootstrap: <code>createRoot</code> → <code>&lt;StrictMode&gt;&lt;App/&gt;</code></td></tr>
+      <tr><td><code>src/App.tsx</code></td><td><code>SettingsProvider</code> + <code>HashRouter</code> route table</td></tr>
+      <tr><td><code>src/components/{library,reader,settings,common}</code></td><td>Feature UI (big screens + their CSS Modules)</td></tr>
+      <tr><td><code>src/formats/{definitions,engines,registry.ts,types.ts,index.ts}</code></td><td>Format registry + lazy reader engines</td></tr>
+      <tr><td><code>src/core/{parsing,storage}</code></td><td>Format parsers + the IndexedDB layer (<code>database.ts</code>)</td></tr>
+      <tr><td><code>src/features/{import,export,library}</code></td><td>Import pipeline, backup service, library view-state helpers</td></tr>
+      <tr><td><code>src/hooks/</code></td><td><code>useBooks</code>, <code>useSettings</code>, <code>useReaderSettings</code>, <code>useBookmarks</code>, <code>useReadingProgress</code></td></tr>
+      <tr><td><code>src/utils/</code></td><td>Hashing, debounce, file readers, sanitization, search, cover images</td></tr>
+      <tr><td><code>src/types/book.ts</code></td><td>The whole data model — see <a href="data-model.html">Data Model</a></td></tr>
+      <tr><td><code>src/test/</code></td><td>Test suites + shared setup</td></tr>
+      <tr><td><code>public/</code></td><td>PWA assets: <code>sw.js</code>, <code>manifest.json</code>, icons</td></tr>
+      <tr><td><code>fixtures/</code></td><td>Sample books used by tests and manual QA</td></tr>
+      <tr><td><code>Developmental/</code></td><td>Markdown roadmaps: formats to add, unimplemented features, hosting notes</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="getting-sample-books">Getting sample books to play with</h2>
+  <ol>
+    <li>Run <code>npm run dev</code> and open <code>http://localhost:5173</code>.</li>
+    <li>Click the import button (or drag files onto the empty-state dropzone) in the library.</li>
+    <li>Drop any of <code>fixtures/sample-novel.txt</code>, <code>sample-novel.md</code>, <code>sample-novel.html</code> or <code>sample-novel.pdf</code>.</li>
+    <li>Open one and confirm: a chapter list is auto-built, progress updates are debounced, and the position survives a reload.</li>
+    <li>Try <em>Settings → Export library backup</em>, delete the book, and restore the JSON backup. The dedup + <code>contentHash</code> machinery will either skip the original entry or re-import it intact — see <a href="import-export.html">Import &amp; Backup</a>.</li>
+  </ol>
+
+  <div class="callout callout--warning">
+    <div class="callout__label">REMEMBER: DATA IS PER-BROWSER/PROFILE</div>
+    <p>Importing books in a private window, or a different browser profile, produces a different library — nothing is
+    shared across profiles. Clearing site data or storage quota eviction (see <a href="storage.html#persistence">Storage → Persistence</a>)
+    deletes your library, so keep a JSON backup if you care about the content.</p>
+  </div>
+
+  <h2 id="typescript-configs">TypeScript configuration</h2>
+  <p>The repo uses a solution-style root <code>tsconfig.json</code> referencing two child configs. Useful notes before you add code:</p>
+  <ul>
+    <li><code>tsconfig.app.json</code> — <code>target/lib</code> ES2023, DOM, <code>jsx: react-jsx</code>, bundler resolution with <code>allowImportingTsExtensions</code>, <code>verbatimModuleSyntax</code> (use <code>import type</code> for type-only imports), <code>noEmit</code> (Vite emits), plus <code>noUnusedLocals</code> / <code>noUnusedParameters</code> — dead params will fail the build.</li>
+    <li><code>tsconfig.node.json</code> — only covers <code>vite.config.ts</code> with <code>module: nodenext</code> and Node types.</li>
+    <li>Path alias <code>@</code> → <code>./src</code> works at compile <em>and</em> runtime; prefer it over relative <code>../../..</code> climbs in new code.</li>
+  </ul>
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

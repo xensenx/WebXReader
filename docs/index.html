@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebXReader Documentation — Local-First Web Novel Reader</title>
+  <meta name="description" content="Comprehensive technical documentation for WebXReader — a privacy-focused, local-first, browser-based ebook, web-novel and comic reader built with React 19, TypeScript and Vite.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<noscript><p style="padding:16px">This documentation site needs JavaScript for its navigation shell. The content below still renders.</p></noscript>
+
+<article id="content">
+
+<!-- ============ HERO ============ -->
+<div class="hero">
+  <h1>WebXReader <span class="accent-text">documentation</span></h1>
+  <p class="lede">A desktop-class, private, <strong>local-first</strong> web novel / ebook / comic reader that runs
+  entirely in the browser. No accounts, no uploads, no sync servers: every library, bookmark, reading position and
+  preference lives in <em>your</em> browser storage. These docs describe the codebase in detail so you can take it apart
+  and put it back together with confidence.</p>
+  <div class="hero-badges">
+    <span class="badge badge--accent">React 19 · TypeScript</span>
+    <span class="badge">Vite 8</span>
+    <span class="badge">IndexedDB</span>
+    <span class="badge">PWA / installable</span>
+    <span class="badge">Offline-first</span>
+    <span class="badge badge--success">Zero-tracking</span>
+  </div>
+</div>
+
+<!-- ============ FACTS ============ -->
+<h2 id="at-a-glance">At a glance</h2>
+<div class="facts-row">
+  <div class="fact"><div class="fact__num">6</div><div class="fact__label">Supported formats (EPUB · PDF · CBZ · TXT · MD · HTML)</div></div>
+  <div class="fact"><div class="fact__num">77</div><div class="fact__label">TypeScript modules in <code>src/</code></div></div>
+  <div class="fact"><div class="fact__num">~14k</div><div class="fact__label">Lines of application TypeScript</div></div>
+  <div class="fact"><div class="fact__num">12</div><div class="fact__label">Test suites (Vitest + fake-indexeddb)</div></div>
+</div>
+
+<h2 id="philosophy">The three design pillars</h2>
+<p>Everything in the codebase follows from three commitments. Understanding them makes most architectural decisions obvious:</p>
+
+<h3 id="pillar-local">1. Local-first by default</h3>
+<ul>
+  <li><strong>All reader data is client-side.</strong> Books, extracted chapters, covers, reading progress, bookmarks, annotations, per-book settings — stored in <a href="storage.html">IndexedDB</a> under the database <code>webxreader</code>.</li>
+  <li><strong>Site preferences</strong> (theme, library layout, sort order, import thresholds) live in <code>localStorage</code> under the key <code>webxreader.preferences.v1</code>, with a one-time migration path reading from legacy IndexedDB.</li>
+  <li><strong>Original files are preserved</strong> for EPUB, PDF and CBZ: the raw <code>ArrayBuffer</code> of what you imported, so you can re-open the book byte-for-byte and re-download it from the details dialog.</li>
+  <li><strong>Data is portable</strong> — a JSON backup format (version 1 and 2) covers everything including the original binary files, generated fully client-side (see <a href="import-export.html">Import &amp; Backup</a>).</li>
+</ul>
+
+<div class="callout callout--info">
+  <div class="callout__label">WHAT "local-first" MEANS HERE</div>
+  <p>There is no backend. Firebase is used only to <em>host the static build</em> (see <a href="deployment.html">PWA &amp; Deployment</a>). A request in flight typically means fetching app assets from the CDN or a cover image URL, nothing more.</p>
+</div>
+
+<h3 id="pillar-privacy">2. Privacy by construction</h3>
+<ul>
+  <li>Reader-facing HTML (EPUB chapters, TXT/MD/HTML chapters restored from backups) is sanitized with <strong>DOMPurify</strong> before render (<code>src/core/parsing/sanitize-reader-html.ts</code>).</li>
+  <li>Imported HTML is also pre-escaped/scrubbed by <code>sanitizeHtml()</code> in <code>src/utils/index.ts</code> (strips <code>&lt;script&gt;</code>, <code>on*</code> handlers, <code>javascript:</code> URLs).</li>
+  <li>Markdown rendering uses <code>marked</code> + DOMPurify, never raw injection.</li>
+  <li>No analytics, no telemetry, no remote logging anywhere in <code>src/</code>.</li>
+</ul>
+
+<h3 id="pillar-session">3. Each format is a world of its own</h3>
+<p>Reflowable prose (TXT/MD/HTML) and fixed-layout media (PDF pages, comic panels) share a <em>shell</em>
+(<code>ReaderView</code>, drawers, progress bar, zoom) but delegate actual rendering to per-format engines laid out under
+<code>src/formats/engines/</code>. What a given format supports — search, zoom, reading direction, typography — is
+declared in a central capability matrix, not scattered through conditional UI code. The <a href="formats.html">Formats &amp; Parsers</a>
+chapter documents the registry; the <a href="reader.html">Reader</a> chapter documents how engines consume it.</p>
+
+<!-- ============ HERO FEATURES ============ -->
+<h2 id="features">What you can do with the app</h2>
+<div class="cards-grid">
+  <a class="card" href="formats.html"><div class="card__icon">*icon-file*</div><h3>Read almost any text artifact</h3><p>EPUB 2/3, PDF, CBZ (archived comics), plus TXT/Markdown/HTML web-novel exports with automatic chapter detection. Format support is declared in one registry.</p><span class="card__link">Formats &amp; Parsers →</span></a>
+  <a class="card" href="library.html"><div class="card__icon">*icon-grid*</div><h3>Curate a personal bookshelf</h3><p>Search, filter (reading/unread/completed/favorites/archived), sort, rate, tag, and drag-and-drop a persistent custom ordering. Library view state survives reloads.</p><span class="card__link">Library &amp; Metadata →</span></a>
+  <a class="card" href="reader.html"><div class="card__icon">*icon-bookOpen*</div><h3>Read comfortably</h3><p>Scroll, paginated and vertical reading modes; per-book typography overrides; continuous webtoon mode; RTL manga mode; trackpad pinch and Ctrl+wheel zoom with cursor-pivot anchoring.</p><span class="card__link">Reader Engine →</span></a>
+  <a class="card" href="reader.html#shortcuts"><div class="card__icon">*icon-external*</div><h3>Work at keyboard speed</h3><p><kbd>H</kbd>/<kbd>F</kbd>/<kbd>T</kbd>/<kbd>B</kbd>/<kbd>S</kbd>/<kbd>/</kbd> for chrome toggles, <kbd>Ctrl+0/−/+</kbd> for zoom, arrow keys and <kbd>Space</kbd> inside engines; in-book full-text search with highlighted results.</p><span class="card__link">Shortcuts table →</span></a>
+  <a class="card" href="storage.html"><div class="card__icon">*icon-database*</div><h3>Persist everything safely</h3><p>IndexedDB with atomic multi-store transactions, SHA-256 import deduplication, persistent-storage requests, storage-quota estimates, and per-book settings overlays.</p><span class="card__link">Storage &amp; Persistence →</span></a>
+  <a class="card" href="import-export.html"><div class="card__icon">*icon-swap*</div><h3>Own your files</h3><p>JSON backups of the whole library (including original binary files), restore with dedup + sanitize repairs, multi-file import queue, and one-click download of the original book file.</p><span class="card__link">Import &amp; Backup →</span></a>
+  <a class="card" href="deployment.html"><div class="card__icon">*icon-cloud*</div><h3>Install as an app</h3><p>A hand-rolled PWA: service worker caches the app shell, works offline after first load, registers only on https hosts (never on dev servers).</p><span class="card__link">PWA &amp; Deployment →</span></a>
+  <a class="card" href="testing.html"><div class="card__icon">*icon-flask*</div><h3>Trust it with your data</h3><p>End-to-end storage tests run against a real fake-indexeddb database, an e2e workflow test (import → read → export → restore → delete) and a dedicated XSS-regression suite.</p><span class="card__link">Testing &amp; Quality →</span></a>
+</div>
+
+<!-- ============ DOC MAP ============ -->
+<h2 id="map">Where to go from here</h2>
+<p>The documentation is split into twelve chapters, ordered roughly the way the app is layered.</p>
+
+<h3 id="map-introduction">Introduction</h3>
+<ul>
+  <li><a href="getting-started.html"><strong>Getting Started</strong></a> — Node and npm versions, dev server, build, test, lint commands, plus what <em>not</em> to configure (there are no <code>.env</code> files).</li>
+</ul>
+
+<h3 id="map-core">Core chapters</h3>
+<ul>
+  <li><a href="architecture.html"><strong>Architecture</strong></a> — stack, folder map, routing, providers vs hooks, lazy loading and chunking, CSS design tokens.</li>
+  <li><a href="data-model.html"><strong>Data Model</strong></a> — every type exported from <code>src/types/book.ts</code>, including exact defaults of <code>DEFAULT_SETTINGS</code>.</li>
+  <li><a href="formats.html"><strong>Formats &amp; Parsers</strong></a> — registry API, capability matrix, per-format parse pipeline, parsers, sanitization, natural sorting for CBZ pages.</li>
+  <li><a href="reader.html"><strong>Reader Engine</strong></a> — <code>ReaderView</code>, the five engines, zoom mechanics, progress and resume semantics per format, keyboard shortcuts.</li>
+  <li><a href="library.html"><strong>Library &amp; Metadata</strong></a> — grid/list layouts, filters, sorting, custom drag order, book details dialog, cover editor, import dialog.</li>
+  <li><a href="storage.html"><strong>Storage &amp; Persistence</strong></a> — full IndexedDB schema (8 stores, all indexes), database API, settings stores and migration.</li>
+  <li><a href="import-export.html"><strong>Import &amp; Backup</strong></a> — the nine-step import pipeline, dedup, backup v1/v2, restore-time validation and sanitization.</li>
+</ul>
+
+<h3 id="map-development">Development &amp; operations</h3>
+<ul>
+  <li><a href="testing.html"><strong>Testing &amp; Quality</strong></a> — the Vitest harness, each of the 12 suites, fixtures, test-time mocks, oxlint.</li>
+  <li><a href="deployment.html"><strong>PWA &amp; Deployment</strong></a> — service-worker strategy, manifest, Firebase Hosting CI with Workload Identity Federation, mirror URLs.</li>
+  <li><a href="roadmap.html"><strong>Roadmap &amp; Known Gaps</strong></a> — planned features (statistics dashboard, dictionary, ambient audio…), deliberately excluded items (like TTS), future formats, and open audit items to consider as a contributor.</li>
+</ul>
+
+<h2 id="where-is-it">Where is the app? Where is the repo?</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Thing</th><th>Where</th></tr></thead>
+  <tbody>
+    <tr><td>Live app (primary mirror)</td><td><a href="https://webxreader.web.app/" target="_blank" rel="noopener">https://webxreader.web.app/</a></td></tr>
+    <tr><td>Cloudflare Pages mirror</td><td><a href="https://webxreader.pages.dev/" target="_blank" rel="noopener">https://webxreader.pages.dev/</a></td></tr>
+    <tr><td>Vercel mirror</td><td><a href="https://webxreader.vercel.app/" target="_blank" rel="noopener">https://webxreader.vercel.app/</a></td></tr>
+    <tr><td>Netlify mirror</td><td><a href="https://webxreader.netlify.app/" target="_blank" rel="noopener">https://webxreader.netlify.app/</a></td></tr>
+    <tr><td>Application code — frontend</td><td><code>src/</code> in this repository</td></tr>
+    <tr><td>Application code — service worker <span class="sidebar__badge">PWA</span></td><td><code>public/sw.js</code></td></tr>
+    <tr><td>Feature roadmap (md)</td><td><code>Developmental/WebXReader-Unimplemented-Features-Roadmap.md</code></td></tr>
+    <tr><td>Planned formats table (md)</td><td><code>Developmental/formats-to-be-added.md</code></td></tr>
+    <tr><td>Unit/integration tests</td><td><code>src/test/*.test.{ts,tsx}</code></td></tr>
+  </tbody>
+</table></div>
+
+<div class="callout callout--tip">
+  <div class="callout__label">QUICK TEST-DRIVE THE DATA</div>
+  <p>Sample book fixtures ship in <code>fixtures/</code> — <code>sample-novel.txt</code>, <code>sample-novel.md</code>,
+  <code>sample-novel.pdf</code>, <code>sample-novel.html</code>. Drag any of them onto the import dialog to see the
+  chapter-detection and progress-tracking machinery work in seconds (see <a href="getting-started.html#getting-sample-books">Getting Started</a>).</p>
+</div>
+
+<h2 id="reading-guide">How to read these docs</h2>
+<ul>
+  <li>Everything described on these pages is verified against the code on the <code>Exp/set-1</code> branch; file paths are repo-relative from the project root.</li>
+  <li>Where a specific value matters (a cache name, DB version, default font size, debounce delay) it is quoted verbatim, so it is safe to bet implementation code against these tables.</li>
+  <li>Sections marked <strong>Known gap</strong> highlight an inconsistency found while writing these docs — they are worth reading before refactoring those areas.</li>
+  <li>Use <kbd>/</kbd> or the search box above to find any concept across all chapters; results link straight to the matching section anchor.</li>
+</ul>
+
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

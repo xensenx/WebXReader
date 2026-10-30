@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Testing &amp; Quality — WebXReader Documentation</title>
+  <meta name="description" content="The Vitest harness, all twelve test suites, fixtures, deterministic mocks, and lint configuration of WebXReader.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Testing &amp; Quality</h1>
+  <p class="lede">WebXReader is tested with Vitest in a jsdom environment backed by a real (well, fake)
+  IndexedDB, so storage tests exercise actual database code paths instead of mocks of the storage
+  layer. This chapter covers the harness configuration, the deterministic mocks in the setup file,
+  all twelve suites with what each one locks down, the fixtures, and lint — plus an honest list of
+  what is <em>not</em> tested.</p>
+
+  <h2 id="tooling">Tooling</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Tool</th><th>Role</th><th>Config lives in</th></tr></thead>
+    <tbody>
+      <tr><td>Vitest 5 + Testing Library (+ <code>user-event</code>)</td><td>Unit/integration/component tests</td><td><code>vite.config.ts</code> <code>test</code> block</td></tr>
+      <tr><td>jsdom</td><td>Browser environment simulation</td><td>Selected via <code>environment: 'jsdom'</code></td></tr>
+      <tr><td>fake-indexeddb</td><td>In-memory IndexedDB implementation</td><td>Activated globally in <code>src/test/setup.ts</code> via <code>fake-indexeddb/auto</code></td></tr>
+      <tr><td>oxlint</td><td>Linting (no ESLint in the repo)</td><td><code>.oxlintrc.json</code></td></tr>
+      <tr><td>jsdom + <code>@testing-library/jest-dom</code></td><td>DOM matchers for Vitest</td><td>Imported in setup</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Commands (from <code>package.json</code>):</p>
+  <pre><code class="language-bash">npm test          # vitest run  (single pass)
+npm run test:watch # vitest     (watch mode)
+npm run lint       # oxlint
+npm run build      # tsc -b &amp;&amp; vite build  (type errors fail the build)</code></pre>
+
+  <h3 id="config">The Vitest config block</h3>
+  <p>Everything test-related sits inside <code>vite.config.ts</code> itself — there is no separate
+  <code>vitest.config.ts</code>:</p>
+  <pre><code class="language-ts">test: {
+  globals: true,          // describe/it/expect available without imports if preferred
+  environment: 'jsdom',
+  setupFiles: ['./src/test/setup.ts'],
+  css: {
+    modules: {
+      classNameStrategy: 'non-scoped',
+    },
+  },
+}</code></pre>
+  <p>The <code>non-scoped</code> strategy is important: CSS Modules class names stay
+  <em>unhashed</em> under test, so a component gets its readable class (e.g. <code>card</code>)
+  instead of a generated mangle like <code>_card_x93kf</code>. That makes class-based assertions
+  possible — but see <a href="#conventions">conventions</a> before using them.</p>
+
+  <h2 id="setup">Test setup and deterministic mocks</h2>
+  <p><code>src/test/setup.ts</code> does four kinds of work:</p>
+
+  <ol class="steps">
+    <li><b>Enable jest-dom matchers</b><span><code>import '@testing-library/jest-dom/vitest'</code> adds matchers like <code>toBeInTheDocument()</code> to Vitest expect.</span></li>
+    <li><b>Install fake IndexedDB</b><span><code>import 'fake-indexeddb/auto'</code> replaces <code>globalThis.indexedDB</code> wholesale. Every suite path that touches <code>core/storage/database</code> exercises real transactions against an in-memory database — crucial for the storage and e2e suites.</span></li>
+    <li><b>Stub crypto for reproducibility</b><span>When <code>crypto.randomUUID</code> is missing it is pinned to the fixed value <code>'12345678-1234-4234-8234-123456789abc'</code>, and <code>crypto.subtle.digest</code> gets a deterministic 32-byte mock hash (input bytes folded into 32 buckets, mod 256). Same input, same id, same SHA-256 — imports, dedup and backups are comparable across test runs.</span></li>
+    <li><b>Polyfill and patch browser APIs</b><span><code>Uint8Array.prototype.toHex</code> and <code>Uint8Array.fromHex</code> are polyfilled for jsdom (used by binary/codec paths), and <code>window.matchMedia</code> is mocked to a never-matching object so theme logic code can run.</span></li>
+  </ol>
+
+  <div class="callout callout--warning">
+    <div class="callout__label">JSDOM HAS NO REAL PARSER OR CANVAS</div>
+    <p>jsdom implements no WebP rasterization, no layout, and no service workers. Anything depending on
+    canvas rendering (cover resizing), <code>epub.js</code> iframe rendering, or PDF.js painting must be
+    covered at the unit/integration level rather than end-to-end. That is a structural limitation of
+    this harness, not a gap you should patch by adding "browser tests" into jsdom.</p>
+  </div>
+
+  <h2 id="suites">The twelve suites</h2>
+  <p>All live in <code>src/test/</code>. One-line contract per file; details for the most
+  load-bearing suites follow below.</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Suite file</th><th>What it locks down</th></tr></thead>
+    <tbody>
+      <tr><td><code>storage.test.ts</code></td><td>IndexedDB operations: books CRUD, atomic book-bundle rollback, reading progress, bookmarks, settings save/load, full backup export + restore, and <code>clearDatabase()</code>.</td></tr>
+      <tr><td><code>e2e-workflow.test.ts</code></td><td>The whole user lifecycle: import a TXT novel → verify chapters in the library → set reading status → write progress → bookmark → export v2 backup → restore it elsewhere → delete the book. All within one test.</td></tr>
+      <tr><td><code>import-service.test.ts</code></td><td>Rejects unsupported formats, imports a .txt novel, dedups by content hash (with and without force), persists covers, and correctly accepts a PDF file.</td></tr>
+      <tr><td><code>import-cbz.test.ts</code></td><td>CBZ import integration using real JSZip and a 1×1 GIF fixture in a generated archive; verifies metadata extraction and that the <strong>original binary is stored</strong>.</td></tr>
+      <tr><td><code>cbz-parser.test.ts</code></td><td>Parser-only CBZ rules: natural sorting of image filenames (page2 &lt; page10), junk-file skips (<code>__MACOSX</code>, <code>.DS_Store</code>, hidden files), rejection of archives with no valid images, ComicInfo.xml metadata + manga reading direction, and both TOC construction strategies (ComicInfo bookmarks, then nested folder names).</td></tr>
+      <tr><td><code>formats-registry.test.ts</code></td><td>The capability matrix: extension/MIME detection, fixed- vs reflowable classification, capability queries, <code>accept</code> attribute generation, and graceful handling of unknown formats.</td></tr>
+      <tr><td><code>txt-parser.test.ts</code></td><td>TXT normalization and splitting: UTF-8 BOM stripping, CRLF normalization, <code>Chapter X</code> heading detection, ALL-CAPS blank-line-separated headings, chapter-detection-disabled mode, empty-text safety.</td></tr>
+      <tr><td><code>markdown-parser.test.ts</code></td><td>YAML frontmatter metadata extraction, H1/H2 chapter splitting, and script-tag sanitization of rendered HTML.</td></tr>
+      <tr><td><code>library-state.test.ts</code></td><td><code>library-state.ts</code> view-state store: defaults when uninitialized, scroll updates, search/filter/last-book persistence, sessionStorage recovery after in-memory reset, clean clear.</td></tr>
+      <tr><td><code>library-custom-order.test.ts</code></td><td>Custom ordering semantics: drag order respected, order unaffected by "last opened" timestamp churn, switch-away-and-back preserves order, newly imported books append cleanly.</td></tr>
+      <tr><td><code>reader-content-security.test.tsx</code></td><td>XSS regression suite — see <a href="#security">deep dive</a>.</td></tr>
+      <tr><td><code>components.test.tsx</code></td><td>Shallow component behavior: Button variants + clicks, EmptyState (icon/title/description/action), SearchInput typing + clear, and importing every file in a multi-file selection through the ImportDialog flow.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="deep-dives">Deep dives</h2>
+
+  <h3 id="storage-suite"><code>storage.test.ts</code> — the storage contract</h3>
+  <p>This suite is the executable spec of <a href="storage.html">Storage &amp; Persistence</a>. It
+  clears the database in <code>beforeEach</code> and then verifies, against fake-indexeddb:</p>
+  <ul>
+    <li><strong>Book CRUD lifecycle:</strong> <code>addBook → getBook → listBooks → updateBook →
+    deleteBook</code>, asserting the deleted read returns <code>undefined</code>.</li>
+    <li><strong>Atomic bundle rollback:</strong> when metadata cannot be re-added after content exists,
+    the whole book bundle rolls back — the <code>saveBookBundle</code> transactional guarantee rather
+    than per-row best effort.</li>
+    <li><strong>Progress round-trip:</strong> <code>saveProgress</code> / <code>getProgress</code>
+    preserving chapter/scroll/page fields.</li>
+    <li><strong>Bookmark listing and deletion.</strong></li>
+    <li><strong>Backup export and restore</strong> producing a complete library — the same path the
+    app uses, not a test-only serializer.</li>
+  </ul>
+  <p>Because it clears state between tests, it also makes the fake database safe for other suites,
+  which do their own <code>clearDatabase()</code> — keep doing that in new storage-touching tests.</p>
+
+  <h3 id="e2e-suite"><code>e2e-workflow.test.ts</code> — one test, whole app</h3>
+  <p>A single <code>it</code> plays out the full lifecycle with a real <code>File</code> built in memory:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Step</th><th>Assertion</th></tr></thead>
+    <tbody>
+      <tr><td>Empty library</td><td><code>listBooks()</code> starts at 0.</td></tr>
+      <tr><td>Import</td><td><code>importFile(txtFile, { autoDetectChapters: true })</code> succeeds; the preamble plus 2 <code>Chapter X:</code> headings give <code>totalChapters === 3</code>.</td></tr>
+      <tr><td>Status change</td><td>Marking <code>'reading'</code> persists via <code>updateBook</code>.</td></tr>
+      <tr><td>Progress</td><td><code>saveProgress</code> writes chapter/page/scroll fields; <code>getProgress</code> reads them back.</td></tr>
+      <tr><td>Bookmark</td><td><code>saveBookmark</code> then <code>listBookmarks</code> contains it.</td></tr>
+      <tr><td>Backup v2</td><td><code>exportBackup()</code> produces a backup; <code>restoreBackup()</code> resets into it.</td></tr>
+      <tr><td>Delete</td><td><code>deleteBook</code> leaves the restored library consistent.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Why it matters: any change in the import parser, storage layer, or backup format that breaks the
+  semantics of progress/bookmarks will trip this single suite. It is your cheapest full-system check
+  before refactors.</p>
+
+  <h3 id="security"><code>reader-content-security.test.tsx</code> — the XSS regression suite</h3>
+  <p>This suite exists because readers render <em>untrusted HTML</em>: EPUB chapters are authored
+  files, and restored backups put arbitrary strings into chapter content. The malicious fixture is a
+  chapter containing <code>&lt;script&gt;</code>, inline <code>onclick</code>/<code>onerror</code>/
+  <code>onload</code> handlers, an <code>&lt;iframe srcdoc&gt;</code>, a <code>javascript:</code>
+  href, and otherwise readable text. Three tests:</p>
+  <ol>
+    <li><strong>Restore-time sanitization:</strong> runs <code>restoreBackup(makeBackup([maliciousChapter]))</code>,
+    reads the restored content back from the database, and asserts the sanitized DOM contains no script
+    tags, event handler attributes, iframes, or <code>javascript:</code>/external <code>href</code>
+    values — while keeping the readable text intact.</li>
+    <li><strong>Render-boundary sanitization:</strong> renders real components —
+    <code>&lt;ScrollReader&gt;</code> and <code>&lt;PaginatedReader&gt;</code> with the malicious chapter
+    as <code>chapters</code> — and queries each engine's
+    <code>[data-chapter-body="true"]</code> element for the same safety contract.</li>
+    <li><strong>Malformed record rejection:</strong> a backup whose chapter <code>content</code> is not
+    a string is rejected by <code>restoreBackup</code> with
+    <code>"Invalid content payload in backup"</code>, and nothing is stored.</li>
+  </ol>
+
+  <div class="callout callout--danger">
+    <div class="callout__label">NEUTRALIZE, DON'T DISABLE</div>
+    <p>If a sanitizer change makes one of these tests fail, treat it as a production security bug, not a
+    test to update. The correct change is in <code>src/core/parsing/sanitize-reader-html.ts</code>
+    (DOMPurify configuration), and <a href="formats.html#sanitization">Formats &amp; Parsers</a>
+    documents which constructor options must stay set.</p>
+  </div>
+
+  <h2 id="fixtures">Fixtures</h2>
+  <p>Keeper files for hand-derived tests live at the repository root in <code>fixtures/</code>:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>File</th><th>Content</th><th>Used by</th></tr></thead>
+    <tbody>
+      <tr><td><code>sample-novel.txt</code></td><td>Plain-text novel with detectable chapter headings</td><td>TXT parser work, manual smoke tests</td></tr>
+      <tr><td><code>sample-novel.md</code></td><td>Markdown with frontmatter and H1/H2 sections</td><td>Markdown parser work</td></tr>
+      <tr><td><code>sample-novel.pdf</code></td><td>Small generated PDF</td><td>PDF import smoke tests (jsdom cannot paint it)</td></tr>
+      <tr><td><code>sample-novel.html</code></td><td>Sanitized HTML document</td><td>HTML parse path</td></tr>
+    </tbody>
+  </table></div>
+  <p>Note that several suites generate their archives/ad-hoc files in code instead of reading
+  fixtures — <code>import-cbz.test.ts</code> zips a 1×1 GIF with JSZip at runtime. Prefer that pattern
+  for binary inputs: it keeps fixtures reviewable and deterministic.</p>
+
+  <h2 id="example">What a good test looks like here</h2>
+  <p>Real excerpts. From <code>storage.test.ts</code> — note the database-truth style, fixture-in-code,
+  and the atomicity assertion (a failed bundle write leaves the original content in place):</p>
+  <pre><code class="language-ts">it('rolls back the entire book bundle when metadata cannot be added', async () =&gt; {
+  await addBook(dummyBook);
+  await saveBookContent({ bookId: dummyBook.id, format: 'txt', rawText: 'original' });
+
+  await expect(
+    saveBookBundle(dummyBook, { bookId: dummyBook.id, format: 'txt', rawText: 'replacement' }),
+  ).rejects.toThrow();
+
+  expect((await getBookContent(dummyBook.id))?.rawText).toBe('original');
+});</code></pre>
+  <p>And the shape of a component test from <code>components.test.tsx</code>: render the component as a
+  user would see it, interact, and assert on the observable outcome (a handler call or visible change)
+  — never on a generated class name.</p>
+  <p>Guiding rule visible throughout the suite set: <strong>assert on what a user can observe</strong>
+  (text, roles, handlers, database rows), not on internals.</p>
+
+  <h2 id="single-suite">Running one suite</h2>
+  <pre><code class="language-bash">vitest run src/test/storage.test.ts
+# watch a single suite while iterating:
+vitest src/test/reader-content-security.test.tsx
+# filter by test name inside a file:
+vitest run src/test/cbz-parser.test.ts -t "naturally"</code></pre>
+  <p>Vitest is a dev dependency, so <code>npx vitest run …</code> works with the local install.</p>
+
+  <h2 id="lint">Linting</h2>
+  <p><code>npm run lint</code> runs <strong>oxlint</strong>, configured through
+  <code>.oxlintrc.json</code> at the repo root. It is deliberately lightweight: a fast Rust-based
+  linter covering correctness and style nits, not a full type-checking hook — TypeScript itself
+  (see <a href="architecture.html#stack">project references</a>) runs again via <code>tsc -b</code>
+  inside <code>npm run build</code> and is the real type-safety invariant.</p>
+
+  <div class="callout callout--tip">
+    <div class="callout__label">ADVICE: LINT BEFORE PR</div>
+    <p>The CI pipeline (<a href="deployment.html#pipeline">PWA &amp; Deployment</a>) builds and deploys
+    but does <strong>not</strong> run tests or lint, so run <code>npm run lint &amp;&amp; npm test</code>
+    locally before opening anything. There is no pre-commit hook to catch you.</p>
+  </div>
+
+  <h2 id="conventions">Writing new tests</h2>
+  <ol class="steps">
+    <li><b>Lean on fake-indexeddb</b><span>Do not mock database functions; let suites hit the real (fake) DB and call <code>clearDatabase()</code> in <code>beforeEach</code>/<code>afterEach</code>. Combining database truth with component rendering is how <code>components.test.tsx</code> catches import flow bugs.</span></li>
+    <li><b>Rebuild binary fixtures in code</b><span>Use <code>new File([...], name, { type })</code> or generate archives with JSZip like <code>import-cbz.test.ts</code>. Fixtures in <code>fixtures/</code> are for manual smoke tests and parser iteration.</span></li>
+    <li><b>Query user-visible text, not classes</b><span>Testing Library getters like <code>getByRole</code>/<code>getByText</code> survive render refactors. Class-name assertions technically work because of the <code>non-scoped</code> CSS Modules strategy, but break on styling reshuffles — reserve them for genuine styling contracts.</span></li>
+    <li><b>Determinism is free</b><span>The fixed UUID and fake SHA-256 in setup means identical inputs produce identical ids and hashes; write assertions that exploit that (dedup tests, backup equality) rather than randomizing ids yourself.</span></li>
+    <li><b>Put each claim in the right suite</b><span>Storage semantics belong to <code>storage.test.ts</code>-style suites; rendering behavior in <code>*.test.tsx</code>; pure parsing in parser tests. One concern per suite keeps failures diagnosable.</span></li>
+  </ol>
+
+  <h2 id="known-gaps">Known gaps and honest omissions</h2>
+  <ul>
+    <li><strong>No Storybook.</strong> The project has no component gallery. Component appearance is
+    reviewed manually; if a future contributor wants visual tooling, that is a new decision, not a
+    hidden config to find.</li>
+    <li><strong>No CI test job.</strong> The only workflow
+    (<code>.github/workflows/firebase-hosting-production.yml</code>) installs, builds, and deploys to
+    Firebase Hosting — it never runs <code>npm test</code> or <code>npm run lint</code>. <em>Advice:</em>
+    adding a test job to this workflow or a dedicated <code>.github/workflows/test.yml</code> on
+    push/PR would catch regressions before they deploy. Until then, tests only protect people who
+    run them.</li>
+    <li><strong>Formatting and style are not mechanically verified.</strong> There is no Prettier and
+    lint covers correctness more than formatting. <em>Advice:</em> match the file you are editing
+    for indentation and layout.</li>
+    <li><strong>Engine internals are unrenderable in jsdom.</strong> EPUB.js iframe behavior, PDF.js
+    canvas painting, and CBZ blob decoding have no integrated coverage (see the warning above). When
+    editing engines (<a href="reader.html#engines">Reader Engine</a>), sanity-check manually with
+    real files from <code>fixtures/</code>.</li>
+    <li><strong>Service worker behavior is untested.</strong> <code>public/sw.js</code> has no suite;
+    offline behavior is verified manually per deploy (see
+    <a href="deployment.html#ops-checklist">the ops checklist</a>).</li>
+    <li><strong>No visual/regression layer.</strong> Nothing snapshots rendered output; typography
+    regressions in the reader rely on review.</li>
+    <li><strong>Reader hooks are exercised indirectly.</strong> Progress persistence, per-book
+    settings merging, and bookmark ordering are locked at the database/parser layer; only a thin slice
+    runs through rendered components. If you refactor <code>useReadingProgress</code> debounce/flush
+    semantics, write a dedicated hook test rather than relying on the e2e suite.</li>
+    <li><strong>No coverage report configured.</strong> Vitest can emit <code>--coverage</code>, but the
+    project doesn't wire it, so "untested paths" is tribal knowledge — this chapter is the map.</li>
+  </ul>
+
+  <div class="callout callout--info">
+    <div class="callout__label">ADVICE: WHAT TO TEST FIRST WHEN ADDING A FEATURE</div>
+    <p>For storage-adjacent features (new store, migration, new backup payload), extend
+    <code>storage.test.ts</code>-style coverage — it is the cheapest to write and the most valuable to
+    keep. For UI features, a compact <code>components.test.tsx</code>-style interaction test (render,
+    click or type, assert visible output) is usually enough. Only invest in full e2e lifecycle tests
+    when a feature crosses more than two subsystem boundaries — that is a lot of setup code to
+    maintain in one <code>it()</code>.</p>
+  </div>
+
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

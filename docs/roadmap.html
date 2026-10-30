@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roadmap &amp; Known Gaps — WebXReader Documentation</title>
+  <meta name="description" content="Planned features from the Developmental docs, future book formats, unfinished codebase areas, and the contribution workflow.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Roadmap &amp; Known Gaps</h1>
+  <p class="lede">The authoritative roadmap sources live in the repository itself:
+  <code>Developmental/WebXReader-Unimplemented-Features-Roadmap.md</code> (241 lines) and
+  <code>Developmental/formats-to-be-added.md</code>. This chapter restates them with a code-level
+  reality check — some "missing" items are partially implemented already — and adds the known gaps an
+  audit of the source exposed. Verify against the code before assuming anything is actually absent;
+  the roadmap document itself instructs you to do exactly that.</p>
+
+  <h2 id="status-overview">Status overview</h2>
+  <div class="callout callout--info">
+    <div class="callout__label">WHAT THIS CHAPTER IS (AND IS NOT)</div>
+    <p>The <code>Developmental/</code> documents record <em>ideas and planned capabilities, not
+    commitments</em> — their own scope note says so. Items whose implementation status was never
+    explicitly established are marked "verify" there, and this page keeps that discipline. When code
+    and roadmap disagree, this page reports both and lets the code win on facts.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Item</th><th>Status per roadmap doc</th><th>Reality in code (today)</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Reading statistics / activity dashboard</td><td>Planned</td><td>Not started; a <code>ReadingSession</code> type exists but is unused (see <a href="#statistics">below</a>).</td></tr>
+      <tr><td>2</td><td>Offline dictionary &amp; vocabulary lookup</td><td>Planned</td><td>Not started; dataset and licence undecided.</td></tr>
+      <tr><td>3</td><td>Keyboard navigation across all reader formats</td><td>"Identified as missing" — <strong>outdated</strong></td><td>Partially implemented: PaginatedReader/EpubReader/CbzReader arrow keys and single-key shortcuts in ReaderView exist.</td></tr>
+      <tr><td>4</td><td>Ambient audio / focus sounds</td><td>Planned</td><td>Not started; Web Audio API approach proposed.</td></tr>
+      <tr><td>5</td><td>Reading-experience polish (series progress, bookmarks/annotations, accessibility)</td><td>Verify</td><td>Foundations exist; scope of remaining work undefined.</td></tr>
+      <tr><td>6</td><td>Research questions</td><td>Open</td><td>See <a href="#questions">the question table</a>.</td></tr>
+      <tr><td>7</td><td>Explicit exclusions</td><td>Closed</td><td>CBZ, custom ordering, scroll restoration, storage reset, backup XSS hardening — all shipped. TTS deliberately dropped.</td></tr>
+      <tr><td>8</td><td>Outstanding audit items (EPUB external resources, CBZ limits, backup completeness, settings failures)</td><td>Open investigations</td><td>Not resolved; see <a href="#audit">below</a>.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="statistics">1. Reading statistics and activity dashboard</h2>
+  <p><strong>Planned; not implemented.</strong> The target is a local dashboard of daily/weekly/monthly
+  activity, reading time over time, books completed, pages/chapters read, streaks, history timelines,
+  personal records, and library stats (total books, series, formats, storage). The roadmap is explicit
+  about the direction: "a useful statistics dashboard, not an overly gamified experience".</p>
+  <p><strong>What exists today:</strong> the type is already declared in
+  <code>src/types/book.ts</code> — <code>interface ReadingSession</code> — but nothing writes
+  <code>ReadingSession</code> records: there is no store, no writer, and no UI. <code>ReadingProgress</code>
+  knows where you stopped; it does not know how long you actually read.</p>
+  <p><strong>Design constraints the roadmap calls out:</strong> a lightweight session tracker must
+  handle idle time and prolonged inactivity, avoid counting time when the tab is backgrounded or the
+  reader is idle, recover sensibly from interrupted sessions, and stay local. The existing debounced
+  progress hook (<code>useReadingProgress</code>, 2000 ms debounce with flush-on-unmount —
+  <a href="reader.html#progress">Reader Engine</a>) is a useful timing anchor but measures
+  <em>position</em>, not engagement.</p>
+  <div class="callout callout--tip">
+    <div class="callout__label">ADVICE: SEQUENCE MATTERS HERE</div>
+    <p>Design the tracker and statistics data <em>model</em> first (what counts as an active minute, how
+    idle is detected), then the dashboard. Starting at the charts guarantees a re-implementation once
+    the session semantics settle. Also: derive what you can from existing timestamps
+    (<code>lastOpenedAt</code>, <code>importedAt</code>, progress updates) before proposing new
+    IndexedDB stores.</p>
+  </div>
+  <p><strong>Acceptance ideas:</strong> time tracked excludes backgrounded tabs (use Page Visibility);
+  a session survives a crash with bounded loss; dashboard renders from a deterministic derivation of
+  stored sessions; tests lock session math against synthetic input (the fake-indexeddb harness makes
+  this cheap — <a href="testing.html#storage-suite">Testing &amp; Quality</a>).</p>
+
+  <h2 id="dictionary">2. Offline dictionary and vocabulary lookup</h2>
+  <p><strong>Planned; not implemented.</strong> Allow readers to look up words without leaving the
+  reader. <strong>Nothing exists yet</strong>, deliberately: the blocking decision is the dataset —
+  which offline dictionary data (source, licence, packaging) — and whether it installs by download or
+  ships with the bundle. Storage footprint, lookup performance, and a natural in-reading interaction
+  (selection-triggered lookup on text content, hard on paginated/comic surfaces) are follow-on design
+  work.</p>
+  <div class="callout callout--warning">
+    <div class="callout__label">BUNDLE-SIZE RED FLAG</div>
+    <p>Dictionary data is a classic way to triple the install size and wreck the service-worker
+    precache list. Treat the dataset like a lazy vendor chunk: keep it out of the static precache
+    (<a href="deployment.html#sw-strategies">PWA &amp; Deployment</a>), load it on demand, and cache it
+    under runtime caching separate from the shell.</p>
+  </div>
+  <p><strong>Acceptance ideas:</strong> lookup works fully offline once "installed"; licence file
+  vendored; lookup on selectable text in scroll/paginated modes documented; graceful no-entry UX for
+  non-matching locales.</p>
+
+  <h2 id="keyboard">3. Keyboard navigation across reader formats</h2>
+  <p><strong>Verify before "building" this.</strong> The roadmap identifies arrow-key navigation as
+  missing across formats, but the codebase has moved on: <code>PaginatedReader</code>,
+  <code>EpubReader</code> and <code>CbzReader</code> handle arrow keys (respecting the comic reading
+  direction for RTL), and <code>ReaderView</code> defines single-key chrome shortcuts —
+  <kbd>H</kbd>/<kbd>F</kbd>/<kbd>T</kbd>/<kbd>B</kbd>/<kbd>S</kbd>/<kbd>/</kbd> for toggling UI, plus
+  <kbd>Ctrl+0/−/+</kbd> for zoom. Inventory the shortcuts chapter in
+  <a href="reader.html#shortcuts">Reader Engine</a>, find the engine gaps (e.g. search results
+  navigation, TOC traversal), and write the spec as <em>extension and documentation</em> of existing
+  behavior — not as greenfield work.</p>
+  <p><strong>Constraints:</strong> consistent previous/next semantics per format; no conflict with text
+  selection, form controls, or browser shortcuts; discoverability (shortcut help surface);
+  engine-specific tests rather than assuming one implementation fits all.</p>
+
+  <h2 id="audio">4. Ambient audio and focus sounds</h2>
+  <p><strong>Planned; not implemented.</strong> Initial categories are locally generated noise —
+  white, pink, brown — via the Web Audio API; music/scene additions (rain, library, night) come later,
+  since those need third-party audio assets. Scope: volume control, playback controls, a timer, and
+  strictly optional/unobtrusive behavior — no external audio services or copyrighted material for
+  v1.</p>
+  <p><strong>Reality notes from the codebase:</strong></p>
+  <ul>
+    <li>Nothing pulls audio into the bundle today, and that shows in how lean the vendor chunks are;
+    keep it that way with a lazy chunk if this lands (<a href="architecture.html#lazy-loading">lazy
+    loading</a>).</li>
+    <li>The reader shell (<code>ReaderView</code>) is already large; a self-contained
+    <code>AmbientAudio</code> component plus a settings toggle is the least invasive shape.</li>
+    <li>Persisting "on/off + volume" belongs in <code>UserSettings</code> (global preference, not
+    per-book) — follow the provider rules in <a href="architecture.html#providers-and-hooks">Architecture</a>.</li>
+  </ul>
+  <p><strong>Acceptance ideas:</strong> zero network requests for noise generation; audio stops on
+  tab close; timer honored; feature usable without touching reading controls.</p>
+
+  <h2 id="polish">5. Further reading-experience improvements</h2>
+  <p><strong>Status: verify.</strong> The roadmap lists possible refinements without committing to
+  scope: series-level progress tracking and next-volume guidance, bookmark/annotation workflow
+  improvements (the data model already supports annotations and labels —
+  <a href="data-model.html">Data Model</a>, <a href="reader.html#bookmarks">Reader Engine</a>),
+  accessibility passes, reader customization, import/export robustness, and format compatibility.
+  These build on <em>existing</em> features; treat each as an audit-then-extend task against real
+  usage, not a from-scratch build.</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Candidate</th><th>Exists already</th><th>Refinement surface</th></tr></thead>
+    <tbody>
+      <tr><td>Series-level progress</td><td>Per-book progress, per-book settings, user tags that could group volumes</td><td>No series entity; grouping/ordering needs a data model decision (see <a href="#questions">questions</a>)</td></tr>
+      <tr><td>Bookmarks/annotations workflows</td><td>Bookmarks store + annotations store + highlight colors</td><td>Panel UX, list management, export annotations alongside backup</td></tr>
+      <tr><td>Accessibility</td><td>Keyboard-activated cards, <code>aria-checked</code> selection, <code>.sr-only</code>, focus-visible rings, reduced-motion support</td><td>Audit reader surfaces (canvas-based engines are inherently AT-opaque) and landing flows</td></tr>
+      <tr><td>Import/export robustness</td><td>Backup v1/v2 with dedup + restore sanitization</td><td>Partial-backup handling, <a href="#audit">v2 completeness investigation</a></td></tr>
+    </tbody>
+  </table></div>
+  <p>Start any of these with a short audit: list what the relevant store/panel currently does, find the
+  friction with real reading sessions, then file the change. The "verify" marking exists precisely
+  because several of them may be closer to done than the roadmap prose suggests.</p>
+
+  <h2 id="questions">6. Research and design questions</h2>
+  <p>From the roadmap doc, verbatim topic areas that must be settled before implementation:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Area</th><th>Questions to settle</th></tr></thead>
+    <tbody>
+      <tr><td>Statistics</td><td>Which events count as active reading? How is time calculated across tabs, devices, and interrupted sessions?</td></tr>
+      <tr><td>Offline dictionary</td><td>Which dataset and licence? How large? How is it installed and updated?</td></tr>
+      <tr><td>Keyboard navigation</td><td>Which keys map to which actions in each reader engine? How are conflicts with browser shortcuts handled?</td></tr>
+      <tr><td>Ambient audio</td><td>Which sounds are generated locally? What controls and timer behavior are needed?</td></tr>
+      <tr><td>Series progress</td><td>How are volumes grouped, ordered, and identified across imported files?</td></tr>
+      <tr><td>Accessibility</td><td>Which specific workflows and reader components need improvement?</td></tr>
+      <tr><td>Import/export</td><td>Which concrete formats or backup scenarios are still unsupported?</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="exclusions">7. Explicit exclusions</h2>
+  <p>The roadmap marks these as <strong>done</strong> — do not re-file them as gaps: CBZ support;
+  custom library ordering and drag-and-drop; library scroll restoration; storage separation and reset
+  controls; backup-restore XSS/HTML sanitization (hardened, deployed, and guarded by the security test
+  suite — <a href="testing.html#security">Testing &amp; Quality</a>).</p>
+  <div class="callout callout--danger">
+    <div class="callout__label">TTS IS DELIBERATELY NOT PLANNED</div>
+    <p>Text-to-speech was consciously rejected: high-quality offline neural TTS is too demanding in
+    model/runtime size and browser compatibility, and basic browser TTS wasn't good enough to justify
+    inclusion. Please don't open "add TTS" as a missing stub — it is a closed decision, not an
+    omission.</p>
+  </div>
+
+  <h2 id="audit">8. Outstanding audit items</h2>
+  <p>These are <em>engineering investigations</em> from the audit, not feature ideas. Track them
+  separately and mark resolved only after verification:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Item</th><th>Problem</th><th>Suggested next step</th></tr></thead>
+    <tbody>
+      <tr><td>EPUB external resources</td><td>External image/<code>srcset</code> references inside an EPUB may trigger network requests when the book opens — a potential "phone home" privacy leak.</td><td>Decide a policy: block remote resources by default or request consent; if a blocklist/allowlist is built, wire it into the EPUB decode path (see <a href="formats.html#sanitization">sanitization</a> context).</td></tr>
+      <tr><td>CBZ resource limits</td><td>No enforced caps on compressed input size, archive entry count, expanded data size, and image dimensions.</td><td>Borrow the tradeoff directly from <code>cover-image.ts</code> guards (<code>MAX_COVER_PIXELS</code>-style caps, <a href="library.html#cover-editor">Library</a>) and apply size/page-count guards in <code>cbz-parser</code>.</td></tr>
+      <tr><td>v2 backup completeness</td><td>Verify the case where a backup contains book metadata without matching book content (metadata-only entries).</td><td>Define restore behavior (reject? import shell without content?), then extend <code>storage.test.ts</code> coverage in <a href="testing.html#storage-suite">Testing</a>.</td></tr>
+      <tr><td>Settings persistence failures</td><td>Both persistence backends can fail silently today; some paths treat an error as success.</td><td>Surface failure in UI for <code>getSettings/saveSettings</code>-based flows; the hooks currently just <code>console.error</code> (see <a href="architecture.html#hooks">hook inventory</a>).</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="formats">Formats to be added</h2>
+  <p><code>Developmental/formats-to-be-added.md</code> is currently a tab-separated stub — a list with
+  no notes yet:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Format</th><th>Category (prediction)</th><th>Where the registry entry goes</th><th>Parser caveats</th></tr></thead>
+    <tbody>
+      <tr><td><code>.rtf</code></td><td>Reflowable document</td><td><code>src/formats/definitions/rtf.ts</code></td><td>RTF control-word parsing by hand; no library in the current dependency set — strip to text or convert via a small parser.</td></tr>
+      <tr><td><code>.cbr</code></td><td>Comics (fixed)</td><td><code>src/formats/definitions/cbr.ts</code></td><td>RAR archive decode — needs a new decode dependency; reuse CBZ's page pipeline once extracted.</td></tr>
+      <tr><td><code>.cb7</code></td><td>Comics (fixed)</td><td><code>src/formats/definitions/cb7.ts</code></td><td>7-zip decode — also a new dependency; same reuse strategy.</td></tr>
+      <tr><td><code>.mobi</code></td><td>Reflowable ebook</td><td><code>src/formats/definitions/mobi.ts</code></td><td>PalmDOC/LZ77 decompression + HTML-ish pseudo-HTML output; treat like the HTML pipeline with sanitization (<a href="formats.html#sanitization">Formats &amp; Parsers</a>).</td></tr>
+      <tr><td><code>.fb2</code></td><td>Reflowable ebook (XML)</td><td><code>src/formats/definitions/fb2.ts</code></td><td>XML parse + body section split; embeds images inline (base64) — decide cover extraction vs inline rendering.</td></tr>
+      <tr><td><code>.djvu</code> / <code>.djv</code></td><td>Fixed-layout document</td><td>…/djvu.ts (single definition, two extensions)</td><td>Proprietary bitonal format; browser-side decoding is the hard problem, likely a WASM decode lib.</td></tr>
+      <tr><td><code>.xps</code></td><td>Fixed-layout document</td><td>…/xps.ts</td><td>XPS is an Open Packaging Conventions (OPC/ZIP) format — feasible with jszip, but page rendering needs a renderer choice.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout callout--warning">
+    <div class="callout__label">DEPENDENCY COST: KEEP NEW DECODE LIBS IN LAZY CHUNKS</div>
+    <p>CBZ today is feasible because ZIP support <em>already</em> exists via <code>jszip</code>.
+    <code>.cbr</code> (RAR) and <code>.cb7</code> (7z) require entirely new decode libraries — each is
+    a bundle-size and maintenance tradeoff. Follow the established pattern: register the format in
+    <a href="formats.html#registry">the registry</a>, add a
+    <code>manualChunks</code> branch (like <code>vendor-epub</code>/<code>vendor-pdf</code>, see
+    <a href="architecture.html#lazy-loading">Architecture</a>), and lazy-load the engine from
+    <code>ReaderView</code> so the main chunk and the service-worker precache stay small
+    (<a href="deployment.html#sw-strategies">PWA &amp; Deployment</a>).</p>
+  </div>
+
+  <h2 id="add-format">Checklist: actually adding a new format</h2>
+  <p>Everything a <code>.mobi</code>-style contribution touches, in order — this is the same set CBZ
+  followed when it landed (<code>format/cbz</code>):</p>
+  <ol class="steps">
+    <li><b>Type layer</b><span>Add the format id to <code>book.ts</code>'s <code>BookFormat</code> union and to <code>FormatCapabilities</code>/definition types in <code>src/formats/types.ts</code> — the compiler will then point at every switch that needs a case (<a href="data-model.html">Data Model</a>).</span></li>
+    <li><b>Definition</b><span>Create <code>src/formats/definitions/&lt;id&gt;.ts</code> with <code>id</code>, <code>label</code>, <code>extensions</code>, <code>mimeTypes</code>, <code>category</code> (<code>'reflowable'</code> or <code>'fixed'</code>), <code>requiresOriginalFile</code>, the <code>capabilities</code> object, and an async <code>parse(file)</code>. Copy the shape of <code>definitions/cbz.ts</code>.</span></li>
+    <li><b>Registry</b><span>Import it into <code>src/formats/registry.ts</code> and add it to <code>FORMAT_REGISTRY</code>; the extension→format map, <code>accept</code> attribute, and dropzones update automatically from the registry entries.</span></li>
+    <li><b>Parser</b><span>Implement the decode in <code>src/core/parsing/&lt;id&gt;-parser.ts</code>. For HTML-ish formats, run output through the reader sanitization path; never build the chapter DOM at parse time (<a href="formats.html#sanitization">Formats &amp; Parsers</a>).</span></li>
+    <li><b>Engine</b><span>Text formats reuse PaginatedReader/ScrollReader via the shared shell; fixed layouts get a new engine in <code>src/formats/engines/</code>, lazy-loaded, and wired into the format-dispatch in <code>ReaderView</code>.</span></li>
+    <li><b>Chunk hygiene</b><span>New heavyweight decode library → new <code>manualChunks</code> branch so bundling stays lazy (<a href="architecture.html#lazy-loading">Architecture</a>).</span></li>
+    <li><b>Tests</b><span>Registry tests for detection/capabilities (extend <code>formats-registry.test.ts</code>), a parser suite like <code>cbz-parser.test.ts</code>, and an import-integration test like <code>import-cbz.test.ts</code>. Binary fixtures in code, per <a href="testing.html#conventions">Testing conventions</a>.</span></li>
+    <li><b>Docs</b><span>Update <code>Developmental/formats-to-be-added.md</code> (remove the row) and this chapter, and add the format to the capability matrix in <a href="formats.html">Formats &amp; Parsers</a>.</span></li>
+  </ol>
+
+  <h2 id="codebase-gaps">Known gaps from the codebase itself</h2>
+  <p>Beyond the roadmap documents, an honest audit of the source turned up these — marked
+  verifiable-by-grep where possible:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Gap</th><th>Where</th><th>Shape of a fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>ReadingSession</code> type declared but unused</td><td><code>src/types/book.ts</code> — declared; no store, writer, or consumer</td><td>Rows under <a href="#statistics">item 1</a>; remove or implement</td></tr>
+      <tr><td><code>DoubleSidedReader</code> is a stub</td><td><code>src/components/reader/DoubleSidedReader.tsx</code> just renders <code>&lt;PaginatedReader pagesPerSpread={2}/&gt;</code></td><td>True spread layout, or document the limitation where the mode is exposed in <a href="reader.html#engines">Reader Engine</a></td></tr>
+      <tr><td>PDF/CBZ zoom logic duplicated</td><td><code>PdfReader.tsx</code> and <code>CbzReader.tsx</code> mirror wheel/pinch handling</td><td>Extract a shared zoom coordinator; single test surface</td></tr>
+      <tr><td><code>ReaderView</code> <code>onSeek</code> nesting oddity</td><td>The <code>ProgressBar onSeek</code> callback in <code>ReaderView.tsx</code> carries an empty/nested conditional for the PDF path</td><td>Flatten the branch dispatch; it reads as dead scaffolding</td></tr>
+      <tr><td>Format metadata dual date field</td><td><code>publishDate</code> in <code>src/formats/types.ts</code> vs <code>publicationDate</code> on <code>Book</code>, bridged in <code>import-service.ts</code></td><td>Document and eventually converge; kept for compat (<a href="data-model.html#metadata">Data Model</a>)</td></tr>
+      <tr><td><code>appVersion</code> hard-coded <code>'1.0.0'</code> in <code>exportBackup</code></td><td><code>src/core/storage/database.ts</code> vs <code>package.json</code> <code>0.0.0</code></td><td>Inject the version at build time (Vite define) so backups record reality</td></tr>
+      <tr><td>Stray artifacts: <code>docs/null.txt</code>, <code>assets/icons/null</code></td><td>Repo root <code>docs/</code> and <code>assets/icons/</code></td><td>Delete; verify nothing references them first</td></tr>
+      <tr><td>No library virtualization</td><td><code>LibraryView</code> renders one flat list (<a href="library.html#known-gaps">Library &amp; Metadata</a>)</td><td>Window only if real-world scale demands it</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout callout--info">
+    <div class="callout__label">HONESTY CHECK ON THIS PAGE</div>
+    <p>Some roadmap text drifts behind the code — the keyboard-navigation item is the clearest example.
+    The roadmap doc <em>itself</em> instructs contributors to inspect the codebase before starting work
+    so nothing is accidentally duplicated. Treat this chapter as a map, not a verdict.</p>
+  </div>
+
+  <h2 id="order">Suggested order of attack</h2>
+  <p>The roadmap's tentative sequence (dependency-based, explicitly not final priority):</p>
+  <ol class="steps">
+    <li><b>Keyboard navigation</b><span>Audit existing per-engine shortcuts (<a href="reader.html#shortcuts">Reader Engine</a>), close the engine gaps, and document the result. Cheapest, uncouples nothing.</span></li>
+    <li><b>Session tracker + statistics data model</b><span>Prerequisite for the dashboard; design idle/background semantics before any store work.</span></li>
+    <li><b>Dictionary dataset decision</b><span>Licence and packaging research first; prototype lookup UX after a dataset is selected.</span></li>
+    <li><b>Locally generated ambient audio</b><span>Web Audio noise with minimal controls; self-contained feature.</span></li>
+    <li><b>Series progress, accessibility, import/export refinements</b><span>Revisit based on concrete user needs once the infrastructure above exists.</span></li>
+  </ol>
+
+  <h2 id="contribution">Contribution flow</h2>
+  <p>Conventions actually observed in <code>git branch</code>/<code>git log</code> of this repo, not
+  aspirational rules:</p>  <div class="table-wrap"><table>
+    <thead><tr><th>Conventions</th><th>Examples from the repo</th></tr></thead>
+    <tbody>
+      <tr><td>Branch naming</td><td><code>feature/book-cover-editor</code>, <code>feature/reader-settings</code>, <code>optimization/set-1</code>, <code>Exp/set-1</code>, <code>format/cbz</code>, <code>infra/firebase-hosting</code>, <code>jules/audit</code></td></tr>
+      <tr><td>Commit style</td><td>Conventional-commit-ish, lowercase scope prefixes: <code>fix(library): stabilize drag reorder previews</code>, <code>feat(settings): add reset site preferences button…</code>, <code>chore: shorten browser tab title</code>, <code>fix(security): sanitize restored chapter content</code></td></tr>
+      <tr><td>Developmental docs live in-repo</td><td><code>Developmental/*.md</code> — update the relevant file in the same change set as the feature</td></tr>
+    </tbody>
+  </table></div>
+
+  <ol class="steps">
+    <li><b>One feature per branch</b><span>Pick the prefix above matching your change family — <code>feature/</code> for UI/features, <code>format/&lt;ext&gt;</code> for registry work, <code>infra/</code> for deployment, <code>fix/&lt;area&gt;</code> or scoped <code>fix(area):</code> commits for bugs.</span></li>
+    <li><b>Verify the gap first</b><span>Read this chapter's reality column plus the relevant chapter (<a href="reader.html">Reader</a>, <a href="library.html">Library</a>, <a href="storage.html">Storage</a>…) so nothing already implemented gets rebuilt.</span></li>
+    <li><b>Update Developmental docs</b><span>If you implement, reject, defer, or redesign a roadmap item, edit the source markdown file rather than leaving a stale claim — the doc's own maintenance note asks for exactly this.</span></li>
+    <li><b>Run <code>npm test</code> + <code>npm run build</code></b><span>The build includes <code>tsc -b</code> type-checking; add tests where the new behavior is lockable (<a href="testing.html#conventions">Testing &amp; Quality</a> conventions).</span></li>
+    <li><b>Clean your artifacts</b><span>Things like <code>docs/null.txt</code> and <code>assets/icons/null</code> are exactly the kind of stray file generated by tooling that ends up committed. Check <code>git status</code> for accidental artifacts — e.g. scratch and build outputs — before committing; scratch/ is untracked tooling workspace, dist/ is generated.</span></li>
+  </ol>
+
+  <h2 id="maintenance">Maintenance of this chapter</h2>
+  <p>The roadmap documents end with explicit maintenance instructions, which apply equally to this
+  page: update items as features are implemented, rejected, deferred, or substantially redesigned;
+  keep confirmed implementation status separate from ideas and proposals; and <strong>inspect the
+  codebase before starting any item</strong> so existing functionality is not accidentally duplicated.
+  If you resolve an audit item, move it out of <a href="#audit">the open investigations table</a> and
+  into whichever chapter actually documents the fix — stale roadmap entries are worse than no entries,
+  because they misdirect new contributors.</p>
+
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

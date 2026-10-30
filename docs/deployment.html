@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PWA &amp; Deployment — WebXReader Documentation</title>
+  <meta name="description" content="Service worker strategy, manifest, Firebase Hosting CI with Workload Identity Federation, mirror URLs, and cache-versioning discipline.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">PWA &amp; Deployment</h1>
+  <p class="lede">WebXReader is a hand-rolled PWA: a service worker seeded from the built
+  <code>index.html</code>, a minimal web manifest, and a Firebase Hosting deploy wired through GitHub
+  Actions with Workload Identity Federation — no repo secrets. Because all routes are hash fragments,
+  any static host serves the build as-is. This chapter explains each strategy, the pipeline, and the
+  cache-versioning discipline that keeps deploys coherent.</p>
+
+  <h2 id="pwa-architecture">PWA architecture</h2>
+  <p>Three files in <code>public/</code> make the app installable and offline-capable, all copied
+  verbatim into <code>dist/</code> by Vite:</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>File</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td><code>public/sw.js</code></td><td>Application-shell service worker (strategies below).</td></tr>
+      <tr><td><code>public/manifest.json</code></td><td>Web app manifest for installability.</td></tr>
+      <tr><td><code>index.html</code></td><td>Inline script that registers the SW on http(s), un-registers it on localhost, and sets <code>meta theme-color</code>.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="sw-strategies">Service worker strategies</h3>
+  <p><code>sw.js</code> is versioned by a single constant — bump it whenever cached assets change:</p>
+  <pre><code class="language-js">const CACHE_NAME = 'webxreader-shell-v5';</code></pre>
+
+  <p>The behavior, top to bottom:</p>
+  <ol class="steps">
+    <li><b>install</b><span>Calls <code>self.skipWaiting()</code> immediately, then discovers shell assets: it fetches <code>index.html</code> with <code>cache: 'no-cache'</code>, seeds <code>favicon.ico</code>, <code>webxreader.svg</code>, <code>manifest.json</code>, plus every relative <code>src="…"</code>/<code>href="…"</code> value parsed from the HTML with the regex <code>/(?:src|href)=["']([^"']+)["']/g</code> (absolute URLs, protocol-relative and <code>#</code> links are skipped). All gathered URLs are added to the cache.</span></li>
+    <li><b>activate</b><span>Deletes every cache key that is not <code>CACHE_NAME</code> — this is how migration between shell versions happens — and then <code>clients.claim()</code> so the new worker controls existing tabs without waiting for a reload.</span></li>
+    <li><b>fetch (GET only)</b><span>Non-GET requests are never intercepted. Dev resources (<code>/src/</code> paths, <code>.tsx</code>, <code>.ts</code>, <code>.css</code>) bypass straight to the network so a stale cache can never serve old modules.</span></li>
+    <li><b>Navigations → Network First</b><span>When <code>request.mode === 'navigate'</code>, <code>destination === 'document'</code>, the path is <code>/</code>, or it ends in <code>.html</code>: try the network first, update the cache in the background on a 200 response, and fall back to the cached copy (or cached <code>index.html</code>) only when the network fails. This keeps the shell fresh while remaining offline-tolerant.</span></li>
+    <li><b>Hashed/static assets → Cache First</b><span>Everything else: serve from the cache when present; otherwise fetch, cache the 200, and return. Covered assets are content-hashed by Vite, so a cached file is correct by construction.</span></li>
+  </ol>
+
+  <div class="callout callout--info">
+    <div class="callout__label">SHELL vs ASSETS — THE CORE MENTAL MODEL</div>
+    <p><strong>HTML is fetched fresh and cached as fallback; JS/CSS chunks are trusted from the cache
+    because their filenames change when content changes.</strong> The exception is <code>public/</code>
+    itself — those files keep stable names, so the <em>only</em> way a new manifest or favicon reaches
+    installed clients is the shell being re-fetched and <code>CACHE_NAME</code> having been bumped by
+    you.</p>
+  </div>
+
+  <h3 id="registration">Registration rules</h3>
+  <p>The inline script in <code>index.html</code> gates registration:</p>
+  <pre><code class="language-js">const isLocalDev = window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1' ||
+  window.location.hostname === '::1';</code></pre>
+  <ul>
+    <li><strong>On localhost / 127.0.0.1 / ::1:</strong> any existing service worker registrations are
+    <em>unregistered</em> and every <code>webxreader-*</code> cache is deleted. Dev-mode hygiene: a
+    leftover production cache from a previous deploy must never shadow a dev server.</li>
+    <li><strong>On http(s) but not those hosts:</strong> <code>navigator.serviceWorker.register('./sw.js')</code>
+    on <code>window</code> load, followed by an immediate <code>reg.update()</code>.</li>
+    <li><strong><code>file://</code> or other non-http schemes:</strong> never registered at all.</li>
+  </ul>
+
+  <h3 id="sw-code">Shell discovery, verbatim excerpts</h3>
+  <p>The asset discovery seeded at install — note how little it trusts: only the app's own
+  <code>index.html</code> and what it references relatively:</p>
+  <pre><code class="language-js">async function discoverShellAssets() {
+  const indexUrl = appUrl('index.html');
+  const response = await fetch(indexUrl, { cache: 'no-cache' });
+  if (!response.ok) throw new Error(`Could not fetch application shell (${response.status})`);
+
+  const html = await response.text();
+  const assets = new Set([
+    indexUrl,
+    appUrl('favicon.ico'),
+    appUrl('webxreader.svg'),
+    appUrl('manifest.json'),
+  ]);
+  const assetPattern = /(?:src|href)=["']([^"']+)["']/g;
+  let match;
+  while ((match = assetPattern.exec(html)) !== null) {
+    const value = match[1];
+    if (!value || value.startsWith('http') || value.startsWith('//') || value.startsWith('#')) continue;
+    assets.add(new URL(value, indexUrl).toString());
+  }
+  return [...assets];
+}</code></pre>
+  <p>Migration on activate is one guard clause — this whole block is what a
+  <code>CACHE_NAME</code> bump actually triggers:</p>
+  <pre><code class="language-js">self.addEventListener('activate', (event) =&gt; {
+  event.waitUntil(
+    caches.keys().then((keys) =&gt; {
+      return Promise.all(
+        keys.map((key) =&gt; {
+          if (key !== CACHE_NAME) {
+            console.log('[SW] Removing old cache:', key);
+            return caches.delete(key);
+          }
+        })
+      );
+    }).then(() =&gt; self.clients.claim())
+  );
+});</code></pre>
+
+  <h3 id="fetch-paths">Fetch decision table</h3>
+  <p>Every intercepted request follows exactly one row of this table:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Request shape</th><th>Strategy</th><th>Fallback</th></tr></thead>
+    <tbody>
+      <tr><td>Non-GET</td><td>Bypass (SW never intercepts)</td><td>—</td></tr>
+      <tr><td>Non-http(s) protocol</td><td>Bypass</td><td>—</td></tr>
+      <tr><td><code>/src/…</code> path, <code>.tsx</code>, <code>.ts</code>, <code>.css</code></td><td>Network passthrough</td><td>none (dev resources must never come from cache)</td></tr>
+      <tr><td>Navigations: <code>mode === 'navigate'</code>, <code>destination === 'document'</code>, <code>path === '/'</code>, or <code>*.html</code></td><td>Network First; cache the 200</td><td>Cached request, else cached <code>index.html</code> (keeps SPA shell working offline)</td></tr>
+      <tr><td>Everything else (hashed chunks, <code>favicon.ico</code>, images…)</td><td>Cache First; cache the 200 on first fetch</td><td>Network</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="manifest">Manifest</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td><code>name</code></td><td><code>WebXReader — Local-First Web Novel Reader</code></td></tr>
+      <tr><td><code>short_name</code></td><td><code>WebXReader</code></td></tr>
+      <tr><td><code>description</code></td><td>"Desktop-class, private, local-first web novel reader with personal bookshelf and customizable reading environment."</td></tr>
+      <tr><td><code>start_url</code></td><td><code>./</code></td></tr>
+      <tr><td><code>display</code></td><td><code>standalone</code></td></tr>
+      <tr><td><code>background_color</code></td><td><code>#fafafa</code></td></tr>
+      <tr><td><code>theme_color</code></td><td><code>#2563eb</code></td></tr>
+      <tr><td><code>icons</code></td><td><code>./favicon.ico</code>, <code>sizes: "any"</code>, <code>type: "image/x-icon"</code></td></tr>
+    </tbody>
+  </table></div>
+  <p><code>index.html</code> additionally sets <code>&lt;meta name="theme-color" content="#2563eb"&gt;</code>
+  for painted browser chrome (the manifest's <code>theme_color</code> covers installed windows).</p>
+
+  <div class="callout callout--warning">
+    <div class="callout__label">INSTALL PROMPT CAVEATS</div>
+    <p>Installability depends on the host serving <strong>https</strong> (or localhost) and the SW
+    registering successfully — and some browsers additionally gate the install prompt on icon sizes.
+    Since WebXReader currently declares only the <code>favicon.ico</code> icon, Chrome-style
+    installability generally works, but larger maskable PNG icons in the manifest would strengthen
+    install UX on Android. <em>Advice:</em> if you extend <code>icons</code>, also update
+    <code>discoverShellAssets</code> in <code>sw.js</code> and bump <code>CACHE_NAME</code> so seeded
+    assets match.</p>
+  </div>
+
+  <h2 id="targets">Deployment targets</h2>
+  <p>Because routes are hash fragments (<code>HashRouter</code>), <strong>no host needs SPA
+  rewrites</strong>: everything resolves against the single served <code>index.html</code>. The exact
+  public URLs (matching <code>src/components/settings/InformationPage.tsx</code> lines ~53–56):</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Label</th><th>URL</th><th>Host</th></tr></thead>
+    <tbody>
+      <tr><td>Primary</td><td><a href="https://webxreader.web.app/">https://webxreader.web.app/</a></td><td>Firebase Hosting (site <code>webxreader</code>, project <code>xensenx</code>)</td></tr>
+      <tr><td>Mirror one</td><td><a href="https://webxreader.pages.dev/">https://webxreader.pages.dev/</a></td><td>Cloudflare Pages (project <code>webxreader</code>)</td></tr>
+      <tr><td>Mirror two</td><td><a href="https://webxreader.vercel.app/">https://webxreader.vercel.app/</a></td><td>Vercel</td></tr>
+      <tr><td>Mirror three</td><td><a href="https://webxreader.netlify.app/">https://webxreader.netlify.app/</a></td><td>Netlify</td></tr>
+    </tbody>
+  </table></div>
+  <p>The in-app About page renders these from a local markdown file through
+  <code>marked</code> + <code>DOMPurify</code>, and the mirror list there is kept in sync with actual
+  hosting. If you add or retire a mirror, update
+  <code>InformationPage.tsx</code> (the <code>mirrors</code> array) and this table together.</p>
+
+  <h2 id="firebase-config">Firebase configuration</h2>
+  <p>Two config files drive deploys:</p>
+  <pre><code class="language-json">.firebaserc:
+{
+  "projects": { "default": "xensenx" },
+  "targets": { "xensenx": { "hosting": { "webxreader": [ "webxreader" ] } } }
+}
+
+firebase.json:
+{
+  "hosting": {
+    "target": "webxreader",
+    "public": "dist",
+    "ignore": [ "firebase.json", "**/.*", "**/node_modules/**" ]
+  }
+}</code></pre>
+  <p>Notes:</p>
+  <ul>
+    <li>The hosting <strong>target</strong> <code>webxreader</code> maps to the site named
+    <code>webxreader</code>, which is why the public URL is
+    <code>https://webxreader.web.app/</code>.</li>
+    <li><code>public: "dist"</code> — deploys push the built bundle, never <code>src/</code>.</li>
+    <li>No <code>"rewrites"</code> exist and none are needed (hash routing). The
+    <code>ignore</code> array only saves the CLI from uploading metadata files.</li>
+  </ul>
+
+  <h2 id="pipeline">CI/CD: the Firebase workflow</h2>
+  <p><code>.github/workflows/firebase-hosting-production.yml</code> deploys on every push to
+  <code>main</code>. Nothing else — no PR preview deploys, no scheduled builds. End to end:</p>
+
+  <ol class="steps">
+    <li><b>Trigger</b><span><code>on: push → main</code> only. Concurrency group <code>firebase-hosting-production</code> with <code>cancel-in-progress: true</code>, so a rapid second push kills the first deploy rather than queueing both.</span></li>
+    <li><b>Permissions</b><span><code>contents: read</code> plus <code>id-token: write</code> — the latter mints OIDC tokens for the federation step. No secret values are stored in the repo at all.</span></li>
+    <li><b>Environment</b><span>Ubuntu runner, Node 22 via <code>actions/setup-node@v4</code> with npm caching.</span></li>
+    <li><b>Build</b><span><code>npm ci</code> then <code>npm run build</code> — which is <code>tsc -b &amp;&amp; vite build</code>, so a type error fails the workflow before any deploy.</span></li>
+    <li><b>CLI</b><span><code>npm install --global firebase-tools</code>.</span></li>
+    <li><b>Authenticate via Workload Identity Federation</b><span><code>google-github-actions/auth@v3</code> with <code>project_id: xensenx</code>, provider <code>projects/1000429566837/locations/global/workloadIdentityPools/github-actions/providers/github</code>, and service account <code>firebase-hosting-deployer@xensenx.iam.gserviceaccount.com</code>. This exchanges the runner's OIDC token directly for short-lived Google credentials.</span></li>
+    <li><b>Deploy</b><span><code>firebase deploy --only hosting:webxreader --project xensenx --non-interactive</code> publishes the new <code>dist/</code>.</span></li>
+  </ol>
+
+  <div class="callout callout--info">
+    <div class="callout__label">WORKLOAD IDENTITY FEDERATION MEANS NO SECRETS</div>
+    <p>Classic Firebase deploy workflows keep a long-lived <code>FIREBASE_TOKEN</code> secret. This one
+    instead trusts the GitHub OIDC provider configured in the Google Cloud project
+    (<code>github-actions</code> workload identity pool, <code>github</code> provider). Rotating nothing
+    and having nothing to leak is the win; the tradeoff is that IAM changes live in the Google Cloud
+    project, not in GitHub.</p>
+  </div>
+
+  <div class="callout callout--warning">
+    <div class="callout__label">THE WORKFLOW DOES NOT RUN TESTS</div>
+    <p>Only <code>tsc</code> type-checking stands between you and production. There is currently no CI
+    test job — see <a href="testing.html#known-gaps">Testing &amp; Quality → known gaps</a> for the
+    recommended addition (a test step in this workflow or a separate workflow).</p>
+  </div>
+
+  <h2 id="mirroring">Running your own mirror</h2>
+  <p>The three existing mirrors are all connected to the same repository/distro and configured with a
+  single knob each. Replicating one is mechanical:</p>
+  <ol class="steps">
+    <li><b>Cloudflare Pages</b><span>Create a Pages project (name it <code>webxreader</code> to reuse <code>webxreader.pages.dev</code>), point it at this repo, set the build command to <code>npm run build</code> and the output directory to <code>dist</code>. No framework preset, no rewrite rules needed.</span></li>
+    <li><b>Vercel / Netlify</b><span>Same two fields (build command, <code>dist</code> output). Leave rewrites/redirects empty — SPA rewrites are actively unnecessary here, and a catch-all-to-<code>index.html</code> rewrite is harmless but pointless with hash routing.</span></li>
+    <li><b>Update about page + docs</b><span>Any new mirror URL must be added to the <code>mirrors</code> array in <code>src/components/settings/InformationPage.tsx</code> so the in-app About page keeps its promise of listing mirrors.</span></li>
+  </ol>
+  <div class="callout callout--info">
+    <div class="callout__label">SANITY-CHECK A MIRROR LIKE THE MAIN SITE</div>
+    <p>Each mirror serves the same <code>dist/</code>, so the same offline/install checks from the
+    <a href="#ops-checklist">ops checklist</a> apply. If a mirror starts behaving differently (e.g. an
+    old shell), compare its served <code>index.html</code> asset hashes against the primary — the
+    difference is at the host layer, never in <code>dist/</code>.</p>
+  </div>
+
+  <h2 id="dev-vs-prod">Dev vs prod behavior</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Situation</th><th>Host</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td><code>npm run dev</code></td><td><code>localhost</code></td><td>No SW registration; any previously registered SW is unregistered and <code>webxreader-*</code> caches are deleted.</td></tr>
+      <tr><td><code>npm run preview</code></td><td><code>localhost:4173</code> (strict port)</td><td><em>Still</em> treated as local dev — SW does not register. Preview tests the built bundle, not the offline behavior.</td></tr>
+      <tr><td>Deployed site</td><td>https, any non-localhost host</td><td>SW registers, shell caches, and the app becomes installable/offline-capable.</td></tr>
+      <tr><td>Any deploy</td><td><code>file://</code></td><td>Nothing registers (protocol gate in the inline script and a check in the SW's fetch handler too).</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout callout--tip">
+    <div class="callout__label">ADVICE: TEST THE WORKER ON A REAL HTTPS HOST</div>
+    <p>Because the SW refuses to activate on localhost (by design), the only ways to exercise it are
+    <code>npm run preview</code> for bundle-level checks <em>plus</em> an https deploy — do the offline/
+    install verification on the Firebase (or any mirror) deployment. For a faster loop you can run Vite
+    with <code>--host</code> on a LAN https address; the hostname gate only excludes
+    <code>localhost</code>, <code>127.0.0.1</code> and <code>::1</code>.</p>
+  </div>
+
+  <h2 id="cache-versioning">Cache &amp; versioning cheat-sheet</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>You changed…</th><th>What updates it</th><th>Action needed</th></tr></thead>
+    <tbody>
+      <tr><td>App source (<code>src/</code>)</td><td>Vite emits new content-hashed chunks; HTML references change</td><td>Nothing manual — Network-First shell + hashed assets self-propagate</td></tr>
+      <tr><td><code>public/</code> files (<code>sw.js</code>, <code>manifest.json</code>, <code>favicon.ico</code>, <code>webxreader.svg</code>)</td><td>The SW caches them by <code>CACHE_NAME</code></td><td><strong>Bump <code>CACHE_NAME</code></strong> (e.g. <code>webxreader-shell-v6</code>) whenever a public asset's content changes</td></tr>
+      <tr><td><code>index.html</code></td><td>Network-First navigation</td><td>Nothing manual; browsers may still cache HTML briefly — hard refresh verifies</td></tr>
+      <tr><td>IndexedDB schema / backup format</td><td>Runtime migration code in <code>core/storage</code></td><td>Not a cache concern — export a backup first (below)</td></tr>
+      <tr><td>Behind-the-file URLs (e.g. docs, mirrors)</td><td>Host-level caching</td><td>Invalidate per host (Firebase/Cloudflare/Vercel/Netlify consoles) if needed</td></tr>
+  </tbody>
+    </table></div>
+
+  <p>Why the manual bump matters: <code>public/</code> files keep stable names, so a client's
+  Cache-First rule would happily serve last year's manifest forever. The <code>activate</code> handler
+  deletes caches whose name differs from <code>CACHE_NAME</code> — bumping the name is what
+  triggers that deletion wave for existing installs (they re-download everything on next activation).</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Item</th><th>Versioned how</th><th>Where you can see it</th></tr></thead>
+    <tbody>
+      <tr><td>JS/CSS app code</td><td>Vite content hash in the filename</td><td><code>dist/assets/*-[hash].js</code></td></tr>
+      <tr><td>App shell (HTML)</td><td>Network-First on every navigation</td><td>DevTools → Network, the initial HTML request</td></tr>
+      <tr><td><code>public/</code> statics</td><td>The SW's <code>CACHE_NAME</code></td><td>DevTools → Application → Cache Storage → <code>webxreader-shell-v5</code></td></tr>
+      <tr><td>Deploy record</td><td>Firebase Hosting release history</td><td>Firebase console → Hosting, or <code>firebase hosting:releases:list</code> after authenticating</td></tr>
+      <tr><td>Stored data (books, progress…)</td><td>Not versioned by deploy at all</td><td>IndexedDB <code>webxreader</code> database (<a href="storage.html">Storage &amp; Persistence</a>)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="ops-checklist">Ops checklist</h2>
+  <ol class="steps">
+    <li><b>Export a backup before schema-affecting deploys</b><span>Use the in-app backup export (<a href="import-export.html#backup">Import &amp; Backup</a>) before deploying changes to stores or migration logic. <code>clearDatabase()</code> exists for tests, not as a mitigation for app data.</span></li>
+    <li><b>Verify the SW version after deploying asset-level changes</b><span>DevTools → Application → Service Workers: the active worker should be <code>webxreader-shell-v5</code> (or whatever you bumped to), and Cache Storage should contain exactly one <code>webxreader-shell-*</code> cache.</span></li>
+    <li><b>Check offlining</b><span>With DevTools offline (or the airplane toggle), reload: the shell, chunks and previously opened books should still come up. A blank screen here usually means the bump/activate cycle was skipped.</span></li>
+    <li><b>Confirm all four mirrors after a big deploy</b><span>Primary and mirrors deploy independently; a broken mirror is a config problem on that host, not in <code>dist/</code>.</span></li>
+    <li><b>Test import → read → progress on the deployed build</b><span>jsdom tests cannot cover canvas/iframe rendering paths; a quick real-file run on https builds is the only real smoke test available (<a href="testing.html#deep-dives">Testing &amp; Quality</a>).</span></li>
+  </ol>
+
+  <h2 id="docs-hosting">These docs could be hosted from <code>/docs</code></h2>
+  <p>This documentation site is plain HTML + <code>docs/assets/style.css</code> +
+  <code>docs/assets/script.js</code> with no build step: no Eleventy, no Quarto, no templating. That
+  makes it deployable as-is from the <code>/docs</code> folder of <em>any</em> branch via GitHub Pages
+  (settings → Pages → "Deploy from branch"), which the repo accommodates with a <code>.nojekyll</code>
+  marker file. Pages reference each other with root-relative paths
+  (<code>index.html</code>, <code>reader.html</code>, …), so publishing the folder verbatim — as
+  GitHub Pages does automatically — just works. If you move the docs site onto its own branch or repo,
+  keep the flat file layout and relative links intact.</p>
+
+  <div class="callout callout--info">
+    <div class="callout__label">RELATED READING</div>
+    <p>What the build actually produces (chunks, manual splitting) is in
+    <a href="getting-started.html">Getting Started</a> and
+    <a href="architecture.html#lazy-loading">Architecture</a>; how a deploy interacts with stored data
+    is in <a href="storage.html">Storage &amp; Persistence</a>.</p>
+  </div>
+
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

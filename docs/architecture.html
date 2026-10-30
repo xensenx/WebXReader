@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture — WebXReader Documentation</title>
+  <meta name="description" content="How WebXReader is put together: stack, directory layout, routing, providers vs hooks, design tokens, and utility layer.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Architecture</h1>
+  <p class="lede">WebXReader is a single-page React application with no backend: every feature is a
+  component tree reading from IndexedDB and browser storage. This chapter maps the stack, the folder
+  structure, the routing table, the single provider, the hook layer, and the design-token system so
+  you can navigate <code>src/</code> without getting lost.</p>
+
+  <h2 id="stack">Stack at a glance</h2>
+  <p>Everything below is declared in <code>package.json</code> and <code>vite.config.ts</code> at the
+  repository root. There is no runtime dependency outside this list.</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Layer</th><th>Choice</th><th>Version notes</th></tr></thead>
+    <tbody>
+      <tr><td>UI framework</td><td>React + React DOM</td><td>19.x (currently <code>^19.3.1</code>)</td></tr>
+      <tr><td>Language</td><td>TypeScript</td><td><code>~6.0.3</code>, strict, built with project references (<code>tsc -b</code>)</td></tr>
+      <tr><td>Routing</td><td>React Router DOM v7</td><td><code>&lt;HashRouter&gt;</code> — all routes are hash fragments, so static hosting needs no SPA rewrites</td></tr>
+      <tr><td>Build tool</td><td>Vite 8 + <code>@vitejs/plugin-react</code></td><td>Build target <code>es2022</code>, sourcemaps on</td></tr>
+      <tr><td>EPUB rendering</td><td><code>epubjs</code></td><td>0.3.x</td></tr>
+      <tr><td>PDF rendering</td><td><code>pdfjs-dist</code></td><td>6.x</td></tr>
+      <tr><td>Archive handling</td><td><code>jszip</code></td><td>3.10.x (CBZ import/parse)</td></tr>
+      <tr><td>Markdown + HTML safety</td><td><code>marked</code> + <code>dompurify</code></td><td>Markdown for Info pages; DOMPurify for all reader-facing HTML</td></tr>
+      <tr><td>Icons</td><td><code>lucide-react</code></td><td>1.x</td></tr>
+      <tr><td>State management</td><td><em>None</em></td><td>React state and hooks only — deliberate, see <a href="#providers-and-hooks">providers vs hooks</a></td></tr>
+      <tr><td>Styling</td><td>CSS Modules + a global token sheet</td><td>No CSS framework</td></tr>
+      <tr><td>Tests</td><td>Vitest 5 + Testing Library + jsdom + fake-indexeddb</td><td>See <a href="testing.html">Testing &amp; Quality</a></td></tr>
+      <tr><td>Linting</td><td>oxlint</td><td>Configured in <code>.oxlintrc.json</code>, run with <code>npm run lint</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout callout--info">
+    <div class="callout__label">NO STATE LIBRARY — AND THAT IS DELIBERATE (FOR NOW)</div>
+    <p>The codebase persists everything important in <a href="storage.html">IndexedDB</a> and derives UI
+    state with hooks, so a global store would mostly mirror what <code>useBooks()</code> and
+    <code>SettingsContext</code> already do. If a future feature (say, the reading-statistics dashboard
+    from the <a href="roadmap.html">roadmap</a>) makes cross-view state unavoidable, reconsider then —
+    do not add a store speculatively.</p>
+  </div>
+
+  <h2 id="layers">High-level layers</h2>
+  <p>Read the app top-down like this. Data only ever flows in one direction between layers:</p>
+  <ol class="steps">
+    <li><b>Entry</b><span><code>src/main.tsx</code> mounts <code>&lt;StrictMode&gt;&lt;App/&gt;</code> onto <code>#root</code> with <code>createRoot</code>. No providers at the main level — <code>main.tsx</code> does not wrap <code>App</code> in anything.</span></li>
+    <li><b>Routing shell</b><span><code>src/App.tsx</code> wraps the route table in <code>SettingsProvider</code> then <code>HashRouter</code>. Route changes mount/unmount whole views; nothing survives except the provider and module-level caches.</span></li>
+    <li><b>Views</b><span><code>src/components/</code> — <code>library/</code>, <code>reader/</code>, <code>settings/</code> compose the screens. Views own their local interaction state and delegate persistence to hooks.</span></li>
+    <li><b>Hooks</b><span><code>src/hooks/</code> — the only bridge between components and storage. They own loading/error state and caching.</span></li>
+    <li><b>Domain services</b><span><code>src/features/</code> (import/export/library helpers) and <code>src/formats/</code> (registry, definitions, engines) do the heavy lifting: parsing, backup, capability queries.</span></li>
+    <li><b>Storage + parsing</b><span><code>src/core/storage/database.ts</code> wraps IndexedDB; <code>src/core/parsing/</code> holds the per-format parsers.</span></li>
+    <li><b>Utilities</b><span><code>src/utils/</code> — pure, dependency-free helpers usable from every layer above.</span></li>
+  </ol>
+  <p>A typical render loop looks like: hash route changes → view component mounts → its hooks call
+  <code>core/storage/database</code> → IndexedDB reads resolve into <code>useState</code> → the view
+  renders → user actions call update functions, which write and re-read. Preferences that are
+  theme/layout/sort-shaped live in the settings row of the database and are hydrated through
+  <code>SettingsContext</code>.</p>
+
+  <h2 id="directory-map">Directory map</h2>
+  <p>Each folder has one job. When adding code, the rule of thumb is: components render, hooks own
+  persistence, <code>core</code> touches the platform, <code>formats</code> knows about file types.</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Path</th><th>Contents</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/main.tsx</code></td><td>React entry point, <code>StrictMode</code>, imports <code>styles/globals.css</code></td></tr>
+      <tr><td><code>src/App.tsx</code></td><td>Provider + route table</td></tr>
+      <tr><td><code>src/app/providers/</code></td><td><code>SettingsContext.tsx</code> — the only React context in the app</td></tr>
+      <tr><td><code>src/components/common/</code></td><td>Shared UI primitives: Button, Modal, ConfirmDialog, DropZone, DropdownSelect, EmptyState, SearchInput</td></tr>
+      <tr><td><code>src/components/library/</code></td><td>LibraryView, LibraryToolbar, BookCard, BookList, ImportDialog, BookDetailsDialog (covered in <a href="library.html">Library &amp; Metadata</a>)</td></tr>
+      <tr><td><code>src/components/reader/</code></td><td>ReaderView, ScrollReader, PaginatedReader, DoubleSidedReader, engines' shared UI: TableOfContents, SearchPanel, BookmarkPanel, ProgressBar, ReaderSettings (covered in <a href="reader.html">Reader Engine</a>)</td></tr>
+      <tr><td><code>src/components/settings/</code></td><td>SettingsView, InformationPage (about/privacy), settings scroll restoration helper</td></tr>
+      <tr><td><code>src/core/parsing/</code></td><td>Per-format parsers (txt, markdown, html, epub, pdf, cbz) plus <code>sanitize-reader-html.ts</code> and <code>pdf-init.ts</code></td></tr>
+      <tr><td><code>src/core/storage/</code></td><td><code>database.ts</code> — the single I/O module for IndexedDB (schema in <a href="storage.html">Storage &amp; Persistence</a>)</td></tr>
+      <tr><td><code>src/features/</code></td><td><code>import/</code> (import-service), <code>export/</code> (backup helpers), <code>library/</code> (view-state persistence) — covered in <a href="import-export.html">Import &amp; Backup</a></td></tr>
+      <tr><td><code>src/formats/</code></td><td><code>registry.ts</code>, <code>types.ts</code>, <code>index.ts</code>, <code>definitions/</code> (one file per format), <code>engines/</code> (EpubReader, PdfReader, CbzReader) — see <a href="formats.html">Formats &amp; Parsers</a></td></tr>
+      <tr><td><code>src/hooks/</code></td><td>useBooks, useSettings, useReaderSettings, useReadingProgress, useBookmarks</td></tr>
+      <tr><td><code>src/styles/</code></td><td><code>globals.css</code> — the design system (see <a href="#tokens">Design tokens</a>)</td></tr>
+      <tr><td><code>src/test/</code></td><td>All 12 test suites and <code>setup.ts</code> — see <a href="testing.html">Testing &amp; Quality</a></td></tr>
+      <tr><td><code>src/types/</code></td><td><code>book.ts</code> — every entity type and <code>DEFAULT_SETTINGS</code> (see <a href="data-model.html">Data Model</a>)</td></tr>
+      <tr><td><code>src/utils/</code></td><td><code>index.ts</code> general helpers, <code>text-search.ts</code>, <code>cover-image.ts</code>, <code>transient-search-highlight.ts</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="routing">Routing</h2>
+  <p><code>src/App.tsx</code> verbatim structure:</p>
+  <pre><code class="language-ts">&lt;SettingsProvider&gt;
+  &lt;HashRouter&gt;
+    &lt;Routes&gt;
+      &lt;Route path="/" element={&lt;LibraryView /&gt;} /&gt;
+      &lt;Route path="/read/:bookId" element={&lt;ReaderView /&gt;} /&gt;
+      &lt;Route path="/settings" element={&lt;SettingsView /&gt;} /&gt;
+      &lt;Route path="/about" element={&lt;InformationPage kind="about" /&gt;} /&gt;
+      &lt;Route path="/privacy-policy" element={&lt;InformationPage kind="privacy" /&gt;} /&gt;
+      &lt;Route path="*" element={&lt;Navigate to="/" replace /&gt;} /&gt;
+    &lt;/Routes&gt;
+  &lt;/HashRouter&gt;
+&lt;/SettingsProvider&gt;</code></pre>
+
+  <p>Practical consequences:</p>
+  <ul>
+    <li><strong>Deep links are hash links.</strong> The reader route is
+    <code>#/read/&lt;bookId&gt;</code>. Because navigation never leaves <code>index.html</code>, the
+    static host needs no rewrite rules (mirror hosting notes in
+    <a href="deployment.html#targets">PWA &amp; Deployment</a>).</li>
+    <li><strong>Unknown URLs fall back home.</strong> The <code>*</code> route
+    <code>&lt;Navigate to="/" replace /&gt;</code> replaces history so the back button doesn't ping-pong.</li>
+    <li><strong>Views are remounted per navigation.</strong> Reader and library state that must survive
+    a round trip is persisted deliberately — library view state via
+    <code>sessionStorage</code> (<a href="library.html#view-state">Library &amp; Metadata</a>) and reading
+    progress via the debounced progress hook (<a href="reader.html#progress">Reader Engine</a>).</li>
+  </ul>
+
+  <h2 id="providers-and-hooks">Providers vs hooks: topic boundaries</h2>
+  <p>WebXReader has exactly one provider and five hooks. Knowing which one to reach for stops
+  duplication early.</p>
+
+  <h3 id="provider-settings">The single provider: <code>SettingsProvider</code></h3>
+  <p><code>src/app/providers/SettingsContext.tsx</code> creates a context from a single
+  <code>useSettings()</code> call and exposes:</p>
+  <pre><code class="language-ts">{ settings, loading, updateSettings(partial), resetSettings() }</code></pre>
+  <p>Consume it via <code>useSettingsContext()</code>, which throws
+  <code>'useSettingsContext must be used within a SettingsProvider'</code> if called outside the
+  tree. Because this context lives <em>around</em> the router, it survives every navigation — that is
+  why global preferences are here and everything else is not.</p>
+
+  <h3 id="hooks">The hook layer</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Hook (src/hooks)</th><th>Returns</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>useBooks()</code></td>
+        <td><code>{ books: LibraryBook[], loading, error, refreshBooks(), removeBook(id), removeBooks(ids), toggleFavorite(id), updateReadingStatus(id, status), toggleArchive(id) }</code></td>
+        <td>
+          <code>LibraryBook = Book &amp; { readingProgress: number }</code> — the progress field is
+          <em>derived</em> from the progress store on read and never written back into the book record.
+          Module-level cache <code>cachedBooks</code> plus <code>invalidateBooksCache()</code> lets the
+          library survive brief navigation away and back. Covers: when a book's
+          <code>coverImage</code> is not a <code>data:</code>/<code>blob:</code> URL, the hook re-fetches
+          <code>getCover(book.id)</code> from the covers store and substitutes the real data.
+        </td>
+      </tr>
+      <tr>
+        <td><code>useSettings()</code></td>
+        <td><code>{ settings, loading, updateSettings(partial), resetSettings() }</code></td>
+        <td>Also applies theme immediately via <code>document.documentElement.setAttribute('data-theme', theme)</code> — both in <code>applyTheme()</code> during load and inside <code>updateSettings()</code> when the theme changes. <code>resetSettings()</code> falls back to the system theme (<code>prefers-color-scheme</code>) rather than a hard-coded default.</td>
+      </tr>
+      <tr>
+        <td><code>useReaderSettings(bookId)</code></td>
+        <td><code>{ settings: EffectiveReaderSettings, globalSettings, bookOverrides, loading, updateReaderSettings(partial), resetBookSettings() }</code></td>
+        <td>
+          <code>EffectiveReaderSettings</code> has: <code>fontFamily, fontSize, lineHeight,
+          paragraphSpacing, letterSpacing, wordSpacing, textAlign, textIndent, maxContentWidth,
+          contentMargin, readingMode, theme, comicReadingDirection?, comicFitMode?</code>.
+          Merge rule: per-book value wins where present, globals fill the rest — but
+          <strong>wordSpacing and theme are always global</strong> (see
+          <code>mergeSettings()</code>). <code>readingMode</code> comes from the book override or
+          <code>global.defaultReadingMode</code>.
+        </td>
+      </tr>
+      <tr>
+        <td><code>useBookmarks(bookId)</code></td>
+        <td><code>{ bookmarks, loading, addBookmark(data), removeBookmark(id), updateBookmark(id, partial) }</code></td>
+        <td>Bookmarks are kept sorted by <code>createdAt</code> ascending, both on load and after adding.</td>
+      </tr>
+      <tr>
+        <td><code>useReadingProgress(bookId)</code></td>
+        <td><code>{ progress, loading, updateProgress(partial), flush(), getCurrentProgress() }</code></td>
+        <td>Persistence is debounced at 2000 ms via a <code>debounce()</code> instance with
+        <code>flush()</code>/<code>cancel()</code>; unmount and book-id changes both flush then cancel so
+        no progress is lost. A status side-effect marks books <code>'reading'</code> or
+        <code>'completed'</code> (at <code>overallProgress &gt;= 0.98</code>). The full reader-side
+        contract is in <a href="reader.html#progress">Reader Engine</a>.</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout callout--tip">
+    <div class="callout__label">WHERE TO PUT NEW STATE</div>
+    <p>Walk this checklist: (1) purely local UI → <code>useState</code> inside the component; (2) needs
+    to outlive unmount but is user-global → the settings row via
+    <code>updateSettings()</code>; (3) per-book preference → <code>getBookSettings</code>/
+    <code>saveBookSettings</code> through the <code>useReaderSettings</code> pattern; (4) an entity of
+    its own (a store row) → a new hook over <code>core/storage/database</code>, mirrored in
+    <code>src/types/book.ts</code> and <a href="testing.html">tests</a>. Reach for a context only if
+    <em>multiple routed views</em> need the same live value identical to the provider's.</p>
+  </div>
+
+  <h2 id="tokens">Design tokens</h2>
+  <p><code>src/styles/globals.css</code> (~302 lines) is the entire design system: CSS custom
+  properties on <code>:root</code> overridden under <code>[data-theme='dark']</code> and
+  <code>[data-theme='sepia']</code>. Nothing else imports theme values, so changing a token updates
+  every component at once.</p>
+
+  <h3 id="theme-values">Theme values</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Token</th><th>Light (default)</th><th>Dark</th><th>Sepia</th></tr></thead>
+    <tbody>
+      <tr><td><code>--color-bg</code></td><td><code>#fafafa</code></td><td><code>#121212</code></td><td><code>#f4ecd8</code></td></tr>
+      <tr><td><code>--color-surface</code></td><td><code>#ffffff</code></td><td><code>#1e1e1e</code></td><td><code>#faf6eb</code></td></tr>
+      <tr><td><code>--color-text</code></td><td><code>#1a1a1a</code></td><td><code>#e4e4e7</code></td><td><code>#3d3226</code></td></tr>
+      <tr><td><code>--color-accent</code></td><td><code>#2563eb</code></td><td><code>#60a5fa</code></td><td><code>#8b6914</code></td></tr>
+      <tr><td><code>--reader-bg</code></td><td><code>#ffffff</code></td><td><code>#1a1a1a</code></td><td><code>#faf6eb</code></td></tr>
+      <tr><td><code>--reader-text</code></td><td><code>#1a1a1a</code></td><td><code>#d4d4d8</code></td><td><code>#3d3226</code></td></tr>
+      <tr><td><code>--reader-link</code></td><td><code>#2563eb</code></td><td><code>#60a5fa</code></td><td><code>#8b6914</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>The reader keeps its own secondary/selection tokens:
+  <code>--reader-text-secondary</code> is <code>#555</code> in the light theme (dark theme maps it to
+  <code>#a1a1aa</code>), and <code>--reader-selection</code> is
+  <code>rgba(37, 99, 235, 0.2)</code>. Five highlight colors exist for annotations:
+  <code>--reader-highlight-yellow</code>, <code>-green</code>, <code>-blue</code>, <code>-pink</code>,
+  <code>-orange</code> (e.g. yellow is <code>rgba(250, 204, 21, 0.4)</code>).</p>
+
+  <h3 id="token-groups">Full token groups</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Group</th><th>Tokens</th></tr></thead>
+    <tbody>
+      <tr><td>Typography</td><td><code>--font-sans</code>, <code>--font-serif</code>, <code>--font-mono</code>, and <code>--font-reading</code> which aliases <code>var(--font-serif)</code>; type scale <code>--text-xs</code> … <code>--text-3xl</code></td></tr>
+      <tr><td>Spacing</td><td><code>--space-1</code> through <code>--space-16</code>, 4&thinsp;px steps up to 64&thinsp;px</td></tr>
+      <tr><td>Radii</td><td><code>--radius-sm</code> (4&thinsp;px) to <code>--radius-full</code> (9999&thinsp;px)</td></tr>
+      <tr><td>Shadows</td><td><code>--shadow-sm</code>, <code>-md</code>, <code>-lg</code>, <code>-xl</code> layered on <code>--color-shadow</code> / <code>--color-shadow-lg</code></td></tr>
+      <tr><td>Motion</td><td><code>--transition-fast</code> 120&thinsp;ms, <code>--transition-base</code> 200&thinsp;ms, <code>--transition-slow</code> 300&thinsp;ms</td></tr>
+      <tr><td>Z-scale</td><td><code>--z-dropdown</code> 100, <code>--z-sticky</code> 200, <code>--z-overlay</code> 300, <code>--z-modal</code> 400, <code>--z-toast</code> 500</td></tr>
+      <tr><td>Layout</td><td><code>--header-height</code> 56&thinsp;px, <code>--sidebar-width</code> 280&thinsp;px, <code>--max-content-width</code> 1200&thinsp;px, <code>--reader-max-width</code> 720&thinsp;px</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Other notable pieces of <code>globals.css</code>:</p>
+  <ul>
+    <li><code>::highlight(webx-search-result)</code> — a CSS Custom Highlight API rule using
+    <code>rgba(250, 204, 21, 0.42)</code>, which is how in-book search hits get painted without
+    wrapping DOM nodes (see <code>src/utils/text-search.ts</code> and the
+    <a href="reader.html#search">search panel</a>).</li>
+    <li><code>focus-visible</code> ring styles, a styled custom scrollbar, a
+    <code>@media (prefers-reduced-motion)</code> block, and an <code>.sr-only</code> utility.</li>
+    <li><strong>Two sources of <code>data-theme</code>:</strong> globally,
+    <code>useSettings.applyTheme</code> sets it on <code>documentElement</code>; locally,
+    <code>ReaderView</code> sets <code>data-theme={readerSettings.theme}</code> on its root element so
+    the reading surface can differ from the shell around it. When you style a new reader component,
+    pick the reader's <code>data-theme</code> scope, not the document one.</li>
+  </ul>
+
+  <h2 id="lazy-loading">Lazy loading &amp; code splitting</h2>
+  <p>The critical path stays small: <code>main.tsx → App → routes</code> imports only the library view
+  eagerly. Reader engines and heavyweight components are loaded with <code>React.lazy</code> inside
+  <code>Suspense</code> in <code>ReaderView</code>, and Vite's <code>manualChunks</code> in
+  <code>vite.config.ts</code> pins each big dependency to its own file so a PDF-only visitor never
+  downloads the EPUB SDK:</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Chunk</th><th>Matched by <code>manualChunks</code> when module id contains…</th></tr></thead>
+    <tbody>
+      <tr><td><code>vendor-epub</code></td><td><code>epubjs</code></td></tr>
+      <tr><td><code>vendor-pdf</code></td><td><code>pdfjs-dist</code></td></tr>
+      <tr><td><code>vendor-zip</code></td><td><code>jszip</code></td></tr>
+      <tr><td><code>vendor-parser</code></td><td><code>marked</code> or <code>dompurify</code></td></tr>
+      <tr><td><code>vendor-icons</code></td><td><code>lucide-react</code></td></tr>
+      <tr><td><code>vendor-react</code></td><td><code>node_modules/react</code>, <code>react-dom</code>, or <code>react-router-dom</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>The build also sets <code>target: 'es2022'</code> and <code>sourcemap: true</code>; the dev-facing
+  <code>preview</code> command serves the production build on port <strong>4173 with
+  <code>strictPort</code></strong> (so it fails rather than drifting to another port, and the service
+  worker registration logic in <a href="deployment.html">deployment</a> can rely on a fixed origin).
+  A reachable summary of what each chunk costs at load time lives in
+  <a href="getting-started.html">Getting Started</a>; the engine-loading mechanics are in
+  <a href="reader.html#engines">Reader Engine</a> and <a href="formats.html#engines">Formats &amp;
+  Parsers</a>.</p>
+
+  <h2 id="utils">Utility inventory</h2>
+  <p><code>src/utils/index.ts</code> is a closed set — every export is listed here. Prefer reusing
+  these over re-implementing the same edge case a second time.</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Export</th><th>Behavior worth knowing</th></tr></thead>
+    <tbody>
+      <tr><td><code>generateId()</code></td><td><code>crypto.randomUUID()</code> with a hand-rolled UUID-v4 string fallback for environments without it.</td></tr>
+      <tr><td><code>computeHash(data: ArrayBuffer)</code></td><td>SHA-256 via <code>crypto.subtle.digest</code>, returned as a lowercase hex string; used for import dedup.</td></tr>
+      <tr><td><code>formatFileSize(bytes)</code></td><td>B/KB/MB/GB with one decimal (<code>0 B</code> special case; no decimals at byte scale).</td></tr>
+      <tr><td><code>formatDate(timestamp)</code></td><td><code>Just now</code> / <code>Xm ago</code> / <code>Xh ago</code> / <code>Pd ago</code> thresholds, then a locale date like <code>Jun 5, 2026</code>.</td></tr>
+      <tr><td><code>formatDuration(seconds)</code></td><td><code>Xs</code>, <code>Xm</code>, or <code>Xh Ym</code> (minutes only shown when non-zero).</td></tr>
+      <tr><td><code>debounce(fn, delay)</code></td><td>Returns <code>fn</code> with <code>flush()</code> and <code>cancel()</code> attached — the backing mechanism for progress saves.</td></tr>
+      <tr><td><code>throttle(fn, limit)</code></td><td>Leading-edge throttle with a timer-based trailing unlock.</td></tr>
+      <tr><td><code>clamp(value, min, max)</code></td><td>Plain min/max clamp.</td></tr>
+      <tr><td><code>truncateText(text, maxLength)</code></td><td>Cuts to <code>maxLength - 1</code> characters plus <code>…</code>.</td></tr>
+      <tr><td><code>getFileExtension(filename)</code></td><td>Lowercased last dot-segment, empty string when there is no dot.</td></tr>
+      <tr><td><code>sanitizeHtml(html)</code></td><td>Regex-level scrub: removes <code>&lt;script&gt;</code> blocks, <code>on*</code> attributes, <code>javascript:</code> hrefs and non-image <code>data:</code> sources. Used for imported HTML pre-cleaning; the actual rendering path sanitizes with DOMPurify (see <a href="formats.html#sanitization">Formats &amp; Parsers</a>).</td></tr>
+      <tr><td><code>readFileAsText(file, encoding?)</code></td><td>UTF-8 by default with <code>fatal: true</code> — decoding failure throws <code>The file does not appear to be valid UTF-8…</code> unless the caller passed an explicit legacy encoding. Combined with <code>hasEncodingIssues</code> the heuristic still refuses mojibake'd files.</td></tr>
+      <tr><td><code>readFileAsArrayBuffer(file)</code></td><td>Promise-wrapped <code>FileReader.readAsArrayBuffer</code>.</td></tr>
+      <tr><td><code>hasEncodingIssues(text)</code></td><td>Mojibake regex <code>/[\ufffd\u00c3\u00c2\u00e2\u0080]{3,}/</code> over the first 1000 characters, or a <code>\ufffd</code> ratio above 0.01.</td></tr>
+      <tr><td><code>escapeHtml(text)</code></td><td>Escapes the five HTML entities <code>&amp; &lt; &gt; &quot; '</code>.</td></tr>
+      <tr><td><code>formatProgress(progress)</code></td><td>Math.round of a 0–1 fraction to a <code>X%</code> string.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Mention, not detail: <code>src/utils/text-search.ts</code> (chapter full-text search and
+  highlight ranges — documented in the <a href="reader.html#search">reader chapter</a>),
+  <code>src/utils/cover-image.ts</code> (cover validation/resize — documented with the
+  <a href="library.html#cover-editor">cover editor</a>), and
+  <code>src/utils/transient-search-highlight.ts</code>.</p>
+
+  <h2 id="known-gaps">Known structural gaps</h2>
+  <p>Honest inventory, so you don't rediscover these the hard way. Facts first, advice marked:</p>
+  <ul>
+    <li><strong><code>DoubleSidedReader</code> is a thin stub.</strong> It renders
+    <code>&lt;PaginatedReader pagesPerSpread={2} /&gt;</code> — there is no true two-page spread
+    typography or independent left/right page state yet. The <code>'vertical'</code> reading mode in
+    <code>ReaderView</code> routes to it.</li>
+    <li><strong><code>ReaderView</code> is ~1,145 lines and carries roughly fifteen
+    <code>useRef</code> declarations</strong> at the top for zoom/wheel/touch bookkeeping. It works,
+    but consider extracting a zoom coordinator before your next feature touches it.</li>
+    <li><strong>Zoom logic is duplicated between PDF and CBZ.</strong> <code>PdfReader</code> and
+    <code>CbzReader</code> each implement wheel/pinch zoom handling against the shared
+    <code>readerZoom</code> state in <code>ReaderView</code>; motion semantics can drift between them.</li>
+    <li><strong>Metadata has a dual date field.</strong> The format-layer
+    <code>FormatParsedData</code> metadata uses optional <code>publishDate</code>, while the persisted
+    <code>Book</code> entity uses <code>publicationDate</code>; <code>import-service.ts</code> bridges
+    them with <code>params.metadata.publishDate || params.metadata.publicationDate || ''</code>. The
+    duplication is kept for compatibility — see <a href="data-model.html#metadata">Data Model</a>.</li>
+    <li><strong>No state library.</strong> As argued above, this is deliberate for the current feature
+    set, not an omission to fix blindly.</li>
+  </ul>
+
+  <div class="callout callout--warning">
+    <div class="callout__label">ADVICE: WHEN REFACTORING THESE</div>
+    <p>Each of the first four items is a good one-feature-per-branch target. The repo's existing
+    branch pattern (see <a href="#feature-branch">below</a>) plus the test suite
+    (<a href="testing.html">Testing &amp; Quality</a>) gives you a safe harness: run
+    <code>npm test</code> and <code>npm run build</code> before opening a PR, and update the chapter in
+    <code>Developmental/</code> that described the problem so the docs and code stay in sync.</p>
+  </div>
+
+  <h2 id="feature-branch">Adding a feature: branch flow</h2>
+  <p>The repository's existing branch names establish the convention:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Branch example</th><th>Pattern it demonstrates</th></tr></thead>
+    <tbody>
+      <tr><td><code>feature/book-cover-editor</code></td><td>New UI feature, one branch per feature</td></tr>
+      <tr><td><code>feature/reader-settings</code></td><td>Feature scoped to one view</td></tr>
+      <tr><td><code>format/cbz</code></td><td>Format additions use <code>format/&lt;ext&gt;</code></td></tr>
+      <tr><td><code>infra/firebase-hosting</code></td><td>Build/deploy work uses <code>infra/&lt;topic&gt;</code></td></tr>
+      <tr><td><code>jules/audit</code></td><td>Bot- or agent-authored work branches; <code>optimization/set-1</code> and <code>Exp/set-1</code> show experiment batches</td></tr>
+    </tbody>
+  </table></div>
+  <p>A new feature branch should follow the same shape: pick
+  <code>feature/&lt;short-slug&gt;</code> (or the matching family prefix), keep one coherent change per
+  branch, and mirror the flow used by past commits — implement, extend
+  <code>src/test/</code> where behavior is lockable, run <code>npm test</code>,
+  <code>npm run lint</code> and <code>npm run build</code>, then update the relevant
+  <code>Developmental/</code> notes. If the change touches the storage schema, read
+  <a href="storage.html">Storage &amp; Persistence</a> first because the migration story is
+  version-gated, and export a backup before testing destructive paths
+  (<a href="import-export.html">Import &amp; Backup</a>).</p>
+
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

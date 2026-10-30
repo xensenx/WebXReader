@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Model — WebXReader Documentation</title>
+  <meta name="description" content="Field-by-field reference for every persisted entity in WebXReader: Book, BookContent, progress, bookmarks, annotations, settings and backups.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Data Model</h1>
+  <p class="lede">Every piece of persistent state in WebXReader is defined in a single file —
+  <code>src/types/book.ts</code> — as TypeScript interfaces and string-literal unions. There is no
+  server: these shapes map directly onto IndexedDB object stores (see
+  <a href="storage.html">Storage &amp; Persistence</a>) and the JSON backup format (see
+  <a href="import-export.html">Import &amp; Backup</a>). This page is the field-by-field reference for
+  all of them.</p>
+
+  <h2 id="type-aliases">Type aliases</h2>
+  <p>All enumerations in the model are string-literal unions. If you add a value to one of these, you
+  are also changing UI option lists, validation (format strings are accepted during restore only if
+  they match <code>BookFormat</code>), or both:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Alias</th><th>Values</th><th>Used by</th></tr></thead>
+    <tbody>
+      <tr><td><code>BookFormat</code></td><td><code>'epub' | 'txt' | 'markdown' | 'html' | 'pdf' | 'cbz'</code></td><td><code>Book.sourceFormat</code>, <code>BookContent.format</code>, format registry</td></tr>
+      <tr><td><code>ReadingStatus</code></td><td><code>'unread' | 'reading' | 'completed'</code></td><td><code>Book.readingStatus</code>, library filters</td></tr>
+      <tr><td><code>ReadingMode</code></td><td><code>'scroll' | 'paginated' | 'vertical'</code></td><td>Global default and per-book overrides, progress records</td></tr>
+      <tr><td><code>ThemeName</code></td><td><code>'light' | 'dark' | 'sepia'</code></td><td><code>UserSettings.theme</code></td></tr>
+      <tr><td><code>TextAlignment</code></td><td><code>'left' | 'center' | 'right' | 'justify'</code></td><td>Typography settings, per-book overrides</td></tr>
+      <tr><td><code>LibraryLayout</code></td><td><code>'grid' | 'list'</code></td><td><code>UserSettings.libraryLayout</code></td></tr>
+      <tr><td><code>SortField</code></td><td><code>'custom' | 'title' | 'author' | 'importedAt' | 'lastOpenedAt' | 'progress'</code></td><td><code>UserSettings.librarySortField</code> (custom is backed by <code>customBookOrder</code>)</td></tr>
+      <tr><td><code>SortDirection</code></td><td><code>'asc' | 'desc'</code></td><td><code>UserSettings.librarySortDirection</code></td></tr>
+      <tr><td><code>LibraryFilter</code></td><td><code>'all' | 'reading' | 'unread' | 'completed' | 'favorites' | 'archived'</code></td><td>Library view state — a UI-level filter, never persisted per book</td></tr>
+      <tr><td><code>HighlightColor</code></td><td><code>'yellow' | 'green' | 'blue' | 'pink' | 'orange'</code></td><td><code>Annotation.highlightColor</code></td></tr>
+      <tr><td><code>ComicReadingDirection</code></td><td><code>'ltr' | 'rtl'</code></td><td><code>BookSettings.comicReadingDirection</code> (manga-style right-to-left)</td></tr>
+      <tr><td><code>ComicFitMode</code></td><td><code>'contain' | 'width' | 'height'</code></td><td><code>BookSettings.comicFitMode</code> (CBZ page fit)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="chapter">Chapter</h2>
+  <p><code>Chapter</code> is recursive: top-level chapters sit in an array, nested children in
+  <code>children</code>. It appears in two places — the <em>table of contents</em> stored on the
+  <code>Book</code> record (structure only), and <code>BookContent.chapters</code> (structure plus
+  <code>content</code> payloads for text formats).</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td><code>string</code></td><td>Unique identifier within the book</td></tr>
+      <tr><td><code>title</code></td><td><code>string</code></td><td>Display title</td></tr>
+      <tr><td><code>content?</code></td><td><code>string</code></td><td>Chapter body — populated for TXT/MD/HTML; usually omitted in TOC entries</td></tr>
+      <tr><td><code>href?</code></td><td><code>string</code></td><td>EPUB spine reference (href into the package)</td></tr>
+      <tr><td><code>level</code></td><td><code>number</code></td><td>Nesting depth, <code>0</code> = top-level</td></tr>
+      <tr><td><code>order</code></td><td><code>number</code></td><td>Order index among siblings</td></tr>
+      <tr><td><code>children?</code></td><td><code>Chapter[]</code></td><td>Sub-chapters; recursion is validated to depth ≤ 100 when restoring backups</td></tr>
+    </tbody>
+  </table></div>
+  <p>For PDF and CBZ engines there are no real chapters — <code>chapterId</code> in progress records,
+  bookmarks and annotations holds the <em>stringified page number</em> (<code>(pageIndex ?? 0) + 1</code>)
+  so the same key space works across engines.</p>
+
+  <h2 id="bookmetadata">BookMetadata</h2>
+  <p>A plain metadata bag produced by format parsers at import time and flattened into the
+  <code>Book</code> record (it is never stored as its own record):</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>title</code></td><td><code>string</code></td><td>From file metadata, or filename-derived fallback</td></tr>
+      <tr><td><code>author</code></td><td><code>string</code></td><td>Author string, fallback <code>'Unknown Author'</code></td></tr>
+      <tr><td><code>description</code></td><td><code>string</code></td><td>Synopsis/blurb, may be empty</td></tr>
+      <tr><td><code>language</code></td><td><code>string</code></td><td>Language code such as <code>'en'</code>, <code>'ja'</code></td></tr>
+      <tr><td><code>publisher</code></td><td><code>string</code></td><td>Publisher name</td></tr>
+      <tr><td><code>publicationDate</code></td><td><code>string</code></td><td>Free-form date string from metadata</td></tr>
+      <tr><td><code>identifiers</code></td><td><code>Record&lt;string, string&gt;</code></td><td>External identifiers (ISBN etc.), values as strings</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="book">Book</h2>
+  <p>The central entity — one record per imported file in the <code>books</code> store, keyed by
+  <code>id</code> (a UUID v4 from <code>crypto.randomUUID()</code> with a string fallback).
+  Metadata, user curation state and reading state all live on this single record.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td><code>string</code></td><td>UUID; IndexedDB keyPath</td></tr>
+      <tr><td><code>title</code> / <code>author</code> / <code>description</code> / <code>language</code> / <code>publisher</code> / <code>publicationDate</code></td><td><code>string</code></td><td>Flattened from <a href="#bookmetadata">BookMetadata</a> at import</td></tr>
+      <tr><td><code>identifiers</code></td><td><code>Record&lt;string, string&gt;</code></td><td>ISBN and other external identifiers</td></tr>
+      <tr><td><code>sourceFormat</code></td><td><code>BookFormat</code></td><td>Which parser produced the book; also selects the reader engine</td></tr>
+      <tr><td><code>originalFilename</code></td><td><code>string</code></td><td>Filename at import; reused as the download name for "export original"</td></tr>
+      <tr><td><code>fileSize</code></td><td><code>number</code></td><td>Source file size in bytes</td></tr>
+      <tr><td><code>contentHash</code></td><td><code>string</code></td><td>SHA-256 hex of the file bytes — the dedup key used by import and restore</td></tr>
+      <tr><td><code>importedAt</code> / <code>updatedAt</code></td><td><code>number</code></td><td>Millisecond timestamps</td></tr>
+      <tr><td><code>coverImage?</code></td><td><code>string</code></td><td>Current cover as a <code>data:</code> or <code>blob:</code> URL</td></tr>
+      <tr><td><code>originalCoverImage?</code></td><td><code>string | null</code></td><td>Cover captured at import; preserved as the <strong>reset target</strong> when you edit the cover (set to <code>null</code> when the source had none)</td></tr>
+      <tr><td><code>userTags</code></td><td><code>string[]</code></td><td>User-assigned tags, starts empty</td></tr>
+      <tr><td><code>userRating</code></td><td><code>number | null</code></td><td>1–5 stars or unrated</td></tr>
+      <tr><td><code>favorite</code> / <code>archived</code></td><td><code>boolean</code></td><td>Curation flags; archived books drop out of the default library view</td></tr>
+      <tr><td><code>readingStatus</code></td><td><code>ReadingStatus</code></td><td>Starts <code>'unread'</code>; updated by the progress hook (see below)</td></tr>
+      <tr><td><code>lastOpenedAt</code></td><td><code>number | null</code></td><td>Set when you first open the book</td></tr>
+      <tr><td><code>tableOfContents</code></td><td><code>Chapter[]</code></td><td>TOC tree (structure, no bodies)</td></tr>
+      <tr><td><code>totalChapters</code></td><td><code>number</code></td><td><code>tableOfContents.length</code>, falling back to <code>1</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="book-json">A record as it is stored</h3>
+  <p>The record is a JavaScript object in IndexedDB, but it is JSON-serializable (except inside
+  <a href="#bookcontent">BookContent</a>, which can hold an <code>ArrayBuffer</code>). A trimmed
+  example of what <code>listBooks()</code> returns:</p>
+  <pre><code class="language-json">{
+  "id": "3f2b8f4a-9c1e-4d02-b6a7-8e5f0a1c2d3e",
+  "title": "The Sandglass Protocol",
+  "author": "M. Ashworth",
+  "description": "A clockmaker inherits a device that runs backwards.",
+  "language": "en",
+  "publisher": "Longfall Press",
+  "publicationDate": "2021-04-12",
+  "identifiers": { "isbn": "9781620551234" },
+  "sourceFormat": "epub",
+  "originalFilename": "sandglass-protocol.epub",
+  "fileSize": 1849137,
+  "contentHash": "b6d4c2f1...9a",
+  "importedAt": 1767139200000,
+  "updatedAt": 1767226100000,
+  "coverImage": "data:image/jpeg;base64,/9j/4AAQ...",
+  "originalCoverImage": "data:image/jpeg;base64,/9j/4AAQ...",
+  "userTags": ["sci-fi", "reread-later"],
+  "userRating": 4,
+  "favorite": true,
+  "archived": false,
+  "readingStatus": "reading",
+  "lastOpenedAt": 1767225700000,
+  "tableOfContents": [
+    {
+      "id": "ch-1",
+      "title": "Wound Backwards",
+      "href": "OEBPS/chapter1.xhtml",
+      "level": 0,
+      "order": 0,
+      "children": [
+        { "id": "ch-1-1", "title": "The First Disassembly", "level": 1, "order": 0 }
+      ]
+    }
+  ],
+  "totalChapters": 24
+}</code></pre>
+  <p>IndexedDB indexes exist on <code>title</code>, <code>author</code>, <code>contentHash</code>,
+  <code>importedAt</code>, <code>lastOpenedAt</code>, <code>readingStatus</code>, <code>favorite</code>
+  and <code>archived</code> — all non-unique. See the <a href="storage.html#schema">Storage schema table</a>.</p>
+
+  <h3 id="reading-status-updates">How reading status is updated</h3>
+  <p><code>readingStatus</code> and <code>lastOpenedAt</code> are not written by the reader directly.
+  <code>src/hooks/useReadingProgress.ts</code> computes them each time progress saves:</p>
+  <ol class="steps">
+    <li><b>Progress >= 98%</b><span>book becomes <code>'completed'</code></span></li>
+    <li><b>Progress &gt; 0</b><span>book becomes <code>'reading'</code></span></li>
+    <li><b>Otherwise</b><span>status is left as-is</span></li>
+    <li><b>Write discipline</b><span>the <code>Book</code> record is only rewritten when the status changed or more than 30 seconds passed since the stored <code>lastOpenedAt</code> — avoiding a full record put on every scroll event</span></li>
+  </ol>
+
+  <h2 id="bookcontent">BookContent</h2>
+  <p>Book bodies are deliberately split from metadata into the separate <code>bookContent</code>
+  store, keyed by <code>bookId</code> (a 1:1 link). Which fields are populated depends on the format:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>bookId</code></td><td><code>string</code></td><td>Foreign key into <code>books</code>; also the store key</td></tr>
+      <tr><td><code>originalFile?</code></td><td><code>ArrayBuffer</code></td><td>Binary payload for <strong>EPUB, PDF and CBZ</strong> (formats whose parser declares <code>requiresOriginalFile</code>); kept so the reader engine and "download original" can reuse it verbatim</td></tr>
+      <tr><td><code>chapters?</code></td><td><code>Chapter[]</code></td><td>Parsed chapter bodies for TXT/MD/HTML</td></tr>
+      <tr><td><code>rawText?</code></td><td><code>string</code></td><td>Original raw text for TXT, kept so chapter auto-detection can be <strong>reprocessed</strong> without re-reading the file</td></tr>
+      <tr><td><code>format</code></td><td><code>BookFormat</code></td><td>Redundant copy of <code>sourceFormat</code>; validated on restore</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout callout--info">
+    <div class="callout__label">WHY THE SPLIT</div>
+    <p>Listing the library means reading thousands of metadata records — you never want an 800-page
+    <code>ArrayBuffer</code> pulled alongside each row for that. Splitting body payloads into a
+    second store keeps <code>useBooks</code>-style listing cheap; see
+    <a href="architecture.html#data-flow">Architecture → Data flow</a>.</p>
+  </div>
+
+  <h2 id="backupbookcontent">BackupBookContent</h2>
+  <p>The JSON-safe twin of <code>BookContent</code> used inside backups, because binaries and chapter
+  arrays cannot ride in a JSON file directly:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>bookId</code></td><td><code>string</code></td><td>Foreign key into the backup's <code>books</code> array</td></tr>
+      <tr><td><code>format</code></td><td><code>BookFormat</code></td><td>Validated against the known format list on restore</td></tr>
+      <tr><td><code>rawText?</code></td><td><code>string</code></td><td>TXT payload</td></tr>
+      <tr><td><code>chapters?</code></td><td><code>Chapter[]</code></td><td>Parsed chapters, HTML <strong>sanitized on restore</strong></td></tr>
+      <tr><td><code>originalFileBase64?</code></td><td><code>string</code></td><td>Base64 of the <code>ArrayBuffer</code>, chunked-safe (<code>toBase64</code> encodes in 0x8000-byte chunks). Only present in version-2 backups</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="readingprogress">ReadingProgress</h2>
+  <p>One record per book in the <code>progress</code> store, keyed by <code>bookId</code>. The
+  reader calls <code>updateProgress</code> continuously; the hook debounces persistence
+  (2&nbsp;seconds) and exposes <code>flush()</code> for navigation-away writes.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>bookId</code></td><td><code>string</code></td><td>Store key; foreign key into <code>books</code></td></tr>
+      <tr><td><code>chapterId</code></td><td><code>string</code></td><td>Current chapter — or, for PDF/CBZ, the stringified page number (<code>(pageIndex ?? 0) + 1</code>)</td></tr>
+      <tr><td><code>chapterProgress</code></td><td><code>number</code></td><td>0–1 fraction within the chapter</td></tr>
+      <tr><td><code>overallProgress</code></td><td><code>number</code></td><td>0–1 fraction of the whole book; drives <code>'reading'</code>/<code>'completed'</code> status</td></tr>
+      <tr><td><code>scrollPosition</code></td><td><code>number</code></td><td>Pixels from top in scroll mode</td></tr>
+      <tr><td><code>pageIndex</code></td><td><code>number</code></td><td>Current page in paginated mode</td></tr>
+      <tr><td><code>readingMode</code></td><td><code>ReadingMode</code></td><td>The mode active when the record was last written</td></tr>
+      <tr><td><code>epubCfi?</code></td><td><code>string</code></td><td>EPUB CFI location string — the authoritative position for EPUB resume</td></tr>
+      <tr><td><code>lastUpdatedAt</code></td><td><code>number</code></td><td>Millisecond timestamp</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="bookmark">Bookmark</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td><code>string</code></td><td>UUID; store keyPath</td></tr>
+      <tr><td><code>bookId</code></td><td><code>string</code></td><td>Indexed as <code>bookId</code> for per-book listing</td></tr>
+      <tr><td><code>chapterId</code></td><td><code>string</code></td><td>Anchor chapter (page number for PDF/CBZ)</td></tr>
+      <tr><td><code>position</code></td><td><code>number</code></td><td>Position within the chapter</td></tr>
+      <tr><td><code>epubCfi?</code></td><td><code>string</code></td><td>CFI anchor when the format supports it</td></tr>
+      <tr><td><code>selectedText</code></td><td><code>string</code></td><td>Text excerpt at the bookmark</td></tr>
+      <tr><td><code>label</code></td><td><code>string</code></td><td>User-visible label</td></tr>
+      <tr><td><code>createdAt</code></td><td><code>number</code></td><td>Millisecond timestamp</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="annotation">Annotation</h2>
+  <p>Highlights with optional notes. Offsets are stored against chapter content plus surrounding
+  context, so mismatches after content changes can be detected rather than silently misapplied:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td><code>string</code></td><td>UUID; store keyPath</td></tr>
+      <tr><td><code>bookId</code></td><td><code>string</code></td><td>Indexed as <code>bookId</code></td></tr>
+      <tr><td><code>chapterId</code></td><td><code>string</code></td><td>Anchor chapter (page number for PDF/CBZ)</td></tr>
+      <tr><td><code>startOffset</code> / <code>endOffset</code></td><td><code>number</code></td><td>Character offsets within the chapter content</td></tr>
+      <tr><td><code>epubCfi?</code></td><td><code>string</code></td><td>CFI range when applicable</td></tr>
+      <tr><td><code>selectedText</code></td><td><code>string</code></td><td>The highlighted text</td></tr>
+      <tr><td><code>note</code></td><td><code>string</code></td><td>Optional note text</td></tr>
+      <tr><td><code>highlightColor</code></td><td><code>HighlightColor</code></td><td>One of the five palette values</td></tr>
+      <tr><td><code>contextBefore</code> / <code>contextAfter</code></td><td><code>string</code></td><td>Surrounding text used for recovery if offsets shift</td></tr>
+      <tr><td><code>createdAt</code> / <code>updatedAt</code></td><td><code>number</code></td><td>Millisecond timestamps</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="readingsession">ReadingSession — declared but unused</h2>
+  <p>The model includes a <code>ReadingSession</code> interface
+  (<code>bookId</code>, <code>startedAt</code>, <code>endedAt</code>, <code>duration</code> in
+  seconds, <code>progressAtStart</code>, <code>progressAtEnd</code>) intended for reading-time
+  statistics.</p>
+  <div class="callout callout--warning">
+    <div class="callout__label">DECLARED, NOT PERSISTED</div>
+    <p>No IndexedDB store is created for reading sessions and no code currently writes the type
+    anywhere in <code>src/</code>. Treat it as a reserved roadmap item for reading-stats features —
+    if you build on it, you will also need a <code>DB_VERSION</code> bump and a store migration (see
+    <a href="storage.html#opening">Storage → Opening the database</a>).</p>
+  </div>
+
+  <h2 id="usersettings">UserSettings</h2>
+  <p>The one global preference record, <code>id</code> is always <code>'global'</code>. It is stored
+  in <strong>localStorage</strong> under <code>webxreader.preferences.v1</code>, not in a regular object
+  store — details and the migration story are in <a href="storage.html#settings">Storage → Settings
+  storage strategy</a>.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td><code>'global'</code></td><td>Fixed record identity</td></tr>
+      <tr><td><code>theme</code></td><td><code>ThemeName</code></td><td>Applied via <code>document.documentElement</code>'s <code>data-theme</code> attribute</td></tr>
+      <tr><td><code>defaultReadingMode</code></td><td><code>ReadingMode</code></td><td>Mode used when a book has no own override</td></tr>
+      <tr><td><code>fontFamily</code></td><td><code>string</code></td><td>CSS font stack string</td></tr>
+      <tr><td><code>fontSize</code></td><td><code>number</code></td><td>px</td></tr>
+      <tr><td><code>lineHeight</code></td><td><code>number</code></td><td>Unitless multiplier</td></tr>
+      <tr><td><code>paragraphSpacing</code></td><td><code>number</code></td><td>em</td></tr>
+      <tr><td><code>letterSpacing</code> / <code>wordSpacing</code></td><td><code>number</code></td><td>px</td></tr>
+      <tr><td><code>textAlign</code></td><td><code>TextAlignment</code></td><td>Alignment applied to reader text</td></tr>
+      <tr><td><code>textIndent</code></td><td><code>number</code></td><td>em</td></tr>
+      <tr><td><code>maxContentWidth</code></td><td><code>number</code></td><td>px cap on the reader column</td></tr>
+      <tr><td><code>contentMargin</code></td><td><code>number</code></td><td>px around the reader column</td></tr>
+      <tr><td><code>libraryLayout</code></td><td><code>LibraryLayout</code></td><td>Grid or list cover view</td></tr>
+      <tr><td><code>librarySortField</code> / <code>librarySortDirection</code></td><td><code>SortField</code> / <code>SortDirection</code></td><td>Library ordering; <code>'custom'</code> pairs with <code>customBookOrder</code></td></tr>
+      <tr><td><code>customBookOrder?</code></td><td><code>string[]</code></td><td>Persistent manual order as book IDs</td></tr>
+      <tr><td><code>autoDetectChapters</code></td><td><code>boolean</code></td><td>TXT chapter auto-detection default at import</td></tr>
+      <tr><td><code>importSizeWarningMB</code></td><td><code>number</code></td><td>Size threshold at which the import dialog warns (default 50 MB)</td></tr>
+      <tr><td><code>updatedAt</code></td><td><code>number</code></td><td>Millisecond timestamp</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="default-settings">DEFAULT_SETTINGS verbatim</h3>
+  <pre><code class="language-ts">export const DEFAULT_SETTINGS: UserSettings = {
+  id: 'global',
+  theme: 'light',
+  defaultReadingMode: 'scroll',
+  fontFamily: 'Georgia, serif',
+  fontSize: 18,
+  lineHeight: 1.7,
+  paragraphSpacing: 1.0,
+  letterSpacing: 0,
+  wordSpacing: 0,
+  textAlign: 'left',
+  textIndent: 0,
+  maxContentWidth: 720,
+  contentMargin: 24,
+  libraryLayout: 'grid',
+  librarySortField: 'importedAt',
+  librarySortDirection: 'desc',
+  customBookOrder: [],
+  autoDetectChapters: true,
+  importSizeWarningMB: 50,
+  updatedAt: Date.now(),
+};</code></pre>
+  <p>Two behaviors worth knowing as you read the settings flow: stored preferences are always
+  normalized as <code>{ ...DEFAULT_SETTINGS, ...stored, id: 'global' }</code>, so a newer build can
+  introduce fields without a data migration; and if you never picked a theme, the app initializes to
+  the <em>system</em> theme rather than the <code>'light'</code> default.</p>
+
+  <h2 id="booksettings">BookSettings (per-book overrides)</h2>
+  <p>A per-book delta record in the <code>bookSettings</code> store, keyed by <code>bookId</code>.
+  Every tuning field is optional — only <code>bookId</code> and <code>updatedAt</code> are required —
+  so the record usually contains just the few values you changed for that one book:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>bookId</code></td><td><code>string</code></td><td>Store key; foreign key into <code>books</code></td></tr>
+      <tr><td><code>readingMode?</code></td><td><code>ReadingMode</code></td><td>Overrides <code>defaultReadingMode</code></td></tr>
+      <tr><td><code>fontFamily?</code> / <code>fontSize?</code></td><td><code>string</code> / <code>number</code></td><td>Typography overrides</td></tr>
+      <tr><td><code>lineHeight?</code> / <code>paragraphSpacing?</code></td><td><code>number</code></td><td>Rhythm overrides</td></tr>
+      <tr><td><code>letterSpacing?</code></td><td><code>number</code></td><td>px</td></tr>
+      <tr><td><code>textAlign?</code></td><td><code>TextAlignment</code></td><td>Alignment override</td></tr>
+      <tr><td><code>textIndent?</code></td><td><code>number</code></td><td>em</td></tr>
+      <tr><td><code>maxContentWidth?</code> / <code>contentMargin?</code></td><td><code>number</code></td><td>Layout overrides</td></tr>
+      <tr><td><code>comicReadingDirection?</code></td><td><code>ComicReadingDirection</code></td><td><code>'rtl'</code> for manga-style reading</td></tr>
+      <tr><td><code>comicFitMode?</code></td><td><code>ComicFitMode</code></td><td>CBZ page fit</td></tr>
+      <tr><td><code>updatedAt</code></td><td><code>number</code></td><td>Millisecond timestamp</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout callout--info">
+    <div class="callout__label">NOT OVERRIDABLE</div>
+    <p>There is deliberately <strong>no <code>wordSpacing</code> override</strong>, and
+    <strong>theme is always global</strong>. <code>useReaderSettings(bookId)</code> merges global
+    <code>UserSettings</code> with the per-book <code>BookSettings</code> record, taking the per-book
+    value for any field the book defines, but always resolves <code>wordSpacing</code> and
+    <code>theme</code> from the global settings. The update type omits both fields, so UI code cannot
+    even attempt them.</p>
+  </div>
+
+  <h2 id="backupdata">BackupData</h2>
+  <p>The envelope for library exports. Field semantics and restore behavior are covered in depth in
+  <a href="import-export.html#backup-format">Import &amp; Backup → The backup format</a>; the shape is
+  summarized here for completeness. Note that <strong>covers are not included</strong> — there is no
+  cover field anywhere in <code>BackupData</code>:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>version</code></td><td><code>number</code></td><td><code>2</code> for current exports (with <code>contents</code>); <code>1</code> is still accepted on restore</td></tr>
+      <tr><td><code>exportedAt</code></td><td><code>number</code></td><td>Millisecond timestamp</td></tr>
+      <tr><td><code>appVersion</code></td><td><code>string</code></td><td>Currently hardcoded <code>'1.0.0'</code> in <code>exportBackup</code></td></tr>
+      <tr><td><code>books</code></td><td><code>Book[]</code></td><td>Metadata records, no content payloads</td></tr>
+      <tr><td><code>progress</code></td><td><code>ReadingProgress[]</code></td><td>Reading positions</td></tr>
+      <tr><td><code>bookmarks</code></td><td><code>Bookmark[]</code></td><td>—</td></tr>
+      <tr><td><code>annotations</code></td><td><code>Annotation[]</code></td><td>—</td></tr>
+      <tr><td><code>settings</code></td><td><code>UserSettings</code></td><td>Global preferences; restored last, after the main transaction</td></tr>
+      <tr><td><code>bookSettings</code></td><td><code>BookSettings[]</code></td><td>Per-book deltas</td></tr>
+      <tr><td><code>contents?</code></td><td><code>BackupBookContent[]</code></td><td>JSON-safe book bodies; absent in v1 backups</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="relationships">How the entities relate</h2>
+  <p>Everything hangs off <code>Book.id</code>. There are exactly two recursive/array entities
+  (<code>Chapter</code> inside books) and no many-to-many links. In words:</p>
+  <ul>
+    <li><strong>Book 1 : 1 BookContent</strong> — the body, keyed by <code>bookId</code> in the
+    <code>bookContent</code> store. Created and saved in the same atomic transaction as the book at
+    import time.</li>
+    <li><strong>Book 1 : 1 ReadingProgress</strong> — the position, keyed by <code>bookId</code> in
+    <code>progress</code>.</li>
+    <li><strong>Book 1 : 1 BookSettings</strong> — the per-book delta, keyed by <code>bookId</code>
+    in <code>bookSettings</code>.</li>
+    <li><strong>Book 1 : 1 cover</strong> — a <code>{ bookId, data }</code> record in the
+    <code>covers</code> store; <code>Book.coverImage</code> mirrors it for display.</li>
+    <li><strong>Book 1 : N Bookmarks</strong> and <strong>Book 1 : N Annotations</strong> — ordinary
+    records keyed by their own <code>id</code>, with a <code>bookId</code> index used for listing and
+    cascading deletes.</li>
+    <li><strong>Chapter</strong> never gets its own store — it exists as a tree inside
+    <code>Book.tableOfContents</code> (structure) and <code>BookContent.chapters</code> (bodies).</li>
+  </ul>
+  <pre><code class="language-ts">// One-way linkage: every store except `settings` is keyed by or indexed on Book.id
+Book(id) ── 1:1 ──&gt; bookContent(id := bookId)
+Book(id) ── 1:1 ──&gt; progress(id := bookId)
+Book(id) ── 1:1 ──&gt; bookSettings(id := bookId)
+Book(id) ── 1:1 ──&gt; covers(id := bookId)      // { bookId, data }
+Book(id) ── 1:N ──&gt; bookmarks(index: bookId)
+Book(id) ── 1:N ──&gt; annotations(index: bookId)</code></pre>
+  <p>This is not enforced by foreign keys — IndexedDB has none — it is maintained by application
+  code, most importantly <code>deleteBook()</code>, which removes all seven dependent records in one
+  transaction (see <a href="storage.html#atomic-transactions">Storage → Atomic transactions</a>).</p>
+
+  <h2 id="derived-fields">Derived, not persisted: <code>LibraryBook</code></h2>
+  <p>Library UI code works with <code>LibraryBook = Book &amp; { readingProgress: number }</code>
+  (<code>src/hooks/useBooks.ts</code>). The added <code>readingProgress</code> field is computed at
+  query time — <code>1</code> for completed books, otherwise <code>overallProgress</code> from the
+  matched progress record — and is <strong>stripped before every write</strong> so the derived value
+  never leaks into the <code>books</code> store. If you are persisting a Book-shaped object yourself,
+  remember to destructure it out, exactly as the hook does:</p>
+  <pre><code class="language-ts">const { readingProgress: _readingProgress, ...storedBook } = book;
+await updateBook(storedBook);</code></pre>
+  <div class="callout callout--tip">
+    <div class="callout__label">RULE OF THUMB WHEN ADDING FIELDS</div>
+    <p>Keep <code>src/types/book.ts</code> the single source of truth, remember that
+    <code>Book</code> records created before your change lack the new key (prefer defaults over
+    <code>noUnusedLocals</code>-safe assumption of presence), and if a change requires an index, plan
+    <code>DB_VERSION</code> work in <code>database.ts</code> — object stores and indexes are only
+    created inside the <code>onupgradeneeded</code> handler. Backups gain compatibility concerns too:
+    <code>restoreBackup</code> validates minimal field sets, so additive optional fields are safe,
+    renames are not.</p>
+  </div>
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

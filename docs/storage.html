@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Storage &amp; Persistence — WebXReader Documentation</title>
+  <meta name="description" content="WebXReader's IndexedDB schema, the typed storage API, atomic transactions, the localStorage settings strategy, and persistence/quota behavior.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Storage &amp; Persistence</h1>
+  <p class="lede">WebXReader keeps everything on the client: book data, reading positions, highlights
+  and per-book preferences live in a single IndexedDB database named <code>webxreader</code>, while
+  global preferences live in localStorage. All access goes through one module —
+  <code>src/core/storage/database.ts</code> — which exposes a typed, async API that hooks consume.
+  This page documents the schema, every exported function, and the transactional and quota behaviors
+  you need to know before touching storage code.</p>
+
+  <h2 id="overview">The layout at a glance</h2>
+  <p>Two storage mechanisms divide the responsibilities:</p>
+  <ul>
+    <li><strong>IndexedDB database <code>webxreader</code> (version 1)</strong> — eight object stores
+    holding everything per-book plus a legacy settings store. Big binary payloads (EPUB/PDF/CBZ
+    buffers) are kept in their own store so library listings never touch them.</li>
+    <li><strong>localStorage key <code>webxreader.preferences.v1</code></strong> — the serialized
+    global <code>UserSettings</code> record. Faster to read synchronously at startup, and
+    quarantine-able from "clear library" operations.</li>
+  </ul>
+  <pre><code class="language-ts">// Mental model — real definitions live in database.ts
+DB_NAME = 'webxreader'
+DB_VERSION = 1
+SETTINGS_STORAGE_KEY = 'webxreader.preferences.v1'  // localStorage
+
+stores: {
+  books, bookContent, progress, bookmarks, annotations,
+  settings,        // legacy fallback for settings only
+  bookSettings, covers,
+}</code></pre>
+
+  <h2 id="schema">Schema reference</h2>
+  <p>Object stores and indexes are created exclusively inside the
+  <code>onupgradeneeded</code> handler. On a fresh browser (old version <code>0 &lt; 1</code>) the
+  whole v1 schema below is built in one pass:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Store</th><th>Key</th><th>Record shape</th><th>Indexes</th></tr></thead>
+    <tbody>
+      <tr><td><code>books</code></td><td><code>id</code></td><td><a href="data-model.html#book"><code>Book</code></a></td><td><code>title</code>, <code>author</code>, <code>contentHash</code>, <code>importedAt</code>, <code>lastOpenedAt</code>, <code>readingStatus</code>, <code>favorite</code>, <code>archived</code> (all non-unique)</td></tr>
+      <tr><td><code>bookContent</code></td><td><code>bookId</code></td><td><a href="data-model.html#bookcontent"><code>BookContent</code></a> (may hold an <code>ArrayBuffer</code>)</td><td>none</td></tr>
+      <tr><td><code>progress</code></td><td><code>bookId</code></td><td><a href="data-model.html#readingprogress"><code>ReadingProgress</code></a></td><td>none</td></tr>
+      <tr><td><code>bookmarks</code></td><td><code>id</code></td><td><a href="data-model.html#bookmark"><code>Bookmark</code></a></td><td><code>bookId</code></td></tr>
+      <tr><td><code>annotations</code></td><td><code>id</code></td><td><a href="data-model.html#annotation"><code>Annotation</code></a></td><td><code>bookId</code></td></tr>
+      <tr><td><code>settings</code></td><td><code>id</code></td><td><a href="data-model.html#usersettings"><code>UserSettings</code></a> — <em>legacy only</em>; the migration empties it (see <a href="#settings">Settings storage strategy</a>)</td><td>none</td></tr>
+      <tr><td><code>bookSettings</code></td><td><code>bookId</code></td><td><a href="data-model.html#booksettings"><code>BookSettings</code></a></td><td>none</td></tr>
+      <tr><td><code>covers</code></td><td><code>bookId</code></td><td><code>{ bookId: string, data: string }</code> — a <code>data:</code>/<code>blob:</code> URL string</td><td>none</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="opening">Opening the database</h3>
+  <p>The module caches a single connection: the first call to the internal <code>getDb()</code> opens
+  the database and stores the instance; on <code>close</code> the cache is invalidated so the next
+  call reopens. <code>onversionchange</code> closes the connection when another tab requests an
+  upgrade, and <code>onblocked</code> logs a warning while waiting for older connections. Two generic
+  helpers do the drudgery: <code>withTransaction(store, mode, operation)</code> for single-store work,
+  and <code>getAllFromStore(store, index?, query?)</code> for listing.</p>
+  <h3 id="error-messages">Where each error message comes from</h3>
+  <p>Because the layer wraps every promise in its own handlers, error strings are traceable to the
+  exact handler that emitted them — handy when debugging a `Failed to ...` output in the console or a
+  test snapshot:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Handler</th><th>Message template</th><th>Raised when</th></tr></thead>
+    <tbody>
+      <tr><td><code>openDatabase().onerror</code></td><td><code>Failed to open database: …</code></td><td>The <code>indexedDB.open</code> request itself fails</td></tr>
+      <tr><td><code>withTransaction</code> request handler</td><td><code>Transaction failed: …</code></td><td>The individual <code>get</code>/<code>put</code>/<code>add</code>/<code>delete</code> request errored</td></tr>
+      <tr><td><code>withTransaction</code> transaction handler</td><td><code>Transaction error: …</code></td><td>The transaction errored outside the request callback</td></tr>
+      <tr><td><code>withTransaction</code> abort handler</td><td><code>Transaction aborted: …</code></td><td>The transaction rolled back (quota exceedance, overwritten mid-flight)</td></tr>
+      <tr><td><code>getAllFromStore</code></td><td><code>Failed to get records: …</code></td><td>A listing <code>getAll</code> errored</td></tr>
+      <tr><td><code>saveBookBundle</code> abort</td><td><code>Book import was rolled back: …</code></td><td>The bundle transaction aborted — the import produced nothing</td></tr>
+      <tr><td><code>updateBookAndCover</code> abort</td><td><code>Book details were not saved: …</code></td><td>The books+covers transaction aborted</td></tr>
+      <tr><td><code>deleteBook</code> error</td><td><code>Failed to delete book: …</code></td><td>The cascade transaction's <code>onerror</code> fired</td></tr>
+      <tr><td><code>clearDatabase</code> error</td><td><code>Failed to clear database: …</code></td><td>The multi-store clear errored</td></tr>
+      <tr><td><code>exportBackup</code> failure</td><td><code>Backup export failed: …</code></td><td>Any <code>getAll</code> or the outer transaction failed</td></tr>
+      <tr><td><code>restoreBackup</code> failure</td><td><code>Backup restore failed: …</code> / <code>… was rolled back</code></td><td>The restore transaction errored or aborted</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout callout--tip">
+    <div class="callout__label">THE MOST COMMON ABORT CAUSE</div>
+    <p><code>QuotaExceededError</code>-class aborts are the dominant real-world transaction failure
+    for a browser-based library: a large <code>originalFile</code> arriving when the quota is nearly
+    spent aborts the whole <code>saveBookBundle</code>, which is by design — the library surface stays
+    consistent and the import dialog reports a save failure instead of a half-written book. Pair this
+    reading with the persistence guidance in <a href="#persistence">Persistence &amp; quota</a>.</p>
+  </div>
+  <div class="callout callout--tip">
+    <div class="callout__label">ADDING A STORE OR INDEX</div>
+    <p>Any schema change must bump <code>DB_VERSION</code> and add a guarded migration under the
+    existing <code>if (oldVersion &lt; 1)</code> block (e.g. a following
+    <code>if (oldVersion &lt; 2)</code>). Creating stores unconditionally would throw for existing
+    databases where they already exist.</p>
+  </div>
+
+  <h2 id="api">Public API reference</h2>
+  <p>Every function below is <code>export</code>ed and <code>async</code> from
+  <code>src/core/storage/database.ts</code>. One-line descriptions follow; the transactional
+  multi-store functions get their own section in <a href="#atomic-transactions">Atomic
+  transactions</a>.</p>
+
+  <h3>Books</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>getBook(id)</code></td><td>Reads one <code>Book</code> by key, <code>undefined</code> if absent</td></tr>
+      <tr><td><code>listBooks()</code></td><td>Returns all books — used by <a href="architecture.html">library code</a> with a module-level cache</td></tr>
+      <tr><td><code>addBook(book)</code></td><td><code>add</code> — errors if the id already exists</td></tr>
+      <tr><td><code>updateBook(book)</code></td><td><code>put</code> — insert-or-replace by id</td></tr>
+      <tr><td><code>updateBookAndCover(book, coverData?)</code></td><td>Writes the book <em>and</em> its cover in one transaction: with a value it puts the cover record, without one it <strong>deletes</strong> the cover record, so a cleared cover cannot reappear</td></tr>
+      <tr><td><code>saveBookBundle(book, content, coverData?)</code></td><td>Atomic import bundle — see <a href="#atomic-transactions">Atomic transactions</a></td></tr>
+      <tr><td><code>deleteBook(id)</code></td><td>Cascading delete across seven stores in one transaction</td></tr>
+      <tr><td><code>findBookByHash(contentHash)</code></td><td>Looks up via the <code>contentHash</code> index and returns the first match — the dedup primitive used by import and restore</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Content &amp; covers</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>getBookContent(bookId)</code></td><td>Reads the body record (for EPUB/PDF/CBZ: an <code>ArrayBuffer</code>)</td></tr>
+      <tr><td><code>saveBookContent(content)</code></td><td><code>put</code> into <code>bookContent</code></td></tr>
+      <tr><td><code>getCover(bookId)</code></td><td>Reads <code>{ bookId, data }</code> or <code>undefined</code></td></tr>
+      <tr><td><code>saveCover(bookId, data)</code></td><td><code>put</code> into <code>covers</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Progress</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>getProgress(bookId)</code></td><td>Reads the position record</td></tr>
+      <tr><td><code>saveProgress(progress)</code></td><td><code>put</code> — called from the debounced progress hook</td></tr>
+      <tr><td><code>listProgress()</code></td><td>All progress records; used to join progress into library listings</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Bookmarks &amp; annotations</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>listBookmarks(bookId)</code></td><td>All bookmarks for one book via the <code>bookId</code> index</td></tr>
+      <tr><td><code>saveBookmark(bookmark)</code></td><td><code>put</code> (insert or update by <code>id</code>)</td></tr>
+      <tr><td><code>deleteBookmark(id)</code></td><td>Removes by key</td></tr>
+      <tr><td><code>listAnnotations(bookId)</code></td><td>All annotations for one book via the <code>bookId</code> index</td></tr>
+      <tr><td><code>saveAnnotation(annotation)</code></td><td><code>put</code> (insert or update by <code>id</code>)</td></tr>
+      <tr><td><code>deleteAnnotation(id)</code></td><td>Removes by key</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Settings</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>getSettings()</code></td><td>localStorage first; falls back to the legacy IndexedDB record with a one-time migration — see <a href="#settings">Settings storage strategy</a></td></tr>
+      <tr><td><code>saveSettings(settings)</code></td><td>Writes localStorage; on failure (e.g. quota, restricted privacy mode) falls back to a <code>put</code> in the legacy <code>settings</code> store</td></tr>
+      <tr><td><code>clearSettings()</code></td><td>Removes the localStorage key and clears the legacy store</td></tr>
+      <tr><td><code>getBookSettings(bookId)</code></td><td>Reads the per-book override record</td></tr>
+      <tr><td><code>saveBookSettings(settings)</code></td><td><code>put</code> into <code>bookSettings</code></td></tr>
+      <tr><td><code>listBookSettings()</code></td><td>All per-book records — used by backups</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Backup &amp; maintenance</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>exportBackup()</code></td><td>Read-only sweep across six stores plus settings into a <a href="data-model.html#backupdata"><code>BackupData</code></a> v2 object</td></tr>
+      <tr><td><code>restoreBackup(backup)</code></td><td>Validated, dedup-aware, atomic restore with an error list — see <a href="#restore">Restore path</a> and <a href="import-export.html#restore">Import &amp; Backup → Restoring</a></td></tr>
+      <tr><td><code>getStorageEstimate()</code></td><td><code>{ usage, quota }</code> from <code>navigator.storage.estimate()</code>, or <code>null</code> if unsupported</td></tr>
+      <tr><td><code>requestPersistentStorage()</code></td><td><code>navigator.storage.persist()</code>, <code>false</code> if unsupported</td></tr>
+      <tr><td><code>clearDatabase()</code></td><td>Clears the seven library stores while <strong>preserving settings</strong> — see <a href="#clear-database">Clearing data</a></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="atomic-transactions">Atomic transactions</h2>
+  <p>Whenever more than one store must change together, the code opens a multi-store transaction and
+  relies on IndexedDB's atomicity: if any request errors or the transaction aborts, <strong>every
+  write in the transaction is rolled back</strong>. The three critical ones:</p>
+  <ol class="steps">
+    <li><b>saveBookBundle — import</b><span>writes <code>[books, bookContent]</code>, or
+    <code>[books, bookContent, covers]</code> when a cover was parsed. Uses <code>add</code> for book
+    and content, and <code>put</code> for the cover. On abort the promise rejects with
+    "Book import was rolled back: …" — a failure here leaves no half-imported book behind.</span></li>
+    <li><b>updateBookAndCover — save from the library editor</b><span>writes
+    <code>[books, covers]</code>; cover present → <code>put</code>, cover absent → <code>delete</code>.
+    This pairing is exactly what makes removing a cover a durable, all-or-nothing change.</span></li>
+    <li><b>deleteBook — cascading removal</b><span>touches
+    <code>[books, bookContent, progress, bookmarks, annotations, bookSettings, covers]</code>: direct
+    <code>delete</code>s for the five key-matched stores, plus an
+    <code>openCursor(IDBKeyRange.only(id))</code> walk over the <code>bookId</code> index of
+    <code>bookmarks</code> and <code>annotations</code>, deleting each match. No orphaned highlights
+    survive.</span></li>
+  </ol>
+  <p>The bundle transaction looks like this (simplified from the source):</p>
+  <pre><code class="language-ts">const storeNames: StoreName[] = coverData
+  ? [STORES.books, STORES.bookContent, STORES.covers]
+  : [STORES.books, STORES.bookContent];
+
+const tx = db.transaction(storeNames, 'readwrite');
+tx.objectStore(STORES.books).add(book);
+tx.objectStore(STORES.bookContent).add(content);
+if (coverData) {
+  tx.objectStore(STORES.covers).put({ bookId: book.id, data: coverData });
+}
+tx.oncomplete = () =&gt; resolve();
+tx.onabort   = () =&gt; reject(new Error(`Book import was rolled back: ${tx.error?.message ?? 'transaction aborted'}`));</code></pre>
+
+  <h2 id="settings">Settings storage strategy</h2>
+  <p>Global preferences are dual-powered deliberately — synchronous startup reads and resilience when
+  localStorage is unavailable:</p>
+  <ol class="steps">
+    <li><b>Read path</b><span><code>getSettings()</code> parses
+    <code>webxreader.preferences.v1</code> from localStorage and normalizes it over
+    <code>DEFAULT_SETTINGS</code> (so new fields backfill automatically). If the key is absent it
+    goes to the legacy store.</span></li>
+    <li><b>Legacy migration</b><span>if the IndexedDB <code>settings</code> store has a
+    <code>global</code> record, it is re-checked against localStorage once more (a preference written
+    while the async read was pending wins), normalized, written to localStorage, and the legacy
+    record is <strong>deleted</strong>. If the localStorage write fails mid-migration the legacy
+    record is kept, so nothing is lost — the migration just retries on the next read.</span></li>
+    <li><b>Write path</b><span><code>saveSettings()</code> tries localStorage first; the IndexedDB
+    store is only a fallback when the <code>setItem</code> throws (quota errors, cookie-blocked
+    contexts).</span></li>
+  </ol>
+  <div class="callout callout--info">
+    <div class="callout__label">SETTINGS NEVER JOIN BACKUPS FROM LOCALSTORAGE DESIGN</div>
+    <p>Backups do include settings — <code>exportBackup()</code> reads the merged
+    <code>getSettings()</code> result and <code>restoreBackup()</code> applies the backup's
+    <code>settings</code> via <code>saveSettings()</code> <em>after</em> the main transaction
+    commits. The legacy <code>settings</code> store itself is never exported.</p>
+  </div>
+  <p>Per-book settings (<a href="data-model.html#booksettings"><code>BookSettings</code></a>) are
+  plain IndexedDB records — always written with <code>saveBookSettings()</code>. The merge happens at
+  read time in <code>useReaderSettings(bookId)</code>: per-book values win field-by-field, while
+  <strong>wordSpacing and theme always come from the global record</strong>
+  (<a href="data-model.html#usersettings">field semantics</a>). The settings UI and the persisted
+  theme attribute (<code>data-theme</code> on <code>&lt;html&gt;</code>) are wired through
+  <code>useSettings</code> plus a <code>SettingsProvider</code> context; <code>useSettingsContext()</code>
+  throws if used outside the provider.</p>
+
+  <h2 id="progress-writes">How progress saves actually behave</h2>
+  <p>The storage layer is passive; the cadence lives in
+  <code>src/hooks/useReadingProgress.ts</code>, and knowing it explains most data-timing surprises:</p>
+  <ul>
+    <li>Every progress update persists through a <strong>2-second debounce</strong> — rapid scroll
+    bursts coalesce into one <code>put</code> into <code>progress</code>.</li>
+    <li>The hook exposes <code>flush()</code>, which is called on unmount and on navigation so the
+    last position is not lost.</li>
+    <li>Each save re-evaluates the book: <code>overallProgress ≥ 0.98</code> →
+    <code>'completed'</code>, <code>&gt; 0</code> → <code>'reading'</code>.</li>
+    <li>The <code>Book</code> record is only rewritten when the status actually changed or more than
+    30 seconds passed since the stored <code>lastOpenedAt</code> — cheap in steady state.</li>
+  </ul>
+
+  <h2 id="exportbackup">Inside <code>exportBackup()</code></h2>
+  <p>The export gathers its inputs in two layers — settings through <code>getSettings()</code>, and a
+  single <strong>readonly transaction</strong> over the other six stores. Every store read is issued
+  simultaneously via <code>getAll()</code>; a completion counter resolves the promise only when all
+  reads finished, and any single read failure rejects the whole export:</p>
+  <pre><code class="language-ts">const [db, settings] = await Promise.all([getDb(), getSettings()]);
+
+const tx = db.transaction(
+  [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks,
+   STORES.annotations, STORES.bookSettings],
+  'readonly'
+);
+
+const results: Partial&lt;BackupData&gt; = {
+  version: 2,
+  exportedAt: Date.now(),
+  appVersion: '1.0.0',   // hardcoded — see Import &amp; Backup → backup format
+  settings,
+};
+
+// five stores (books, progress, bookmarks, annotations, bookSettings)
+// map verbatim onto same-named array keys in the backup ...
+
+// ... bookContent is the only transformed store:
+const contentReq = tx.objectStore(STORES.bookContent).getAll();
+contentReq.onsuccess = () =&gt; {
+  results.contents = contentReq.result.map(serializeBookContent);  // buffers → base64
+};</code></pre>
+  <p><code>serializeBookContent</code> keeps <code>bookId</code>, <code>format</code>,
+  <code>rawText</code> and <code>chapters</code> as-is and converts a present
+  <code>originalFile</code> <code>ArrayBuffer</code> into <code>originalFileBase64</code> with the
+  chunked <a href="#base64">base64 helpers</a>. Note what export does <strong>not</strong> read: the
+  <code>covers</code> store (covers do not travel), and the legacy <code>settings</code> store (the
+  preference material has already been merged into the <code>getSettings()</code> result).</p>
+
+  <h2 id="restore">The restore path, step by step</h2>
+  <p><code>restoreBackup(backup)</code> is the most defensive function in the module. In order:</p>
+  <ol class="steps">
+    <li><b>Validate the envelope</b><span><code>isBackupObject()</code> accepts version <code>1</code> or <code>2</code>, requires numeric <code>exportedAt</code> and the book/progress/bookmark/annotation/bookSettings arrays, and allows <code>contents</code> to be absent (v1). Anything else throws "Invalid or unsupported backup format".</span></li>
+    <li><b>Dedup books</b><span><code>isBookRecord()</code> requires id, title, contentHash and sourceFormat; candidates are then skipped when their <code>id</code> exists in the library or their <code>contentHash</code> matches a book already present. Each skip appends a human-readable string to the returned <code>errors</code> array — skips are not failures.</span></li>
+    <li><b>Decode &amp; sanitize content</b><span>only <code>contents</code> records belonging to a restorable id are used. Base64 binary payloads are decoded chunk-safely (<code>atob</code> plus an explicit byte copy into a fresh <code>ArrayBuffer</code>), and every restored chapter body passes through sanitization — see the security callout below. Chapter trees are validated recursively with depth capped at 100.</span></li>
+    <li><b>Write atomically</b><span>one readwrite transaction over <code>[books, bookContent, progress, bookmarks, annotations, bookSettings]</code>. Children records only restore for book ids that survived dedup, so no orphaned highlights are imported. Any error aborts the whole restore.</span></li>
+    <li><b>Restore settings last</b><span>after the transaction commits, the backup's global settings go through <code>saveSettings()</code>; only then does the promise resolve with <code>{ booksRestored, errors }</code>.</span></li>
+  </ol>
+  <p>Two validation helpers deserve explicit mention when you extend the format:
+  <code>isBackupChapter</code> verifies a chapter recursively (<code>id</code>/<code>title</code>
+  strings, finite <code>level</code>/<code>order</code>, recursive <code>children</code>) and refuses
+  trees deeper than <strong>100 levels</strong>; <code>isBackupBookContent</code> requires a
+  non-empty string <code>bookId</code> and a known <code>BookFormat</code> value. An invalid
+  <em>book</em> record is merely skipped with an error string, but an invalid <em>content</em>
+  payload <strong>throws</strong> — a broken <code>contents</code> entry fails the entire
+  restore.</p>
+  <div class="callout callout--danger">
+    <div class="callout__label">RESTORE-TIME SANITIZATION IS THE SECURITY BOUNDARY</div>
+    <p><code>sanitizeRestoredChapter()</code> runs <code>sanitizeReaderHtml()</code> over every
+    chapter body on restore — even though the backup is your own export — because a hand-edited or
+    exchanged backup file is attacker-controllable input like anything else. Never bypass this when
+    adding new content-bearing fields; the dedicated XSS regression test suite in
+    <a href="testing.html">Testing &amp; Quality</a> covers it.</p>
+  </div>
+
+  <h2 id="persistence">Persistence &amp; quota</h2>
+  <p>Three maintenance functions round out the story — and they matter because an unhappy browser
+  can delete your library without asking:</p>
+  <ul>
+    <li><code>getStorageEstimate()</code> surfaces <code>{ usage, quota }</code> in bytes from
+    <code>navigator.storage.estimate()</code>; the settings screen shows this breakdown. Returns
+    <code>null</code> where the API is unavailable.</li>
+    <li><code>requestPersistentStorage()</code> calls <code>navigator.storage.persist()</code> and
+    returns whether the browser granted it. Persistent storage removes the eviction pressure
+    described below (browsers may still refuse, typically based on engagement heuristics).</li>
+    <li>Without persistence, idle-timer eviction of <strong>best-effort</strong> storage applies:
+    browsers may purge IndexedDB data for sites that have gone unused for a while, especially under
+    disk pressure.</li>
+  </ul>
+  <div class="callout callout--warning">
+    <div class="callout__label">YOUR LIBRARY IS EVICTABLE</div>
+    <p>Clearing site data, using a private window, or quota eviction removes book content
+    permanently — WebXReader has no server copy to fall back on. Ask for persistent storage, and keep
+    a routine <a href="import-export.html">JSON backup</a> for anything you care about. As advice:
+    comfortably-sized text formats restore fastest; full-binary v2 backups of many large EPUBs make
+    both the export download and the restore noticeably heavier.</p>
+  </div>
+
+  <h2 id="clear-database">Clearing data</h2>
+  <p><code>clearDatabase()</code> opens one readwrite transaction over the seven library stores —
+  <code>books, bookContent, progress, bookmarks, annotations, bookSettings, covers</code> (filtered to
+  those actually present) — and <code>clear()</code>s each:</p>
+  <div class="callout callout--info">
+    <div class="callout__label">SETTINGS ARE PRESERVED</div>
+    <p>The <code>settings</code> store is intentionally excluded — indeed, clearing it would defeat
+    the localStorage preference strategy. "Clear all data" removes your library and reading state but
+    keeps general site preferences (theme, typography defaults, import warning threshold). The
+    settings screen separates the two concerns: it wires <code>clearDatabase()</code> for data, and a
+    separate reset-preferences action with a confirmation dialog for <code>clearSettings()</code>.</p>
+  </div>
+  <div class="callout callout--tip">
+    <div class="callout__label">HOOKS CONSUME ALL OF THIS</div>
+    <p>App code never touches <code>database.ts</code> storage functions directly except through
+    <code>src/hooks/</code>: <code>useBooks</code> (module-level books cache with
+    <code>invalidateBooksCache()</code>), <code>useReadingProgress</code>, <code>useBookmarks</code>,
+    <code>useSettings</code> and <code>useReaderSettings</code>. Keep it that way when adding
+    features — the cache invalidation and debounce timing live in exactly one place this way. See
+    <a href="reader.html">Reader</a> and <a href="library.html">Library</a> for the consumption side.</p>
+  </div>
+  <h2 id="base64">The base64 encoding helpers</h2>
+  <p>Two local functions bridge JSON-friendly strings and binary <code>ArrayBuffer</code>s. Both
+  process data in <strong>0x8000-byte (32 KiB) chunks</strong> —
+  <code>String.fromCharCode(...spread)</code> on one huge array risks blowing the call stack, so the
+  spread is fed subarray-by-subarray</p>
+  <pre><code class="language-ts">function toBase64(data: ArrayBuffer): string {
+  const bytes = new Uint8Array(data);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset &lt; bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function fromBase64(value: string): ArrayBuffer {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index &lt; binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes.buffer;
+}</code></pre>
+  <p>The decode side copies byte-by-byte into a new buffer rather than slicing the binary string's
+  internal representation — the resulting <code>ArrayBuffer</code> is a clean, transferable payload
+  suitable for the <code>BookContent.originalFile</code> slot.</p>
+
+  <h2 id="hook-mapping">Which hook consumes which function</h2>
+  <p>The module is the storage layer's entire surface; app code reaches it only through hooks. This
+  map is useful when tracing a write to its source:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Hook / component</th><th>Storage functions consumed</th><th>Behavior worth knowing</th></tr></thead>
+    <tbody>
+      <tr><td><code>useBooks</code></td><td><code>listBooks</code>, <code>addBook</code>, <code>updateBook</code>, <code>updateBookAndCover</code>, <code>deleteBook</code>, <code>listProgress</code></td><td>Module-level books cache plus <code>invalidateBooksCache()</code>; strips the derived <code>readingProgress</code> before every write</td></tr>
+      <tr><td><code>useReadingProgress</code></td><td><code>saveProgress</code>, <code>updateBook</code></td><td>2s debounce, <code>flush()</code>, 30s <code>lastOpenedAt</code> throttle, status promotion — see <a href="#progress-writes">progress saves</a></td></tr>
+      <tr><td><code>useBookmarks</code> / annotations hooks</td><td><code>listBookmarks</code>, <code>saveBookmark</code>, <code>deleteBookmark</code> (and annotation equivalents)</td><td>Per-book listing through the <code>bookId</code> index</td></tr>
+      <tr><td><code>useSettings</code> + <code>SettingsProvider</code></td><td><code>getSettings</code>, <code>saveSettings</code></td><td>Loads merged preferences at startup; applies <code>data-theme</code>; throws context error if used bare</td></tr>
+      <tr><td><code>useReaderSettings(bookId)</code></td><td><code>getBookSettings</code>, <code>saveBookSettings</code></td><td>Read-time merge with global settings (<a href="data-model.html#booksettings">merge semantics</a>)</td></tr>
+      <tr><td>SettingsView (backup/restore/ maintenance UI)</td><td><code>exportBackup</code>/<code>restoreBackup</code> via the backup service, <code>getStorageEstimate</code>, <code>requestPersistentStorage</code>, <code>clearDatabase</code>, <code>clearSettings</code></td><td>Backup actions guarded with confirmation dialogs for destructive operations</td></tr>
+      <tr><td>ImportDialog / import service</td><td><code>findBookByHash</code>, <code>saveBookBundle</code></td><td>Dedup then atomic write — <a href="import-export.html">Import &amp; Backup</a></td></tr>
+    </tbody>
+  </table></div>
+
+  <details><summary>What happens if two tabs write simultaneously?</summary>
+  <p>IndexedDB serializes at the transaction level, so the last committed write wins per record,
+  but no record is corrupted halfway. Two things to know: <code>onversionchange</code> closes the
+  cached connection in tabs that lose an upgrade race, and a pending version upgrade fires the
+  <code>onblocked</code> warning until the older connections close. Reader-created data (progress,
+  annotations) is written from whichever tab is actually reading that book, so conflicting edits on
+  the same book across two open tabs are the only realistic conflict case — and they resolve to
+  last-write-wins with no merge.</p>
+  </details>
+
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>

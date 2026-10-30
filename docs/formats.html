@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Formats &amp; Parsers — WebXReader Documentation</title>
+  <meta name="description" content="How WebXReader registers, detects, parses, and renders every supported book format: TXT, Markdown, HTML, EPUB, PDF, and CBZ.">
+  <link rel="icon" type="image/svg+xml" href="../webxreader.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<article id="content">
+  <h1 id="top">Formats &amp; Parsers</h1>
+  <p class="lede">
+    Every format WebXReader can open is declared in a single static registry. That registry is
+    the one source of truth for extensions, MIME types, reader capabilities, and the parsing
+    step that turns a raw <code>File</code> into normalized <code>Chapter</code> data. This
+    chapter documents the registry API, walks through each format's parsing pipeline, and
+    shows you how to add a new format without touching any other subsystem.
+  </p>
+
+  <h2 id="registry">The registry as a single source of truth</h2>
+  <p>
+    <code>src/formats/registry.ts</code> holds a static <code>FORMAT_REGISTRY</code> mapping
+    each <code>BookFormat</code> id to its <code>FormatDefinition</code>, plus a lowercase
+    <code>EXTENSION_TO_FORMAT_MAP</code> built at module load by walking every definition's
+    <code>extensions</code> array. Nothing else in the codebase is allowed to hard-code a file
+    extension: import dropzones, file dialogs, export download names, and the reader UI all
+    query this module.
+  </p>
+
+  <h3 id="registry-api">Registry API</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Function</th><th>Signature</th><th>Behavior</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>getFormat</code></td>
+          <td><code>(id) =&gt; FormatDefinition | undefined</code></td>
+          <td>Lookup by id; accepts <code>string</code> and returns undefined for unknown or missing ids.</td>
+        </tr>
+        <tr>
+          <td><code>getRequiredFormat</code></td>
+          <td><code>(id: BookFormat) =&gt; FormatDefinition</code></td>
+          <td>Same lookup but throws <code>new Error("Unsupported book format: ${id}")</code> when the id is not registered. Use inside code paths that cannot proceed without a definition.</td>
+        </tr>
+        <tr>
+          <td><code>detectFormatFromFilename</code></td>
+          <td><code>(filename) =&gt; FormatDefinition | null</code></td>
+          <td>Extracts the extension via <code>getFileExtension</code>, lowercases it, and resolves through <code>EXTENSION_TO_FORMAT_MAP</code>. Returns <code>null</code> when unknown.</td>
+        </tr>
+        <tr>
+          <td><code>getAllFormats</code></td>
+          <td><code>() =&gt; FormatDefinition[]</code></td>
+          <td>All definitions in registration order: txt, markdown, html, epub, pdf, cbz.</td>
+        </tr>
+        <tr>
+          <td><code>getAllSupportedExtensions</code></td>
+          <td><code>() =&gt; string[]</code></td>
+          <td>Every registered extension without a leading dot, e.g. <code>txt</code>, <code>markdown</code>, <code>md</code>, <code>html</code>…</td>
+        </tr>
+        <tr>
+          <td><code>getAcceptAttribute</code></td>
+          <td><code>() =&gt; string</code></td>
+          <td>Dot-prefixed, comma-joined extension list for <code>&lt;input type="file" accept&gt;</code>, in registry order (full list below).</td>
+        </tr>
+        <tr>
+          <td><code>getFormatMimeType</code></td>
+          <td><code>(format) =&gt; string</code></td>
+          <td>Returns the definition's first declared MIME type, falling back to <code>application/octet-stream</code>.</td>
+        </tr>
+        <tr>
+          <td><code>isFixedLayout</code></td>
+          <td><code>(format?) =&gt; boolean</code></td>
+          <td><code>true</code> only when the definition's <code>category</code> is <code>'fixed-layout'</code> (currently PDF and CBZ). Reader zoom bounds and typography controls key off this.</td>
+        </tr>
+        <tr>
+          <td><code>formatSupportsFeature</code></td>
+          <td><code>(format?, feature: keyof FormatCapabilities) =&gt; boolean</code></td>
+          <td>Capability query used to enable/disable reader UI controls per book. Unknown formats return <code>false</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    The accept string is derived entirely from the registry, so adding a format to the registry
+    automatically extends every file picker in the app:
+  </p>
+  <pre><code class="language-ts">// getAcceptAttribute() output after registration order is applied
+".txt,.md,.markdown,.html,.htm,.xhtml,.epub,.pdf,.cbz"</code></pre>
+
+  <h3 id="capability-matrix">Capability matrix</h3>
+  <p>
+    <code>FormatCapabilities</code> flags (declared in <code>src/formats/types.ts</code>) drive
+    which reader features a given book can use. <code>ReaderSettings.tsx</code> reads them via
+    <code>formatSupportsFeature</code> and hides the corresponding controls rather than
+    disabling them. Here is the full matrix as declared by the six definitions:
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Capability</th><th>TXT</th><th>MD</th><th>HTML</th><th>EPUB</th><th>PDF</th><th>CBZ</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>continuousScroll</code></td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+        <tr><td><code>paginated</code></td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+        <tr><td><code>doubleSided</code></td><td>yes</td><td>yes</td><td>yes</td><td><b>no</b></td><td><b>no</b></td><td>yes</td></tr>
+        <tr><td><code>zoom</code></td><td><b>no</b></td><td><b>no</b></td><td><b>no</b></td><td>yes</td><td>yes</td><td>yes</td></tr>
+        <tr><td><code>search</code></td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td><b>no</b></td></tr>
+        <tr><td><code>readingDirection</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>yes</td></tr>
+        <tr><td><code>fitMode</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>yes</td></tr>
+        <tr><td><code>pageGap</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>yes</td></tr>
+        <tr><td><code>customTypography</code></td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td><b>no</b></td><td><b>no</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    <code>category</code> is the coarser model: <code>'reflowable'</code> for TXT, Markdown,
+    HTML, and EPUB, and <code>'fixed-layout'</code> for PDF and CBZ. The reader engine picks
+    zoom ranges, typography availability, and rendering strategy from this one field.
+  </p>
+
+  <div class="callout callout--tip">
+    <div class="callout__label">TIP</div>
+    <p>
+      When you change any row of the capability matrix, the only files that should need to move
+      are the format definition itself and the engine that renders it. UI code is forbidden from
+      branching on <code>book.sourceFormat</code> directly — it must go through
+      <code>formatSupportsFeature</code> or <code>isFixedLayout</code>.
+    </p>
+  </div>
+
+  <h2 id="txt">Plain Text (TXT)</h2>
+  <p>
+    The simplest reflowable format. Declared in
+    <code>src/formats/definitions/txt.ts</code> with extensions <code>['txt']</code> and MIME
+    types <code>['text/plain']</code>. It parses the file with no external dependencies and
+    produces chapters purely from text heuristics.
+  </p>
+
+  <h3 id="txt-pipeline">Parse pipeline</h3>
+  <ol class="steps">
+    <li><b>Read as text</b><span><code>readFileAsText(file, context.textEncoding)</code> decodes the raw file, honoring the encoding the user chose at import (auto-detected by default).</span></li>
+    <li><b>Split into chapters</b><span><code>parseTxt(text, { autoDetect: context.autoDetectChapters ?? true })</code> from <code>src/core/parsing/txt-parser</code> normalizes line endings and segments the text.</span></li>
+    <li><b>Build TOC</b><span>The definition maps each parsed chapter into a <code>Chapter</code> TOC entry with <code>id</code>, <code>title</code>, <code>level</code>, and <code>order</code>.</span></li>
+    <li><b>Return parsed data</b><span><code>{ metadata: {}, tableOfContents, chapters, rawText }</code>. Plain text declares no metadata; the whole source text is preserved as <code>rawText</code> for re-chunking later without re-reading the file.</span></li>
+  </ol>
+
+  <h3 id="txt-parser">TXT parser internals</h3>
+  <p>
+    <code>core/parsing/txt-parser.ts</code> does three things worth knowing when debugging a
+    badly segmented import:
+  </p>
+  <ul>
+    <li><b>Encoding and line-ending normalization.</b> UTF-8/UTF-16 byte order marks are
+    stripped (when not requested explicitly via <code>textEncoding</code>), CRLF and lone CR
+    sequences are normalized to LF so chapter-splitting logic and scroll math see one
+    consistent representation.</li>
+    <li><b>"Chapter X" heading detection.</b> Lines that begin conventional chapter markers
+    ("Chapter 3", "CHAPTER TWELVE", numbered forms) become chapter boundaries and titles.</li>
+    <li><b>ALL-CAPS blank-line headings.</b> A short, fully uppercase line separated by blank
+    lines on both sides is treated as a chapter heading — the classic Gutenberg/ASCII-fiction
+    convention. This means a novel with no explicit "Chapter" markers still segments correctly.</li>
+  </ul>
+
+  <div class="callout callout--info">
+    <div class="callout__label">INFO — AUTODETECTCHAPTERS SEMANTICS</div>
+    <p>
+      <code>FormatImportContext.autoDetectChapters</code> defaults to <code>true</code> and is
+      <b>??</b>-coalesced at the definition level, so the parser never sees <code>undefined</code>.
+      When the user disables chapter detection at import, the whole file becomes a single
+      chapter with the book title, TOC entries are not generated from headings, and <code>rawText</code>
+      is still stored so the choice can be re-applied later without re-reading the file.
+    </p>
+  </div>
+
+  <h2 id="markdown">Markdown (MD)</h2>
+  <p>
+    Declared with extensions <code>['md', 'markdown']</code> and MIME types
+    <code>['text/markdown', 'text/x-markdown']</code>. Its definition follows the same
+    reflowable, text-first shape as TXT — same capability row, same <code>readFileAsText</code>
+    entry — but the parser is richer: it extracts structured metadata before splitting content.
+  </p>
+
+  <h3 id="markdown-pipeline">Parse pipeline</h3>
+  <ol class="steps">
+    <li><b>Read as text</b><span><code>readFileAsText(file, context.textEncoding)</code>, exactly like TXT.</span></li>
+    <li><b>Extract YAML frontmatter</b><span><code>parseMarkdown</code> from <code>core/parsing/markdown-parser</code> lifts a leading YAML block into <code>metadata</code>: <code>title</code>, <code>author</code>, <code>language</code>, and <code>publisher</code> are picked up when present.</span></li>
+    <li><b>Split on headings</b><span>The document is segmented at H1 and H2 headings. H1 starts chapters; H2 creates sub-chapters at the next TOC level.</span></li>
+    <li><b>Return parsed data</b><span><code>{ metadata, tableOfContents, chapters, rawText }</code> — the full markdown source is retained as <code>rawText</code>.</span></li>
+  </ol>
+
+  <p>
+    Because <code>rawText</code> keeps the original markdown (frontmatter included), re-imports
+    with different chapter-detection settings can reuse the stored text instead of asking the
+    user for the file again.
+  </p>
+
+  <h2 id="html">HTML Document</h2>
+  <p>
+    Declared with extensions <code>['html', 'htm', 'xhtml']</code> and MIME types
+    <code>['text/html', 'application/xhtml+xml']</code>. Parse mirrors the Markdown flow:
+    <code>readFileAsText</code> → <code>parseHtml(text)</code> →
+    <code>{ metadata, tableOfContents, chapters, rawText }</code>, with the HTML parser
+    collapsing tags into chapter content and deriving the TOC from the document's own
+    heading structure. This pipeline also serves the <a href="getting-started.html">import flow's</a>
+    batch conversion path — see <a href="import-export.html">Import &amp; Export</a> for the
+    surrounding UI.
+  </p>
+
+  <h2 id="epub">EPUB</h2>
+  <p>
+    The flagship reflowable format. Declared with extensions <code>['epub']</code>, MIME type
+    <code>['application/epub+zip']</code>, <code>requiresOriginalFile: true</code>, and
+    <code>zoom: true</code> — the only reflowable format with zoomable rendering. Its parse
+    pipeline is the first one that keeps binary state.
+  </p>
+
+  <h3 id="epub-pipeline">Parse pipeline</h3>
+  <ol class="steps">
+    <li><b>Read as ArrayBuffer</b><span><code>readFileAsArrayBuffer(file)</code> loads the raw zip container into memory.</span></li>
+    <li><b>Unzip</b><span><code>parseEpub(arrayBuffer)</code> from <code>core/parsing/epub-parser</code> opens the archive with JSZip and inspects the entries.</span></li>
+    <li><b>Resolve the OPF package</b><span><code>META-INF/container.xml</code> points at the OPF package document, which is parsed to classify zip entries into OPF classed/manifest/spine roles — the authoritative reading order.</span></li>
+    <li><b>Map manifest hrefs</b><span>Spine item references are resolved against the manifest so each spine entry maps to its actual zip path, with relative-path handling so nested folders (e.g. <code>OEBPS/Text/</code>) resolve correctly.</span></li>
+    <li><b>Extract the TOC</b><span>Navigation is pulled from an EPUB3 <code>nav</code> document or an EPUB2 NCX file. The resulting TOC is built recursively into a <code>Chapter</code> tree that preserves nesting levels rather than flattening.</span></li>
+    <li><b>Detect the cover</b><span>The parser inspects package metadata and manifest entries to find the most representative cover image, surfaced as <code>coverImage</code>.</span></li>
+    <li><b>Keep the original file</b><span>The input <code>ArrayBuffer</code> is returned as <code>originalFile</code>, and <code>requiresOriginalFile: true</code> marks it as mandatory — see the <a href="#requires-original-file">callout below</a>.</span></li>
+  </ol>
+
+  <h3 id="epub-engine">EPUB engine</h3>
+  <p>
+    EPUB rendering is delegated to <code>src/formats/engines/EpubReader.tsx</code>, which uses
+    <b>epubjs</b> to run book content inside a sandboxed iframe and tracks reading position as
+    a canonical CFI string — the same identifier used for bookmarks and resume. The CFI is the
+    only position format precise enough to survive typography changes, which is why EPUB
+    progress is stored per-position instead of per-chapter. Engine internals, zoom bounds, and
+    keyboard routing for the EPUB path are covered in the <a href="reader.html">Reader Engine
+    chapter</a>.
+  </p>
+
+  <h2 id="pdf">PDF</h2>
+  <p>
+    The first fixed-layout format: <code>category: 'fixed-layout'</code>,
+    <code>requiresOriginalFile: true</code>, and notably
+    <code>customTypography: false</code> — the reader must never offer font or line-height
+    controls for PDF, since layout is fixed at the byte level.
+  </p>
+
+  <h3 id="pdf-pipeline">Parse pipeline</h3>
+  <ol class="steps">
+    <li><b>Read as ArrayBuffer</b><span><code>readFileAsArrayBuffer(file)</code>.</span></li>
+    <li><b>Initialize pdf.js</b><span><code>core/parsing/pdf-init</code> (imported by <code>pdf-parser.ts</code>) configures the <b>pdf.js</b> library and its worker; parsing then follows the standard engine initialization path so import and open share one setup.</span></li>
+    <li><b>Parse metadata and pages</b><span><code>parsePdf(arrayBuffer)</code> reads document metadata (title, author, description, publish dates where present) and builds a <code>tableOfContents</code> from the PDF's declaration entries when available.</span></li>
+    <li><b>Extract the cover</b><span>First-page art is rendered to a data URL and returned as <code>coverImage</code>.</span></li>
+    <li><b>Keep the original file</b><span>As with EPUB, the <code>ArrayBuffer</code> is returned as <code>originalFile</code> and is mandatory — PDF pages are rendered live from it, not pre-extracted to text chapters.</span></li>
+  </ol>
+
+  <div class="callout callout--info">
+    <div class="callout__label">INFO — NO TEXT-CHAPTER RECOMPUTE</div>
+    <p>
+      The PDF parser does not attempt to replace the original file with extracted text the way
+      some converters do. The document stays as-is, which keeps zoom/search/layout exactly as
+      the publisher rendered them and enables a lossless original-file download.
+    </p>
+  </div>
+
+  <h2 id="cbz">CBZ Comic Book Zip</h2>
+  <p>
+    The second fixed-layout format, and the only one with comic-grade capabilities:
+    <code>readingDirection</code>, <code>fitMode</code>, and <code>pageGap</code> are all
+    <code>true</code> here and nowhere else. Declared with
+    extensions <code>['cbz']</code> and MIME types
+    <code>['application/vnd.comicbook+zip', 'application/x-cbz']</code>.
+  </p>
+
+  <h3 id="cbz-pipeline">Parse pipeline</h3>
+  <ol class="steps">
+    <li><b>Read as ArrayBuffer</b><span><code>readFileAsArrayBuffer(file)</code>.</span></li>
+    <li><b>Unzip and filter images</b><span>JSZip opens the archive; <code>parseCbz</code> filters entries by file extension so only real page images are kept. Non-image members such as <code>ComicInfo.xml</code> and thumbnail directories are ignored for page ordering (but see the metadata step).</span></li>
+    <li><b>Natural-sort the pages</b><span>Entries are ordered with a <code>naturalCompare</code> comparator, so <code>page2</code> sorts before <code>page10</code> — the classic failure of plain lexicographic sorting.</span></li>
+    <li><b>Read ComicInfo.xml</b><span>ComicInfo metadata (title, series, volume, issue, notes) is lifted into <code>metadata</code> when present, including <code>identifiers</code> and volume info.</span></li>
+    <li><b>Handle reading direction</b><span><code>parseCbz</code> returns a <code>readingDirection</code> value; the definition merges it into <code>metadata.identifiers.readingDirection</code> so it persists as book-level state and drives right-to-left manga page turns inside the engine.</span></li>
+    <li><b>Build the TOC</b><span>The table of contents comes from the archive's own bookmarks entries when they exist; otherwise the parser enumerates directory structure and issues sequential numbering so every page is reachable from the drawer.</span></li>
+    <li><b>Extract the cover</b><span>Cover detection is built into the parser — the first sorted page (or declared cover entry) is turned into a cover image for the Library grid.</span></li>
+  </ol>
+
+  <h3 id="cbz-engine">CBZ engine</h3>
+  <p>
+    <code>src/formats/engines/CbzReader.tsx</code> renders pages in three modes — webtoon
+    continuous scroll, paginated, and a double-spread right-to-left manga mode — with lazy blob
+    URL creation for large issue archives, O(log&#8202;N) binary search to keep page tracking
+    cheap while scrolling thousands of image entries, and cursor-pivot Ctrl+wheel zoom. The
+    handle types <code>CbzReaderHandle</code> and <code>CbzZoomAnchor</code> are re-exported
+    from <code>src/formats/index.ts</code>. Full details are in the
+    <a href="reader.html">Reader Engine chapter</a>.
+  </p>
+
+  <div class="callout callout--warning">
+    <div class="callout__label">WARNING — REQUIRESORIGINALFILE</div>
+    <p>
+      EPUB, PDF, and CBZ all declare <code>requiresOriginalFile: true</code>. For those formats
+      the raw <code>ArrayBuffer</code> is stored back into <code>BookContent</code> by the
+      database layer instead of just parsed text. This is what enables three features text
+      formats cannot have: (1) the original-file download in Library view, (2) the live engines
+      that render pages from the original bytes (PDF, CBZ, EPUB inside epubjs), and (3) resume
+      that reconstructs exact positions. If you forget to return <code>originalFile</code> from
+      your parser, the book will import but the reader will silently fall back to a degraded
+      reflowable view.
+    </p>
+  </div>
+
+  <h2 id="sanitization">Content sanitization</h2>
+  <p>
+    Because parsed chapters are ultimately rendered as HTML inside the reader, WebXReader
+    treats chapter markup as untrusted input no matter where it came from.
+  </p>
+  <ul>
+    <li>
+      <b>Render-time.</b> <code>core/parsing/sanitize-reader-html.ts</code> wraps
+      <b>DOMPurify</b> with the allowed-tag allowlist used when a chapter is injected into the
+      <b>ScrollReader</b> / <b>PaginatedReader</b> DOM tree — see
+      <a href="architecture.html">Architecture</a> for where this sits relative to rendering.
+    </li>
+    <li>
+      <b>Restore-time.</b> When a chapter is restored from a backup, the database layer runs
+      <code>sanitizeRestoredChapter</code> inside <code>database.ts</code> so anything re-reading
+      from index also passes through DOMPurify. Chapters stored before the sanity pass, or
+      modified by a future editor, get a second defense-line.
+    </li>
+    <li>
+      <b>Fall-back sanitizer.</b> <code>src/utils/index.ts</code> exports a lighter
+      <code>sanitizeHtml</code> that strips <code>&lt;script&gt;</code> nodes, wildcard
+      <code>on*</code> event handlers, <code>javascript:</code> hrefs, and non-image
+      <code>data:</code> sources. It exists as a defense line when DOMPurify's full parse is not
+      worth the cost.
+    </li>
+  </ul>
+  <p>
+    The cross-suite security suite that pins all three behaviors with tests lives in
+    <a href="testing.html#reader-content-security">Testing — reader-content-security</a>. If you
+    add a new format that parses HTML out of a file (like EPUB or CBX variants), your parser
+    must return content that passes those tests verbatim.
+  </p>
+
+  <h2 id="future">Future formats</h2>
+  <p>
+    Formats on the pre-roadmap — <b>RTF</b>, <b>CBR</b>, <b>CB7</b>, <b>MOBI</b>, <b>FB2</b>,
+    <b>DjVu</b>, and <b>XPS</b> — are tracked in
+    <a href="roadmap.html#formats">Roadmap — formats</a>
+    (<code>Developmental/formats-to-be-added.md</code> in the repository). Each new one lands as
+    another <code>FormatDefinition</code> in the static registry and another parse module under
+    <code>src/core/parsing/</code>; the "adding a new format" walkthrough below is designed to
+    be the actual checklist for those.
+  </p>
+
+  <h2 id="adding-a-format">Adding a new format</h2>
+  <p>
+    A new format touches four things and nothing else. These steps use real field names from
+    <code>FormatDefinition</code>, <code>FormatCapabilities</code>, and
+    <code>FormatParsedData</code> so you can copy straight from a live definition.
+  </p>
+  <ol class="steps">
+    <li><b>Implement the parser</b><span>Create <code>src/core/parsing/&lt;format&gt;-parser.ts</code> exporting <code>parse&lt;Format&gt;(input) =&gt; Promise&lt;FormatParsedData&gt;</code>. Read the source file yourself — do not delegate file reads to the registry. If your format needs binary state later (engines, original-file download), return the input as <code>originalFile</code>.</span></li>
+    <li><b>Declare the definition</b><span>Create <code>src/formats/definitions/&lt;format&gt;.ts</code> exporting a <code>FormatDefinition</code> constant. Every field is required except <code>requiresOriginalFile</code> and the optional <code>FormatCapabilities</code> flags.</span></li>
+    <li><b>Register it</b><span>Import your definition into <code>src/formats/registry.ts</code> and add one row to <code>FORMAT_REGISTRY</code>. The <code>EXTENSION_TO_FORMAT_MAP</code>, the file-input accept attribute, detection, MIME lookups, and Library grids all update from that single line — no other changes.</span></li>
+    <li><b>Update types and tests</b><span>If your format introduces a new capability flag, extend <code>FormatCapabilities</code> in <code>src/formats/types.ts</code> and wire it into the reader UI. Add parse round-trip tests to the format suite under <a href="testing.html">Testing</a>.</span></li>
+  </ol>
+
+  <p>Here is a real skeleton matching the actual shape of the existing definitions:</p>
+  <pre><code class="language-ts">// src/formats/definitions/mobi.ts
+import type { FormatDefinition, FormatParsedData, FormatImportContext } from '../types';
+import { readFileAsArrayBuffer } from '../../utils';
+import { parseMobi } from '../../core/parsing/mobi-parser';
+
+export const mobiFormat: FormatDefinition = {
+  id: 'mobi',
+  label: 'MOBI Book',
+  extensions: ['mobi'],
+  mimeTypes: ['application/x-mobipocket-ebook'],
+  category: 'reflowable',
+  requiresOriginalFile: true,
+  capabilities: {
+    continuousScroll: true,
+    paginated: true,
+    doubleSided: false,
+    zoom: false,
+    search: true,
+    customTypography: true,
+  },
+  async parse(file: File): Promise&lt;FormatParsedData&gt; {
+    const arrayBuffer = await readFileAsArrayBuffer(file);
+    const { metadata, tableOfContents, chapters } = await parseMobi(arrayBuffer);
+
+    return {
+      metadata,
+      tableOfContents,
+      chapters,
+      originalFile: arrayBuffer, // enables download + engine rendering + resume
+    };
+  },
+};</code></pre>
+
+  <p>And the addition to the registry (the only edit besides the new files):</p>
+  <pre><code class="language-ts">import { mobiFormat } from './definitions/mobi';
+
+const FORMAT_REGISTRY = new Map&lt;BookFormat, FormatDefinition&gt;([
+  ['txt', txtFormat],
+  ['markdown', markdownFormat],
+  ['html', htmlFormat],
+  ['epub', epubFormat],
+  ['pdf', pdfFormat],
+  ['cbz', cbzFormat],
+  ['mobi', mobiFormat], // registry order feeds detection and accept lists
+]);</code></pre>
+  <p>
+    Also extend <code>BookFormat</code> in <code>src/types/book.ts</code> with the new union
+    member so <code>id</code> type-checks — the registry's <code>Map&lt;BookFormat, ...&gt;</code>
+    key type keeps you honest about this at compile time.
+  </p>
+
+  <div class="callout callout--tip">
+    <div class="callout__label">TIP — REVIEW THE CAPABILITY ROW FIRST</div>
+    <p>
+      Before writing parser code, decide on the capability row. It changes downstream UI in
+      <a href="reader.html#settings">ReaderSettings</a> immediately: typography sliders only
+      render when <code>customTypography</code> is <code>true</code>, comic controls only show
+      for <code>readingDirection</code>/fitMode/pageGap formats, and zoom arrow buttons reference
+      <code>isFixedLayout</code> bounds. Committing the capability table first surfaces UX
+      gaps before parse code exists.
+    </p>
+  </div>
+
+  <h2 id="related">Related chapters</h2>
+  <ul>
+    <li><a href="data-model.html">Data Model</a> — the <code>Book</code>, <code>BookContent</code>, and <code>Chapter</code> records parsed data is written into.</li>
+    <li><a href="reader.html">Reader Engine</a> — the engines every format's <code>parse</code> output ultimately feeds.</li>
+    <li><a href="import-export.html">Import &amp; Export</a> — the user-facing flow that calls the registry at import time.</li>
+    <li><a href="testing.html">Testing</a> — per-format parse fixtures and the reader-content-security suite.</li>
+  </ul>
+</article>
+
+<script src="script.js"></script>
+</body>
+</html>
