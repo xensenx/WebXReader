@@ -40,6 +40,13 @@ describe('MOBI & PalmDOC Parser', () => {
       const output = decompressPalmDocLZ77(new Uint8Array(0));
       expect(output.length).toBe(0);
     });
+
+    it('gracefully ignores invalid or degenerate backwards distance without crashing', () => {
+      // 0x80, 0x00 has distance 0, which is invalid. It should be skipped rather than throwing fatal error.
+      const input = new Uint8Array([0x41, 0x42, 0x80, 0x00, 0x43]);
+      const output = decompressPalmDocLZ77(input);
+      expect(new TextDecoder().decode(output)).toBe('ABC');
+    });
   });
 
   describe('MOBI Parsing from Fixture', () => {
@@ -138,6 +145,17 @@ describe('MOBI & PalmDOC Parser', () => {
       view.setUint16(112, 0, false); // no DRM
 
       await expect(parseMobi(data.buffer)).rejects.toThrow('Unsupported MOBI compression type (9999)');
+    });
+    it('successfully parses real-world MOBI books (e.g. Lords of the Dead) if present', async () => {
+      const mobiPath = 'E:/test-wxr/Lords of the Dead -- Spears, R J -- Books of the Dead 2, 2014 -- J_ Ellington Ashton Press -- d584d1887408e84aafa5ab0490f32434 -- Anna\u2019s Archive.mobi';
+      if (fs.existsSync(mobiPath)) {
+        const buf = fs.readFileSync(mobiPath);
+        const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        const result = await parseMobi(arrayBuf);
+        expect(result.chapters.length).toBeGreaterThan(0);
+        expect(result.metadata.title).toBeTruthy();
+        expect(result.rawText.length).toBeGreaterThan(1000);
+      }
     });
   });
 });

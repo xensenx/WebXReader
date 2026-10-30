@@ -679,9 +679,9 @@ export async function parseAzw3(
       }
     }
 
-    // extraRecordDataFlags at offset 242 from MOBI header = 16 + 242
-    if (mobiHeaderLength >= 244 && kf8Rec0.length >= 16 + 244) {
-      extraRecordDataFlags = kf8View.getUint16(16 + 242, false);
+    // extraRecordDataFlags at offset 0xF2 (242) of Record 0
+    if (kf8Rec0.length >= 0xF4) {
+      extraRecordDataFlags = kf8View.getUint16(0xF2, false);
     }
   }
 
@@ -727,9 +727,8 @@ export async function parseAzw3(
     const m7Count = dv0.getUint16(8, false);
     let m7ExtraFlags = 0;
     if (isMobiHeader(record0)) {
-      const m7HeaderLen = dv0.getUint32(20, false);
-      if (m7HeaderLen >= 244 && record0.length >= 16 + 244) {
-        m7ExtraFlags = dv0.getUint16(16 + 242, false);
+      if (record0.length >= 0xF4) {
+        m7ExtraFlags = dv0.getUint16(0xF2, false);
       }
     }
     const m7Raw = tryDecompressRecords(0, m7Count, m7Comp, m7ExtraFlags, getRecordData, numRecords);

@@ -156,14 +156,11 @@ export function decompressPalmDocLZ77(src: Uint8Array): Uint8Array {
       const compound = ((control << 8) | b2) & 0x3fff;
       const distance = compound >> 3;
       const count = (compound & 0x07) + 3;
-      const start = dst.length - distance;
-
-      if (start < 0 || distance === 0) {
-        throw new Error('Corrupted or encrypted PalmDOC LZ77 stream: invalid backwards distance');
-      }
-
-      for (let k = 0; k < count; k++) {
-        dst.push(dst[start + k]);
+      if (distance > 0 && distance <= dst.length) {
+        const start = dst.length - distance;
+        for (let k = 0; k < count; k++) {
+          dst.push(dst[start + k]);
+        }
       }
     } else {
       // 0xC0..0xFF: Type C Space + (control ^ 0x80)
@@ -420,9 +417,9 @@ export async function parseMobi(
       exthFlags = rec0View.getUint32(16 + 112, false);
     }
 
-    // extraRecordDataFlags at offset 242 from MOBI header (16 + 242 = 258 from Record 0)
-    if (mobiHeaderLength >= 244 && record0.length >= 16 + 244) {
-      extraRecordDataFlags = rec0View.getUint16(16 + 242, false);
+    // extraRecordDataFlags at offset 0xF2 (242) of Record 0
+    if (record0.length >= 0xF4) {
+      extraRecordDataFlags = rec0View.getUint16(0xF2, false);
     }
   }
 
