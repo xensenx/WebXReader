@@ -3,9 +3,9 @@
  * Sanitizes HTML content and extracts chapters from heading elements.
  */
 
-import DOMPurify from 'dompurify';
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
+import { sanitizeReaderHtml } from './sanitize-reader-html';
 
 /** Result of parsing an HTML file */
 export interface HtmlParseResult {
@@ -139,23 +139,7 @@ export function parseHtml(htmlText: string): HtmlParseResult {
   const bodyContent = extractBody(htmlText);
 
   // Sanitize the HTML
-  const cleanHtml = DOMPurify.sanitize(bodyContent, {
-    ALLOWED_TAGS: [
-      'p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'del', 'ins',
-      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-      'ul', 'ol', 'li',
-      'blockquote', 'pre', 'code',
-      'a', 'img',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td',
-      'hr', 'div', 'span', 'sup', 'sub',
-      'figure', 'figcaption', 'section', 'article',
-    ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
-    FORBID_ATTR: ['onerror', 'onclick', 'onload', 'onmouseover'],
-    // Keep imported HTML self-contained. External images, frames, and media
-    // should not trigger network requests merely because a book is opened.
-    FORBID_TAGS: ['img', 'iframe', 'object', 'embed', 'video', 'audio', 'source'],
-  });
+  const cleanHtml = sanitizeReaderHtml(bodyContent);
 
   // Split into chapters
   const chapters = splitByHeadings(cleanHtml);

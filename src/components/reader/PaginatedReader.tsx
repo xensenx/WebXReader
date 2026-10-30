@@ -12,6 +12,7 @@ import {
   useRef,
   useCallback,
   useLayoutEffect,
+  useMemo,
   memo,
   type KeyboardEvent,
   type TouchEvent,
@@ -19,6 +20,7 @@ import {
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Chapter } from '../../types/book';
 import type { EffectiveReaderSettings } from '../../hooks/useReaderSettings';
+import { sanitizeReaderHtml } from '../../core/parsing/sanitize-reader-html';
 import styles from './PaginatedReader.module.css';
 
 export interface PaginatedReaderProps {
@@ -48,6 +50,10 @@ export const PaginatedReader = memo(function PaginatedReader({
   zoomAnchor,
   pagesPerSpread = 1,
 }: PaginatedReaderProps) {
+  const safeChapterContents = useMemo(
+    () => chapters.map((chapter) => sanitizeReaderHtml(chapter.content)),
+    [chapters],
+  );
   const [currentPage, setCurrentPage] = useState(Math.max(0, initialPageIndex));
   const [totalPages, setTotalPages] = useState(1);
   const [pageHeight, setPageHeight] = useState(1);
@@ -348,7 +354,7 @@ export const PaginatedReader = memo(function PaginatedReader({
                   {chapter.title}
                 </h2>
               )}
-              <div className={styles.chapterBody} data-chapter-body="true" dangerouslySetInnerHTML={{ __html: chapter.content || '' }} />
+              <div className={styles.chapterBody} data-chapter-body="true" dangerouslySetInnerHTML={{ __html: safeChapterContents[index] || '' }} />
               {index < chapters.length - 1 && <div className={styles.chapterDivider} aria-hidden="true">❖ ❖ ❖</div>}
             </section>
           ))}

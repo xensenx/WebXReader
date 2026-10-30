@@ -2,9 +2,10 @@
  * Vertical scroll reader component.
  */
 
-import { useEffect, useLayoutEffect, useRef, useCallback, memo, type UIEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, type UIEvent } from 'react';
 import type { Chapter } from '../../types/book';
 import type { EffectiveReaderSettings } from '../../hooks/useReaderSettings';
+import { sanitizeReaderHtml } from '../../core/parsing/sanitize-reader-html';
 import styles from './ScrollReader.module.css';
 
 interface ScrollReaderProps {
@@ -30,6 +31,10 @@ export const ScrollReader = memo(function ScrollReader({
   onToggleControls,
   zoom = 1,
 }: ScrollReaderProps) {
+  const safeChapterContents = useMemo(
+    () => chapters.map((chapter) => sanitizeReaderHtml(chapter.content)),
+    [chapters],
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const isInitialRestored = useRef(false);
   const chapterRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -206,7 +211,7 @@ export const ScrollReader = memo(function ScrollReader({
             <div
               className={styles.chapterBody}
               data-chapter-body="true"
-              dangerouslySetInnerHTML={{ __html: chapter.content || '' }}
+              dangerouslySetInnerHTML={{ __html: safeChapterContents[index] || '' }}
             />
 
             {index < chapters.length - 1 && (

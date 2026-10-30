@@ -7,6 +7,8 @@ import { DEFAULT_SETTINGS } from '../../types/book';
 import type {
   Book,
   BookContent,
+  BookFormat,
+  Chapter,
   ReadingProgress,
   Bookmark,
   Annotation,
@@ -15,6 +17,7 @@ import type {
   BackupData,
   BackupBookContent,
 } from '../../types/book';
+import { sanitizeReaderHtml } from '../parsing/sanitize-reader-html';
 
 const DB_NAME = 'webxreader';
 const DB_VERSION = 1;
@@ -511,8 +514,54 @@ function deserializeBookContent(content: BackupBookContent): BookContent {
     bookId: content.bookId,
     format: content.format,
     rawText: content.rawText,
-    chapters: content.chapters,
+    chapters: content.chapters?.map(sanitizeRestoredChapter),
     originalFile: content.originalFileBase64 ? fromBase64(content.originalFileBase64) : undefined,
+  };
+}
+
+const BOOK_FORMATS: readonly BookFormat[] = ['epub', 'txt', 'markdown', 'html', 'pdf', 'cbz'];
+
+function isBookFormat(value: unknown): value is BookFormat {
+  return typeof value === 'string' && BOOK_FORMATS.includes(value as BookFormat);
+}
+
+function isBackupChapter(value: unknown, depth = 0): value is Chapter {
+  if (!value || typeof value !== 'object' || depth > 100) return false;
+  const chapter = value as Partial<Chapter>;
+  return (
+    typeof chapter.id === 'string' &&
+    typeof chapter.title === 'string' &&
+    Number.isFinite(chapter.level) &&
+    Number.isFinite(chapter.order) &&
+    (chapter.content === undefined || typeof chapter.content === 'string') &&
+    (chapter.href === undefined || typeof chapter.href === 'string') &&
+    (chapter.children === undefined ||
+      (Array.isArray(chapter.children) && chapter.children.every((child) => isBackupChapter(child, depth + 1))))
+  );
+}
+
+function isBackupBookContent(value: unknown): value is BackupBookContent {
+  if (!value || typeof value !== 'object') return false;
+  const content = value as Partial<BackupBookContent>;
+  return (
+    typeof content.bookId === 'string' && content.bookId.length > 0 &&
+    isBookFormat(content.format) &&
+    (content.rawText === undefined || typeof content.rawText === 'string') &&
+    (content.chapters === undefined ||
+      (Array.isArray(content.chapters) && content.chapters.every((chapter) => isBackupChapter(chapter)))) &&
+    (content.originalFileBase64 === undefined || typeof content.originalFileBase64 === 'string')
+  );
+}
+
+function sanitizeRestoredChapter(chapter: Chapter): Chapter {
+  return {
+    id: chapter.id,
+    title: chapter.title,
+    content: chapter.content === undefined ? undefined : sanitizeReaderHtml(chapter.content),
+    href: chapter.href,
+    level: chapter.level,
+    order: chapter.order,
+    children: chapter.children?.map(sanitizeRestoredChapter),
   };
 }
 
@@ -526,7 +575,8 @@ function isBackupObject(value: unknown): value is BackupData {
     Array.isArray(candidate.progress) &&
     Array.isArray(candidate.bookmarks) &&
     Array.isArray(candidate.annotations) &&
-    Array.isArray(candidate.bookSettings)
+    Array.isArray(candidate.bookSettings) &&
+    (candidate.contents === undefined || Array.isArray(candidate.contents))
   );
 }
 
@@ -580,17 +630,15 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
   }
 
   const restorableIds = new Set(booksToRestore.map((book) => book.id));
-  const contentsById = new Map(
-    (backup.contents ?? [])
-      .filter((content): content is BackupBookContent => Boolean(content && typeof content.bookId === 'string'))
-      .map((content) => [content.bookId, content]),
-  );
   const contentRecords = new Map<string, BookContent>();
-  for (const [bookId, content] of contentsById) {
+  for (const candidate of backup.contents ?? []) {
+    if (!isBackupBookContent(candidate)) {
+      throw new Error('Invalid content payload in backup');
+    }
     try {
-      contentRecords.set(bookId, deserializeBookContent(content));
+      contentRecords.set(candidate.bookId, deserializeBookContent(candidate));
     } catch {
-      throw new Error(`Invalid content payload for book "${bookId}"`);
+      throw new Error(`Invalid content payload for book "${candidate.bookId}"`);
     }
   }
   const db = await getDb();

@@ -5,9 +5,9 @@
  */
 
 import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
+import { sanitizeReaderHtml } from './sanitize-reader-html';
 
 /** Result of parsing a Markdown file */
 export interface MarkdownParseResult {
@@ -151,22 +151,7 @@ export function parseMarkdown(markdownText: string): MarkdownParseResult {
   const rawHtml = marked.parse(content, { async: false }) as string;
 
   // Sanitize the HTML
-  const cleanHtml = DOMPurify.sanitize(rawHtml, {
-    ALLOWED_TAGS: [
-      'p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'del', 'ins',
-      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-      'ul', 'ol', 'li',
-      'blockquote', 'pre', 'code',
-      'a', 'img',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td',
-      'hr', 'div', 'span', 'sup', 'sub',
-      'figure', 'figcaption',
-    ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
-    // Imported Markdown is displayed without fetching arbitrary remote
-    // resources or embedding executable/media content.
-    FORBID_TAGS: ['img', 'iframe', 'object', 'embed', 'video', 'audio', 'source'],
-  });
+  const cleanHtml = sanitizeReaderHtml(rawHtml);
 
   // Split into chapters by headings
   const chapters = splitHtmlByHeadings(cleanHtml);
