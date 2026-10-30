@@ -282,6 +282,22 @@ export function SettingsView() {
 
           <div className={styles.row}>
             <div className={styles.rowCol}>
+              <span className={styles.rowLabel}>FictionBook (.fb2) Footnotes</span>
+              <span className={styles.rowDesc}>
+                Include endnotes and footnotes as a reference chapter in the Table of Contents
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.fb2IncludeNotes ?? true}
+              onChange={(e) => updateSettings({ fb2IncludeNotes: e.target.checked })}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
+              aria-label="FictionBook Footnotes"
+            />
+          </div>
+
+          <div className={styles.row}>
+            <div className={styles.rowCol}>
               <span className={styles.rowLabel}>Large import warning</span>
               <span className={styles.rowDesc}>Show a notice while processing files above this size.</span>
             </div>

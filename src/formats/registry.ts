@@ -11,6 +11,7 @@ import { txtFormat } from './definitions/txt';
 import { markdownFormat } from './definitions/markdown';
 import { htmlFormat } from './definitions/html';
 import { rtfFormat } from './definitions/rtf';
+import { fb2Format } from './definitions/fb2';
 import { epubFormat } from './definitions/epub';
 import { pdfFormat } from './definitions/pdf';
 import { cbzFormat } from './definitions/cbz';
@@ -22,6 +23,7 @@ const FORMAT_REGISTRY = new Map<BookFormat, FormatDefinition>([
   ['markdown', markdownFormat],
   ['html', htmlFormat],
   ['rtf', rtfFormat],
+  ['fb2', fb2Format],
   ['epub', epubFormat],
   ['pdf', pdfFormat],
   ['cbz', cbzFormat],
@@ -58,6 +60,10 @@ export function getRequiredFormat(id: BookFormat): FormatDefinition {
  * Detects format definition from a filename or file extension.
  */
 export function detectFormatFromFilename(filename: string): FormatDefinition | null {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.fb2.zip')) {
+    return fb2Format;
+  }
   const ext = getFileExtension(filename).toLowerCase();
   return EXTENSION_TO_FORMAT_MAP.get(ext) ?? null;
 }

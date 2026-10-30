@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>science_fiction</genre>
+      <genre>adventure</genre>
+      <author>
+        <first-name>Isaac</first-name>
+        <last-name>Asimov</last-name>
+      </author>
+      <book-title>The Galactic Beacon</book-title>
+      <annotation>
+        <p>A classic space expedition chronicle uncovering the lost navigational network of the ancestral worlds.</p>
+      </annotation>
+      <date>1953</date>
+      <coverpage>
+        <image l:href="#cover.jpg"/>
+      </coverpage>
+      <lang>en</lang>
+      <sequence name="Chronicles of Seldon" number="1"/>
+    </title-info>
+    <publish-info>
+      <publisher>Gnome Press</publisher>
+      <year>1953</year>
+      <isbn>0-385-04944-0</isbn>
+    </publish-info>
+  </description>
+  <body>
+    <title>
+      <p>The Galactic Beacon</p>
+    </title>
+    <epigraph>
+      <p>The stars do not whisper their secrets to those who look only at their feet.</p>
+      <text-author>Dr. Hari Seldon</text-author>
+    </epigraph>
+    <section>
+      <title>
+        <p>Chapter 1: The Outpost on Terminus</p>
+      </title>
+      <p>The atmospheric dampeners hummed against the dry autumn winds of the outer rim. Commander Wayne stood before the holographic star-chart, his eyes tracing the faint pulsed coordinates.</p>
+      <p>Across the room, Lyra transcribed the sensor telemetry<a l:href="#n1" type="note">[1]</a>:</p>
+      <poem>
+        <stanza>
+          <v>Beneath the copper canopy of night,</v>
+          <v>An ancient signal cuts the boundless deep.</v>
+          <v>Beyond the dying embers of our light,</v>
+          <v>The silent custodians their vigil keep.</v>
+        </stanza>
+      </poem>
+      <p>"The pulse isn't random," Wayne remarked, leaning over the obsidian terminal. "It carries the cryptographic seal of the First Empire."</p>
+    </section>
+    <section>
+      <title>
+        <p>Chapter 2: The Hyper-Drive Vector</p>
+      </title>
+      <p>Navigation prepared the jump calculations according to imperial standard tables:</p>
+      <table>
+        <tr>
+          <th>Sector</th>
+          <th>Displacement</th>
+          <th>Integrity</th>
+        </tr>
+        <tr>
+          <td>Arcturus Prime</td>
+          <td>4.2 Parsecs</td>
+          <td>99.8%</td>
+        </tr>
+        <tr>
+          <td>Trantor Meridian</td>
+          <td>12.7 Parsecs</td>
+          <td>97.4%</td>
+        </tr>
+      </table>
+      <p>With a synchronized ignition sequence, the vessel slipped beyond normal space-time into the hyper-spatial void.</p>
+    </section>
+  </body>
+  <body name="notes">
+    <title>
+      <p>Notes &amp; References</p>
+    </title>
+    <section id="n1">
+      <title>
+        <p>1</p>
+      </title>
+      <p>Sub-etheric directional antennae tuned to the fundamental 21-centimeter interstellar hydrogen line.</p>
+    </section>
+  </body>
+  <binary id="cover.jpg" content-type="image/jpeg">
+    /9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=
+  </binary>
+</FictionBook>

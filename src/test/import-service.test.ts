@@ -67,6 +67,48 @@ describe('Import Service', () => {
     expect(content?.chapters?.[0]?.content).toContain('class="rtf-align-center"');
   });
 
+  it('successfully imports a FictionBook (.fb2) novel with metadata and chapters', async () => {
+    const fb2Content = `<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+  <description>
+    <title-info>
+      <author><first-name>Arthur</first-name><last-name>Conan Doyle</last-name></author>
+      <book-title>The Lost World</book-title>
+    </title-info>
+  </description>
+  <body>
+    <section>
+      <title><p>Chapter 1: There are Heroisms All Round Us</p></title>
+      <p>Mr. Hungerton, her father, really was the most flirtatious of men.</p>
+    </section>
+    <section>
+      <title><p>Chapter 2: Try Your Luck with Professor Challenger</p></title>
+      <p>I always had an idea that Challenger was a savage creature.</p>
+    </section>
+  </body>
+</FictionBook>`;
+    const file = new File([fb2Content], 'lost_world.fb2', { type: 'application/x-fictionbook+xml' });
+
+    const result = await importFile(file, { autoDetectChapters: true });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.title).toBe('The Lost World');
+      expect(result.book.author).toBe('Arthur Conan Doyle');
+      expect(result.book.sourceFormat).toBe('fb2');
+      expect(result.book.totalChapters).toBe(2);
+      expect(result.isDuplicate).toBe(false);
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('fb2');
+
+    const content = await getBookContent(result.success ? result.book.id : '');
+    expect(content?.format).toBe('fb2');
+    expect(content?.chapters?.length).toBe(2);
+    expect(content?.chapters?.[0]?.title).toContain('Chapter 1');
+  });
+
   it('identifies duplicate file imports by content hash', async () => {
     const txtContent = `A unique story text that will be tested for duplicates.`;
     const file1 = new File([txtContent], 'story.txt', { type: 'text/plain' });

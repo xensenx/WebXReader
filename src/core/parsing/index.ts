@@ -22,3 +22,6 @@ export type { CbzParseResult } from './cbz-parser';
 
 export { parseRtf } from './rtf-parser';
 export type { RtfParseResult, RtfParseOptions } from './rtf-parser';
+
+export { parseFb2 } from './fb2-parser';
+export type { Fb2ParseResult, Fb2ParseOptions } from './fb2-parser';

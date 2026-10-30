@@ -363,3 +363,90 @@ select {
 [data-rtf-preserve-align="false"] .rtf-align-justify {
   text-align: inherit !important;
 }
+
+/* ============================================================
+   FictionBook (.fb2) Formatting & Typography
+   ============================================================ */
+
+.fb2-poem {
+  margin: 1.5em 0;
+  padding-left: 2em;
+  font-style: italic;
+}
+
+.fb2-stanza {
+  margin-bottom: 1em;
+}
+
+.fb2-verse {
+  margin: 0.2em 0;
+  line-height: 1.6;
+}
+
+.fb2-epigraph {
+  margin: 1.5em 0 2em auto;
+  max-width: 80%;
+  padding: 0.8em 1.2em;
+  border-left: 3px solid var(--color-accent);
+  background-color: var(--color-surface-hover);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-style: italic;
+}
+
+.fb2-cite {
+  margin: 1.5em 0;
+  padding: 0.8em 1.2em;
+  border-left: 3px solid var(--color-border);
+  background-color: var(--color-surface-hover);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.fb2-author {
+  text-align: right;
+  margin-top: 0.5em;
+  font-weight: 500;
+  color: var(--reader-text-secondary);
+}
+
+.fb2-subtitle {
+  margin: 1.5em 0 0.8em 0;
+  font-size: 1.15em;
+  font-weight: 600;
+  color: var(--reader-text);
+}
+
+.fb2-empty-line {
+  height: 1.2em;
+}
+
+.fb2-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.5em 0;
+  overflow-x: auto;
+  display: table;
+}
+
+.fb2-table td,
+.fb2-table th {
+  border: 1px solid var(--color-border);
+  padding: 8px 12px;
+  vertical-align: top;
+}
+
+.fb2-table th {
+  background-color: var(--color-surface-hover);
+  font-weight: 600;
+}
+
+.fb2-notes-list {
+  margin-top: 2em;
+  padding-top: 1.5em;
+  border-top: 1px solid var(--color-border);
+}
+
+.fb2-note-entry {
+  margin-bottom: 1.2em;
+  padding-left: 1em;
+  border-left: 2px solid var(--color-accent-light);
+}
