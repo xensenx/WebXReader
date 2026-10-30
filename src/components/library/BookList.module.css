@@ -7,7 +7,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-base), box-shadow var(--transition-base);
   position: relative;
 }
 
@@ -21,18 +21,18 @@
   background-color: var(--color-accent-light);
 }
 
-.row[draggable='true'] {
+.row {
   cursor: grab;
 }
 
-.row[draggable='true']:active {
+.row:active {
   cursor: grabbing;
 }
 
 .rowDragging {
-  opacity: 0.35;
-  border: 2px dashed var(--color-accent);
-  background-color: var(--color-accent-light);
+  z-index: 2;
+  opacity: 1;
+  visibility: hidden;
 }
 
 .selectionIndicator {

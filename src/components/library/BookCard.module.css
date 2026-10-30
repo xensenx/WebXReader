@@ -22,19 +22,18 @@
   box-shadow: 0 0 0 2px var(--color-accent-light);
 }
 
-.card[draggable='true'] {
+.card {
   cursor: grab;
 }
 
-.card[draggable='true']:active {
+.card:active {
   cursor: grabbing;
 }
 
 .cardDragging {
-  opacity: 0.35;
-  transform: scale(0.96);
-  border: 2px dashed var(--color-accent);
-  box-shadow: var(--shadow-lg);
+  z-index: 2;
+  opacity: 1;
+  visibility: hidden;
 }
 
 .card:focus-visible {

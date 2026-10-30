@@ -2,7 +2,7 @@
  * BookList component for list view in the library.
  */
 
-import { useState, useRef, useEffect, type MouseEvent } from 'react';
+import { useState, useRef, useEffect, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   MoreVertical,
   BookOpen,
@@ -31,12 +31,9 @@ interface BookListProps {
   selectionMode: boolean;
   selected: boolean;
   onToggleSelection: (id: string) => void;
-  draggable?: boolean;
   isDragging?: boolean;
-  onDragStart?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDragEnd?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  shouldSuppressClick?: () => boolean;
 }
 
 export function BookList({
@@ -52,12 +49,9 @@ export function BookList({
   selectionMode,
   selected,
   onToggleSelection,
-  draggable,
   isDragging,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
+  onPointerDown,
+  shouldSuppressClick,
 }: BookListProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -96,6 +90,7 @@ export function BookList({
   };
 
   const handleRowClick = () => {
+    if (shouldSuppressClick?.()) return;
     if (selectionMode) {
       onToggleSelection(book.id);
       return;
@@ -123,11 +118,7 @@ export function BookList({
     <div
       className={`${styles.row} ${selected ? styles.rowSelected : ''} ${isDragging ? styles.rowDragging : ''}`}
       data-book-id={book.id}
-      draggable={!selectionMode && draggable}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
+      onPointerDown={onPointerDown}
       onClick={handleRowClick}
       role={selectionMode ? 'checkbox' : 'button'}
       tabIndex={0}
@@ -146,13 +137,14 @@ export function BookList({
           {selected && <Check size={14} />}
         </span>
       )}
-      <div className={styles.thumbnailContainer}>
+      <div className={styles.thumbnailContainer} data-drag-preview>
         {book.coverImage ? (
           <img
             src={book.coverImage}
             alt=""
             className={styles.thumbnail}
             loading="lazy"
+            draggable={false}
           />
         ) : (
           <div className={styles.fallbackThumbnail}>

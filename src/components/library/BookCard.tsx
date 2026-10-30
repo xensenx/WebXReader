@@ -2,7 +2,7 @@
  * BookCard component for grid view in the library.
  */
 
-import { useState, useRef, useEffect, type MouseEvent } from 'react';
+import { useState, useRef, useEffect, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   MoreVertical,
   BookOpen,
@@ -32,12 +32,9 @@ interface BookCardProps {
   selectionMode: boolean;
   selected: boolean;
   onToggleSelection: (id: string) => void;
-  draggable?: boolean;
   isDragging?: boolean;
-  onDragStart?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDragEnd?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  shouldSuppressClick?: () => boolean;
 }
 
 export function BookCard({
@@ -53,12 +50,9 @@ export function BookCard({
   selectionMode,
   selected,
   onToggleSelection,
-  draggable,
   isDragging,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
+  onPointerDown,
+  shouldSuppressClick,
 }: BookCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -98,6 +92,7 @@ export function BookCard({
   };
 
   const handleCardClick = () => {
+    if (shouldSuppressClick?.()) return;
     if (selectionMode) {
       onToggleSelection(book.id);
       return;
@@ -115,11 +110,7 @@ export function BookCard({
     <div
       className={`${styles.card} ${selected ? styles.cardSelected : ''} ${isDragging ? styles.cardDragging : ''}`}
       data-book-id={book.id}
-      draggable={!selectionMode && draggable}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
+      onPointerDown={onPointerDown}
       onClick={handleCardClick}
       role={selectionMode ? 'checkbox' : 'button'}
       tabIndex={0}
@@ -133,13 +124,14 @@ export function BookCard({
       aria-label={`${book.title} by ${book.author || 'Unknown'}`}
       aria-checked={selectionMode ? selected : undefined}
     >
-      <div className={styles.coverContainer}>
+      <div className={styles.coverContainer} data-drag-preview>
         {book.coverImage ? (
           <img
             src={book.coverImage}
             alt=""
             className={styles.coverImage}
             loading="lazy"
+            draggable={false}
           />
         ) : (
           <div className={styles.fallbackCover}>
