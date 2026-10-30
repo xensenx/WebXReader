@@ -9,6 +9,7 @@ import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
 import { sanitizeReaderHtml } from './sanitize-reader-html';
 import { decompressPalmDocLZ77 } from './mobi-parser';
+import { HuffReader } from './huffcdic';
 
 /** Result of parsing an AZW3 / KF8 document */
 export interface Azw3ParseResult {
@@ -238,13 +239,92 @@ function isReadableText(raw: Uint8Array): boolean {
  * Attempts to decompress a series of PDB text records into rawML bytes.
  * Returns null if decompression fails or if compression is unsupported.
  */
+
+/**
+ * Resolves HuffReader instance for HUFF/CDIC-compressed books (compression 17480).
+ */
+function findHuffReader(
+  headerRecIndex: number,
+  huffOffsetCand: number,
+  huffCountCand: number,
+  getRecord: (idx: number) => Uint8Array | null,
+  numTotalRecords: number
+): HuffReader | null {
+  let huffRecord: Uint8Array | null = null;
+  const cdicRecords: Uint8Array[] = [];
+
+  // Candidate 1: headerRecIndex + huffOffsetCand
+  if (huffOffsetCand > 0 && headerRecIndex + huffOffsetCand < numTotalRecords) {
+    const cand = getRecord(headerRecIndex + huffOffsetCand);
+    if (cand && cand.length >= 8 && cand[0] === 0x48 && cand[1] === 0x55 && cand[2] === 0x46 && cand[3] === 0x46) {
+      huffRecord = cand;
+      const count = huffCountCand > 0 ? huffCountCand : 32;
+      for (let j = 1; j < count && headerRecIndex + huffOffsetCand + j < numTotalRecords; j++) {
+        const cdicCand = getRecord(headerRecIndex + huffOffsetCand + j);
+        if (cdicCand && cdicCand.length >= 8 && cdicCand[0] === 0x43 && cdicCand[1] === 0x44 && cdicCand[2] === 0x49 && cdicCand[3] === 0x43) {
+          cdicRecords.push(cdicCand);
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  // Candidate 2: huffOffsetCand absolute
+  if (!huffRecord && huffOffsetCand > 0 && huffOffsetCand < numTotalRecords) {
+    const cand = getRecord(huffOffsetCand);
+    if (cand && cand.length >= 8 && cand[0] === 0x48 && cand[1] === 0x55 && cand[2] === 0x46 && cand[3] === 0x46) {
+      huffRecord = cand;
+      const count = huffCountCand > 0 ? huffCountCand : 32;
+      for (let j = 1; j < count && huffOffsetCand + j < numTotalRecords; j++) {
+        const cdicCand = getRecord(huffOffsetCand + j);
+        if (cdicCand && cdicCand.length >= 8 && cdicCand[0] === 0x43 && cdicCand[1] === 0x44 && cdicCand[2] === 0x49 && cdicCand[3] === 0x43) {
+          cdicRecords.push(cdicCand);
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  // Candidate 3: Scan all records in PDB for 'HUFF'
+  if (!huffRecord) {
+    for (let i = 0; i < numTotalRecords; i++) {
+      const rec = getRecord(i);
+      if (rec && rec.length >= 8 && rec[0] === 0x48 && rec[1] === 0x55 && rec[2] === 0x46 && rec[3] === 0x46) {
+        huffRecord = rec;
+        for (let j = i + 1; j < numTotalRecords; j++) {
+          const cdicRec = getRecord(j);
+          if (cdicRec && cdicRec.length >= 8 && cdicRec[0] === 0x43 && cdicRec[1] === 0x44 && cdicRec[2] === 0x49 && cdicRec[3] === 0x43) {
+            cdicRecords.push(cdicRec);
+          } else {
+            break;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  if (huffRecord && cdicRecords.length > 0) {
+    try {
+      return new HuffReader(huffRecord, cdicRecords);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 function tryDecompressRecords(
   startIndex: number,
   recordCount: number,
   compression: number,
   extraRecordDataFlags: number,
   getRecord: (idx: number) => Uint8Array | null,
-  numTotalRecords: number
+  numTotalRecords: number,
+  huffReader?: HuffReader | null
 ): Uint8Array | null {
   const decompressedChunks: Uint8Array[] = [];
   const maxRecords = Math.min(recordCount, numTotalRecords - startIndex - 1);
@@ -264,8 +344,10 @@ function tryDecompressRecords(
         decompressedChunks.push(decompressPalmDocLZ77(contentPayload));
       } else if (compression === 1) {
         decompressedChunks.push(contentPayload);
+      } else if (compression === 17480 && huffReader) {
+        decompressedChunks.push(huffReader.unpack(contentPayload));
       } else {
-        return null; // Unsupported compression (e.g. HUFF/CDIC)
+        return null;
       }
     } catch {
       return null; // Corrupted or encrypted block
@@ -611,6 +693,19 @@ export async function parseAzw3(
   // Merge EXTH (prefer KF8 EXTH over Record 0 fallback EXTH)
   const exth: ParsedExth = { ...primaryExth, ...kf8Exth };
 
+  // Locate HUFF/CDIC reader if compression is 17480 (HUFF/CDIC)
+  let huffOffsetCandidate = 0;
+  let huffCountCandidate = 0;
+  if (kf8Rec0.length >= 16 + 120) {
+    huffOffsetCandidate = kf8View.getUint32(16 + 112, false);
+    huffCountCandidate = kf8View.getUint32(16 + 116, false);
+  }
+
+  let huffReader: HuffReader | null = null;
+  if (compression === 17480) {
+    huffReader = findHuffReader(kf8RecordIndex, huffOffsetCandidate, huffCountCandidate, getRecordData, numRecords);
+  }
+
   // 5. Decompress Text Records (rawML)
   let rawMl = tryDecompressRecords(
     kf8RecordIndex,
@@ -618,7 +713,8 @@ export async function parseAzw3(
     compression,
     extraRecordDataFlags,
     getRecordData,
-    numRecords
+    numRecords,
+    huffReader
   );
 
   let usedFallbackMobi7 = false;
@@ -651,8 +747,8 @@ export async function parseAzw3(
         'To read this book in WebXReader, the DRM must be removed (for example, by converting the book using Calibre with the DeDRM plugin).'
       );
     }
-    if (compression !== 1 && compression !== 2) {
-      throw new Error(`Unsupported AZW3 compression type (${compression}). WebXReader supports standard PalmDOC LZ77 and uncompressed KF8 books.`);
+    if (compression !== 1 && compression !== 2 && compression !== 17480) {
+      throw new Error(`Unsupported AZW3 compression type (${compression}). WebXReader supports standard PalmDOC LZ77, HUFF/CDIC, and uncompressed KF8 books.`);
     }
     throw new Error('Failed to decompress AZW3 file: the book appears corrupted or contains unsupported records.');
   }

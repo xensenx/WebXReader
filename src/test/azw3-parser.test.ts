@@ -187,7 +187,7 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
       view.setUint16(76, 1, false);
       view.setUint32(78, 100, false);
 
-      view.setUint16(100, 17480, false); // HUFF/CDIC
+      view.setUint16(100, 9999, false); // Unknown compression
       view.setUint32(104, 100, false);
       view.setUint16(108, 1, false);
       view.setUint16(110, 4096, false);
@@ -196,6 +196,84 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
       await expect(parseAzw3(data.buffer)).rejects.toThrow('Unsupported AZW3 compression type');
     });
 
+
+    it('successfully parses AZW3 with HUFF/CDIC compression (type 17480)', async () => {
+      // Build CDIC record
+      const phrase0 = Buffer.from('<h1>HUFF KF8 Masterpiece</h1>');
+      const phrase1 = Buffer.from('<p>Compressed via HuffDic</p>');
+
+      const cdic = Buffer.alloc(16 + 4 + (2 + phrase0.length) + (2 + phrase1.length));
+      cdic.write('CDIC', 0, 4, 'ascii');
+      cdic.writeUInt32BE(0x10, 4);
+      cdic.writeUInt32BE(2, 8); // phrases = 2
+      cdic.writeUInt32BE(2, 12); // bits = 2
+      cdic.writeUInt16BE(4, 16);
+      cdic.writeUInt16BE(4 + 2 + phrase0.length, 18);
+
+      cdic.writeUInt16BE(phrase0.length, 20);
+      phrase0.copy(cdic, 22);
+
+      const p1Off = 20 + 2 + phrase0.length;
+      cdic.writeUInt16BE(phrase1.length, p1Off);
+      phrase1.copy(cdic, p1Off + 2);
+
+      // Build HUFF record
+      const off1 = 24;
+      const off2 = 24 + 256 * 4;
+      const huff = Buffer.alloc(off2 + 64 * 4, 0);
+      huff.write('HUFF', 0, 4, 'ascii');
+      huff.writeUInt32BE(0x18, 4);
+      huff.writeUInt32BE(off1, 8);
+      huff.writeUInt32BE(off2, 12);
+
+      huff.writeUInt32BE((0 << 8) | 0x80 | 8, off1 + 0 * 4); // 0x00 -> phrase0
+      huff.writeUInt32BE((2 << 8) | 0x80 | 8, off1 + 1 * 4); // 0x01 -> phrase1
+
+      // KF8 Record 0
+      const kf8MobiHeader = Buffer.alloc(248, 0);
+      kf8MobiHeader.write('MOBI', 0, 4, 'ascii');
+      kf8MobiHeader.writeUInt32BE(248, 4);
+      kf8MobiHeader.writeUInt32BE(2, 8);
+      kf8MobiHeader.writeUInt32BE(65001, 12);
+      kf8MobiHeader.writeUInt32BE(8, 20); // fileVersion = 8
+
+      const kf8PalmDoc = Buffer.alloc(16);
+      kf8PalmDoc.writeUInt16BE(17480, 0); // compression: 17480 (HUFF/CDIC)
+      kf8PalmDoc.writeUInt32BE(phrase0.length + phrase1.length, 4);
+      kf8PalmDoc.writeUInt16BE(1, 8); // 1 text record
+      kf8PalmDoc.writeUInt16BE(0, 12); // encryptionType: 0
+
+      const rec0 = Buffer.concat([kf8PalmDoc, kf8MobiHeader]);
+      const rec1_text = Buffer.from([0x00, 0x01]); // expands to phrase0 + phrase1
+      const rec2_huff = huff;
+      const rec3_cdic = cdic;
+
+      const allRecs = [rec0, rec1_text, rec2_huff, rec3_cdic];
+      const numRecords = allRecs.length;
+
+      const pdbHeader = Buffer.alloc(78);
+      pdbHeader.write('Huff Book', 0, 'ascii');
+      pdbHeader.write('BOOK', 60, 4, 'ascii');
+      pdbHeader.write('MOBI', 64, 4, 'ascii');
+      pdbHeader.writeUInt16BE(numRecords, 76);
+
+      const recordListSize = numRecords * 8;
+      let curOff = 78 + recordListSize + 2;
+      const recordHeaders = Buffer.alloc(recordListSize);
+      for (let i = 0; i < numRecords; i++) {
+        recordHeaders.writeUInt32BE(curOff, i * 8);
+        recordHeaders.writeUInt8(0, i * 8 + 4);
+        curOff += allRecs[i].length;
+      }
+
+      const binary = Buffer.concat([pdbHeader, recordHeaders, Buffer.alloc(2, 0), ...allRecs]);
+      const arrayBuffer = binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength);
+
+      const result = await parseAzw3(arrayBuffer, { autoDetectChapters: true });
+      expect(result.chapters.length).toBeGreaterThanOrEqual(1);
+      expect(result.chapters[0].content).toContain('HUFF KF8 Masterpiece');
+      expect(result.rawText).toContain('Compressed via HuffDic');
+    });
     it('handles dual-format KindleGen files where EXTH tag 121 points directly to the BOUNDARY record with non-zero padding', async () => {
       // In real KindleGen dual files, tag 121 points directly to BOUNDARY (not KF8 header),
       // and BOUNDARY often has trailing bytes/padding where byte 12 is non-zero.

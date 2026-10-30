@@ -131,13 +131,13 @@ describe('MOBI & PalmDOC Parser', () => {
       view.setUint16(76, 1, false);
       view.setUint32(78, 100, false);
 
-      view.setUint16(100, 17480, false); // HUFF/CDIC compression
+      view.setUint16(100, 9999, false); // Unknown compression
       view.setUint32(104, 100, false);
       view.setUint16(108, 1, false);
       view.setUint16(110, 4096, false);
       view.setUint16(112, 0, false); // no DRM
 
-      await expect(parseMobi(data.buffer)).rejects.toThrow('Unsupported MOBI compression type (17480)');
+      await expect(parseMobi(data.buffer)).rejects.toThrow('Unsupported MOBI compression type (9999)');
     });
   });
 });

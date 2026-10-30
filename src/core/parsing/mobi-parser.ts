@@ -7,6 +7,7 @@
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
 import { sanitizeReaderHtml } from './sanitize-reader-html';
+import { HuffReader } from './huffcdic';
 
 /** Result of parsing a MOBI document */
 export interface MobiParseResult {
@@ -229,6 +230,84 @@ function extractTitleFromSectionHtml(html: string, fallbackTitle: string): strin
  * @param buffer ArrayBuffer of the MOBI/PalmDOC file.
  * @param options MOBI parse configuration options.
  */
+
+/**
+ * Resolves HuffReader instance for HUFF/CDIC-compressed books (compression 17480).
+ */
+function findHuffReader(
+  headerRecIndex: number,
+  huffOffsetCand: number,
+  huffCountCand: number,
+  getRecord: (idx: number) => Uint8Array | null,
+  numTotalRecords: number
+): HuffReader | null {
+  let huffRecord: Uint8Array | null = null;
+  const cdicRecords: Uint8Array[] = [];
+
+  // Candidate 1: headerRecIndex + huffOffsetCand
+  if (huffOffsetCand > 0 && headerRecIndex + huffOffsetCand < numTotalRecords) {
+    const cand = getRecord(headerRecIndex + huffOffsetCand);
+    if (cand && cand.length >= 8 && cand[0] === 0x48 && cand[1] === 0x55 && cand[2] === 0x46 && cand[3] === 0x46) {
+      huffRecord = cand;
+      const count = huffCountCand > 0 ? huffCountCand : 32;
+      for (let j = 1; j < count && headerRecIndex + huffOffsetCand + j < numTotalRecords; j++) {
+        const cdicCand = getRecord(headerRecIndex + huffOffsetCand + j);
+        if (cdicCand && cdicCand.length >= 8 && cdicCand[0] === 0x43 && cdicCand[1] === 0x44 && cdicCand[2] === 0x49 && cdicCand[3] === 0x43) {
+          cdicRecords.push(cdicCand);
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  // Candidate 2: huffOffsetCand absolute
+  if (!huffRecord && huffOffsetCand > 0 && huffOffsetCand < numTotalRecords) {
+    const cand = getRecord(huffOffsetCand);
+    if (cand && cand.length >= 8 && cand[0] === 0x48 && cand[1] === 0x55 && cand[2] === 0x46 && cand[3] === 0x46) {
+      huffRecord = cand;
+      const count = huffCountCand > 0 ? huffCountCand : 32;
+      for (let j = 1; j < count && huffOffsetCand + j < numTotalRecords; j++) {
+        const cdicCand = getRecord(huffOffsetCand + j);
+        if (cdicCand && cdicCand.length >= 8 && cdicCand[0] === 0x43 && cdicCand[1] === 0x44 && cdicCand[2] === 0x49 && cdicCand[3] === 0x43) {
+          cdicRecords.push(cdicCand);
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  // Candidate 3: Scan all records in PDB for 'HUFF'
+  if (!huffRecord) {
+    for (let i = 0; i < numTotalRecords; i++) {
+      const rec = getRecord(i);
+      if (rec && rec.length >= 8 && rec[0] === 0x48 && rec[1] === 0x55 && rec[2] === 0x46 && rec[3] === 0x46) {
+        huffRecord = rec;
+        for (let j = i + 1; j < numTotalRecords; j++) {
+          const cdicRec = getRecord(j);
+          if (cdicRec && cdicRec.length >= 8 && cdicRec[0] === 0x43 && cdicRec[1] === 0x44 && cdicRec[2] === 0x49 && cdicRec[3] === 0x43) {
+            cdicRecords.push(cdicRec);
+          } else {
+            break;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  if (huffRecord && cdicRecords.length > 0) {
+    try {
+      return new HuffReader(huffRecord, cdicRecords);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 export async function parseMobi(
   buffer: ArrayBuffer,
   options: MobiParseOptions = {}
@@ -293,8 +372,8 @@ export async function parseMobi(
   const encryptionType = rec0View.getUint16(12, false);
   const isDrmFlagged = encryptionType !== 0;
 
-  if (compression !== 1 && compression !== 2) {
-    throw new Error(`Unsupported MOBI compression type (${compression}). Only PalmDOC LZ77 is supported.`);
+  if (compression !== 1 && compression !== 2 && compression !== 17480) {
+    throw new Error(`Unsupported MOBI compression type (${compression}). Only PalmDOC LZ77, HUFF/CDIC, and uncompressed MOBI are supported.`);
   }
 
   // 4. Inspect MOBI Header (Starts at offset 16 of Record 0)
@@ -423,6 +502,13 @@ export async function parseMobi(
   }
 
   // 6. Decompress Text Records (Records 1 to textRecordCount)
+  let huffOffsetCandidate = 0;
+  let huffCountCandidate = 0;
+  if (record0.length >= 16 + 120) {
+    huffOffsetCandidate = rec0View.getUint32(16 + 112, false);
+    huffCountCandidate = rec0View.getUint32(16 + 116, false);
+  }
+  const huffReader = compression === 17480 ? findHuffReader(0, huffOffsetCandidate, huffCountCandidate, getRecordData, numRecords) : null;
   const decompressedChunks: Uint8Array[] = [];
   const maxTextRecords = Math.min(textRecordCount, numRecords - 1);
 
@@ -437,6 +523,10 @@ export async function parseMobi(
 
     if (compression === 2) {
       decompressedChunks.push(decompressPalmDocLZ77(contentPayload));
+    } else if (compression === 1) {
+      decompressedChunks.push(contentPayload);
+    } else if (compression === 17480 && huffReader) {
+      decompressedChunks.push(huffReader.unpack(contentPayload));
     } else {
       decompressedChunks.push(contentPayload);
     }
@@ -480,8 +570,8 @@ export async function parseMobi(
         'To read this book in WebXReader, the DRM must be removed (for example, by converting the book using Calibre with the DeDRM plugin).'
       );
     }
-    if (compression !== 1 && compression !== 2) {
-      throw new Error(`Unsupported MOBI compression type (${compression}). Only PalmDOC LZ77 is supported.`);
+    if (compression !== 1 && compression !== 2 && compression !== 17480) {
+      throw new Error(`Unsupported MOBI compression type (${compression}). Only PalmDOC LZ77, HUFF/CDIC, and uncompressed MOBI are supported.`);
     }
     throw new Error('Failed to decompress MOBI file: the book appears corrupted or unreadable.');
   }
