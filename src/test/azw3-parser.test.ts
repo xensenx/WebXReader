@@ -178,7 +178,7 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
       view.setUint16(110, 4096, false);
       view.setUint16(112, 2, false); // encryptionType = 2 (DRM)
 
-      await expect(parseAzw3(data.buffer)).rejects.toThrow('protected with DRM encryption');
+      await expect(parseAzw3(data.buffer)).rejects.toThrow(/protected with (?:Amazon Kindle )?DRM encryption/i);
     });
 
     it('throws when compression type is unsupported', async () => {
@@ -194,6 +194,215 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
       view.setUint16(112, 0, false);
 
       await expect(parseAzw3(data.buffer)).rejects.toThrow('Unsupported AZW3 compression type');
+    });
+
+    it('handles dual-format KindleGen files where EXTH tag 121 points directly to the BOUNDARY record with non-zero padding', async () => {
+      // In real KindleGen dual files, tag 121 points directly to BOUNDARY (not KF8 header),
+      // and BOUNDARY often has trailing bytes/padding where byte 12 is non-zero.
+      const mobi7Html = '<html><body><h1>MOBI7 Front</h1></body></html>';
+      const kf8Xhtml = '<?xml version="1.0" encoding="utf-8"?><html><body><h1>KindleGen KF8</h1><p>Real Dual Format Book</p></body></html>';
+
+      const m7Buf = Buffer.from(mobi7Html, 'utf-8');
+      const kf8Buf = Buffer.from(kf8Xhtml, 'utf-8');
+
+      // MOBI 7 Record 0 with tag 121 = 2 (pointing to BOUNDARY at record 2!)
+      const m7MobiHeader = Buffer.alloc(248, 0);
+      m7MobiHeader.write('MOBI', 0, 4, 'ascii');
+      m7MobiHeader.writeUInt32BE(248, 4);
+      m7MobiHeader.writeUInt32BE(2, 8);
+      m7MobiHeader.writeUInt32BE(65001, 12);
+      m7MobiHeader.writeUInt32BE(6, 20); // fileVersion = 6
+      m7MobiHeader.writeUInt32BE(0x40, 112); // EXTH present
+
+      const exthEntry = Buffer.alloc(12);
+      exthEntry.writeUInt32BE(121, 0); // tag 121
+      exthEntry.writeUInt32BE(12, 4);
+      exthEntry.writeUInt32BE(2, 8); // kf8BoundaryOffset points to record 2 (BOUNDARY)!
+
+      const exthHdr = Buffer.alloc(12);
+      exthHdr.write('EXTH', 0, 4, 'ascii');
+      exthHdr.writeUInt32BE(24, 4);
+      exthHdr.writeUInt32BE(1, 8);
+
+      const m7PalmDoc = Buffer.alloc(16);
+      m7PalmDoc.writeUInt16BE(1, 0);
+      m7PalmDoc.writeUInt32BE(m7Buf.length, 4);
+      m7PalmDoc.writeUInt16BE(1, 8);
+
+      const rec0_m7Record0 = Buffer.concat([m7PalmDoc, m7MobiHeader, exthHdr, exthEntry]);
+      const rec1_m7Text = m7Buf;
+
+      // Record 2: BOUNDARY record (16 bytes, byte 12 is non-zero 0x02 to simulate the previous bug)
+      const rec2_boundary = Buffer.alloc(16, 0);
+      rec2_boundary.write('BOUNDARY', 0, 8, 'ascii');
+      rec2_boundary.writeUInt16BE(2, 12); // byte 12 is non-zero!
+
+      // Record 3: Actual KF8 Record 0
+      const kf8MobiHeader = Buffer.alloc(248, 0);
+      kf8MobiHeader.write('MOBI', 0, 4, 'ascii');
+      kf8MobiHeader.writeUInt32BE(248, 4);
+      kf8MobiHeader.writeUInt32BE(2, 8);
+      kf8MobiHeader.writeUInt32BE(65001, 12);
+      kf8MobiHeader.writeUInt32BE(8, 20); // fileVersion = 8
+
+      const kf8PalmDoc = Buffer.alloc(16);
+      kf8PalmDoc.writeUInt16BE(1, 0); // compression: 1
+      kf8PalmDoc.writeUInt32BE(kf8Buf.length, 4);
+      kf8PalmDoc.writeUInt16BE(1, 8);
+      kf8PalmDoc.writeUInt16BE(0, 12); // encryptionType: 0
+
+      const rec3_kf8Record0 = Buffer.concat([kf8PalmDoc, kf8MobiHeader]);
+      const rec4_kf8Text = kf8Buf;
+
+      const allRecs = [rec0_m7Record0, rec1_m7Text, rec2_boundary, rec3_kf8Record0, rec4_kf8Text];
+      const numRecords = allRecs.length;
+
+      const pdbHeader = Buffer.alloc(78);
+      pdbHeader.write('Dual KindleGen Book', 0, 'ascii');
+      pdbHeader.write('BOOK', 60, 4, 'ascii');
+      pdbHeader.write('MOBI', 64, 4, 'ascii');
+      pdbHeader.writeUInt16BE(numRecords, 76);
+
+      const recordListSize = numRecords * 8;
+      let curOff = 78 + recordListSize + 2;
+      const recordHeaders = Buffer.alloc(recordListSize);
+      for (let i = 0; i < numRecords; i++) {
+        recordHeaders.writeUInt32BE(curOff, i * 8);
+        recordHeaders.writeUInt8(0, i * 8 + 4);
+        curOff += allRecs[i].length;
+      }
+
+      const dualBinary = Buffer.concat([pdbHeader, recordHeaders, Buffer.alloc(2, 0), ...allRecs]);
+      const arrayBuffer = dualBinary.buffer.slice(dualBinary.byteOffset, dualBinary.byteOffset + dualBinary.byteLength);
+
+      const result = await parseAzw3(arrayBuffer, { autoDetectChapters: true });
+      expect(result.chapters.length).toBeGreaterThanOrEqual(1);
+      expect(result.chapters[0].content).toContain('KindleGen KF8');
+      expect(result.rawText).toContain('Real Dual Format Book');
+    });
+
+    it('does not throw DRM false positive when encryptionType is 1 or non-zero but text records decompress cleanly', async () => {
+      const html = '<html><body><h1>De-obfuscated Book</h1><p>Clean text content</p></body></html>';
+      const htmlBuf = Buffer.from(html, 'utf-8');
+
+      const kf8MobiHeader = Buffer.alloc(248, 0);
+      kf8MobiHeader.write('MOBI', 0, 4, 'ascii');
+      kf8MobiHeader.writeUInt32BE(248, 4);
+      kf8MobiHeader.writeUInt32BE(2, 8);
+      kf8MobiHeader.writeUInt32BE(65001, 12);
+      kf8MobiHeader.writeUInt32BE(8, 20); // fileVersion = 8
+
+      const kf8PalmDoc = Buffer.alloc(16);
+      kf8PalmDoc.writeUInt16BE(1, 0); // compression: 1
+      kf8PalmDoc.writeUInt32BE(htmlBuf.length, 4);
+      kf8PalmDoc.writeUInt16BE(1, 8);
+      kf8PalmDoc.writeUInt16BE(1, 12); // encryptionType = 1 (legacy / flag)
+
+      const rec0 = Buffer.concat([kf8PalmDoc, kf8MobiHeader]);
+      const rec1 = htmlBuf;
+      const allRecs = [rec0, rec1];
+      const numRecords = allRecs.length;
+
+      const pdbHeader = Buffer.alloc(78);
+      pdbHeader.write('Type1 Book', 0, 'ascii');
+      pdbHeader.write('BOOK', 60, 4, 'ascii');
+      pdbHeader.write('MOBI', 64, 4, 'ascii');
+      pdbHeader.writeUInt16BE(numRecords, 76);
+
+      const recordListSize = numRecords * 8;
+      let curOff = 78 + recordListSize + 2;
+      const recordHeaders = Buffer.alloc(recordListSize);
+      for (let i = 0; i < numRecords; i++) {
+        recordHeaders.writeUInt32BE(curOff, i * 8);
+        recordHeaders.writeUInt8(0, i * 8 + 4);
+        curOff += allRecs[i].length;
+      }
+
+      const binary = Buffer.concat([pdbHeader, recordHeaders, Buffer.alloc(2, 0), ...allRecs]);
+      const arrayBuffer = binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength);
+
+      // Should decompress and parse without throwing DRM error
+      const result = await parseAzw3(arrayBuffer, { autoDetectChapters: true });
+      expect(result.chapters.length).toBeGreaterThanOrEqual(1);
+      expect(result.chapters[0].content).toContain('De-obfuscated Book');
+    });
+
+    it('falls back to MOBI 7 when KF8 section text is encrypted in a dual-format file', async () => {
+      const mobi7Html = '<html><body><h1>MOBI7 Fallback Success</h1><p>Readable fallback chapter</p></body></html>';
+      const m7Buf = Buffer.from(mobi7Html, 'utf-8');
+
+      // MOBI 7 Record 0 with tag 121 = 2
+      const m7MobiHeader = Buffer.alloc(248, 0);
+      m7MobiHeader.write('MOBI', 0, 4, 'ascii');
+      m7MobiHeader.writeUInt32BE(248, 4);
+      m7MobiHeader.writeUInt32BE(2, 8);
+      m7MobiHeader.writeUInt32BE(65001, 12);
+      m7MobiHeader.writeUInt32BE(6, 20);
+      m7MobiHeader.writeUInt32BE(0x40, 112);
+
+      const exthEntry = Buffer.alloc(12);
+      exthEntry.writeUInt32BE(121, 0);
+      exthEntry.writeUInt32BE(12, 4);
+      exthEntry.writeUInt32BE(2, 8); // points to BOUNDARY
+
+      const exthHdr = Buffer.alloc(12);
+      exthHdr.write('EXTH', 0, 4, 'ascii');
+      exthHdr.writeUInt32BE(24, 4);
+      exthHdr.writeUInt32BE(1, 8);
+
+      const m7PalmDoc = Buffer.alloc(16);
+      m7PalmDoc.writeUInt16BE(1, 0);
+      m7PalmDoc.writeUInt32BE(m7Buf.length, 4);
+      m7PalmDoc.writeUInt16BE(1, 8);
+
+      const rec0_m7Record0 = Buffer.concat([m7PalmDoc, m7MobiHeader, exthHdr, exthEntry]);
+      const rec1_m7Text = m7Buf;
+
+      const rec2_boundary = Buffer.alloc(16, 0);
+      rec2_boundary.write('BOUNDARY', 0, 8, 'ascii');
+
+      // KF8 Record 0 with encryptionType = 2
+      const kf8MobiHeader = Buffer.alloc(248, 0);
+      kf8MobiHeader.write('MOBI', 0, 4, 'ascii');
+      kf8MobiHeader.writeUInt32BE(248, 4);
+      kf8MobiHeader.writeUInt32BE(2, 8);
+      kf8MobiHeader.writeUInt32BE(65001, 12);
+      kf8MobiHeader.writeUInt32BE(8, 20);
+
+      const kf8PalmDoc = Buffer.alloc(16);
+      kf8PalmDoc.writeUInt16BE(2, 0); // compression: 2
+      kf8PalmDoc.writeUInt32BE(100, 4);
+      kf8PalmDoc.writeUInt16BE(1, 8);
+      kf8PalmDoc.writeUInt16BE(2, 12); // DRM encrypted!
+
+      const rec3_kf8Record0 = Buffer.concat([kf8PalmDoc, kf8MobiHeader]);
+      // Encrypted ciphertext that fails PalmDOC LZ77 decompression
+      const rec4_kf8EncryptedText = Buffer.from([0x81, 0x01, 0x82, 0x02, 0x83, 0x03]);
+
+      const allRecs = [rec0_m7Record0, rec1_m7Text, rec2_boundary, rec3_kf8Record0, rec4_kf8EncryptedText];
+      const numRecords = allRecs.length;
+
+      const pdbHeader = Buffer.alloc(78);
+      pdbHeader.write('Dual Fallback Book', 0, 'ascii');
+      pdbHeader.write('BOOK', 60, 4, 'ascii');
+      pdbHeader.write('MOBI', 64, 4, 'ascii');
+      pdbHeader.writeUInt16BE(numRecords, 76);
+
+      const recordListSize = numRecords * 8;
+      let curOff = 78 + recordListSize + 2;
+      const recordHeaders = Buffer.alloc(recordListSize);
+      for (let i = 0; i < numRecords; i++) {
+        recordHeaders.writeUInt32BE(curOff, i * 8);
+        recordHeaders.writeUInt8(0, i * 8 + 4);
+        curOff += allRecs[i].length;
+      }
+
+      const dualBinary = Buffer.concat([pdbHeader, recordHeaders, Buffer.alloc(2, 0), ...allRecs]);
+      const arrayBuffer = dualBinary.buffer.slice(dualBinary.byteOffset, dualBinary.byteOffset + dualBinary.byteLength);
+
+      const result = await parseAzw3(arrayBuffer, { autoDetectChapters: true });
+      expect(result.chapters.length).toBeGreaterThanOrEqual(1);
+      expect(result.chapters[0].content).toContain('MOBI7 Fallback Success');
     });
   });
 });

@@ -170,6 +170,119 @@ function extractTitleFromSectionHtml(html: string, fallbackTitle: string): strin
   return fallbackTitle;
 }
 
+/**
+ * Checks if a PDB record is a dual-format 'BOUNDARY' delimiter record.
+ */
+function isBoundaryRecord(record: Uint8Array): boolean {
+  if (record.length < 8) return false;
+  return (
+    record[0] === 0x42 && // 'B'
+    record[1] === 0x4f && // 'O'
+    record[2] === 0x55 && // 'U'
+    record[3] === 0x4e && // 'N'
+    record[4] === 0x44 && // 'D'
+    record[5] === 0x41 && // 'A'
+    record[6] === 0x52 && // 'R'
+    record[7] === 0x59    // 'Y'
+  );
+}
+
+/**
+ * Checks if a PDB record contains a MOBI header starting at offset 16.
+ */
+function isMobiHeader(record: Uint8Array): boolean {
+  if (record.length < 40) return false;
+  return (
+    record[16] === 0x4d && // 'M'
+    record[17] === 0x4f && // 'O'
+    record[18] === 0x42 && // 'B'
+    record[19] === 0x49    // 'I'
+  );
+}
+
+/**
+ * Validates whether decompressed rawML bytes represent readable text or HTML markup
+ * rather than unreadable binary ciphertext or corrupted random data.
+ */
+function isReadableText(raw: Uint8Array): boolean {
+  if (raw.length === 0) return false;
+  const sample = raw.subarray(0, Math.min(raw.length, 2048));
+  let decoded = '';
+  try {
+    decoded = new TextDecoder('utf-8').decode(sample);
+  } catch {
+    try {
+      decoded = new TextDecoder('windows-1252').decode(sample);
+    } catch {
+      return false;
+    }
+  }
+
+  // Check for common HTML/XML markup tags
+  if (/<(?:html|head|body|div|p|span|section|article|h[1-6]|mbp|a|table|\?xml)/i.test(decoded)) {
+    return true;
+  }
+
+  // Check printable character ratio
+  let printable = 0;
+  for (let i = 0; i < decoded.length; i++) {
+    const c = decoded.charCodeAt(i);
+    if (c === 9 || c === 10 || c === 13 || (c >= 32 && c !== 65533)) {
+      printable++;
+    }
+  }
+  return decoded.length > 0 && printable / decoded.length >= 0.75;
+}
+
+/**
+ * Attempts to decompress a series of PDB text records into rawML bytes.
+ * Returns null if decompression fails or if compression is unsupported.
+ */
+function tryDecompressRecords(
+  startIndex: number,
+  recordCount: number,
+  compression: number,
+  extraRecordDataFlags: number,
+  getRecord: (idx: number) => Uint8Array | null,
+  numTotalRecords: number
+): Uint8Array | null {
+  const decompressedChunks: Uint8Array[] = [];
+  const maxRecords = Math.min(recordCount, numTotalRecords - startIndex - 1);
+  if (maxRecords <= 0) return null;
+
+  for (let r = 1; r <= maxRecords; r++) {
+    const rec = getRecord(startIndex + r);
+    if (!rec) break;
+
+    const trailingSize = getTrailingBytesSize(rec, extraRecordDataFlags);
+    const contentPayload = trailingSize > 0 && trailingSize < rec.length
+      ? rec.subarray(0, rec.length - trailingSize)
+      : rec;
+
+    try {
+      if (compression === 2) {
+        decompressedChunks.push(decompressPalmDocLZ77(contentPayload));
+      } else if (compression === 1) {
+        decompressedChunks.push(contentPayload);
+      } else {
+        return null; // Unsupported compression (e.g. HUFF/CDIC)
+      }
+    } catch {
+      return null; // Corrupted or encrypted block
+    }
+  }
+
+  if (decompressedChunks.length === 0) return null;
+  const totalLength = decompressedChunks.reduce((acc, c) => acc + c.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of decompressedChunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
 interface ParsedExth {
   author?: string;
   publisher?: string;
@@ -184,15 +297,14 @@ interface ParsedExth {
 }
 
 /**
- * Parses the EXTH metadata header from a MOBI/KF8 record buffer.
+ * Parses EXTH extended metadata section from a record block.
  */
 function parseExthHeader(record: Uint8Array, mobiHeaderLength: number): ParsedExth {
   const exth: ParsedExth = {};
   const exthOffset = 16 + mobiHeaderLength;
-  if (record.length < exthOffset + 12) return exth;
 
-  // Magic 'EXTH'
   if (
+    record.length < exthOffset + 12 ||
     record[exthOffset] !== 0x45 ||
     record[exthOffset + 1] !== 0x58 ||
     record[exthOffset + 2] !== 0x54 ||
@@ -318,40 +430,86 @@ export async function parseAzw3(
     return bytes.subarray(start, end);
   }
 
-  // 3. Locate KF8 Section
-  // For standalone AZW3/KF8 files, KF8 is at Record 0.
-  // For dual-format hybrid files, Record 0 has EXTH tag 121 pointing to the KF8 section.
   const record0 = getRecordData(0);
   if (!record0 || record0.length < 16) {
     throw new Error('Invalid AZW3/KF8 file: Record 0 is missing or corrupted.');
   }
 
-  let kf8RecordIndex = 0;
+  // 3. Locate KF8 Section
+  // For standalone AZW3/KF8 files, KF8 is at Record 0 (mobi_version >= 8).
+  // For dual-format hybrid files, Record 0 has EXTH tag 121 pointing to BOUNDARY or KF8,
+  // or a BOUNDARY record exists separating MOBI 7 from KF8.
+  let kf8RecordIndex = -1;
   let primaryExth: ParsedExth = {};
 
-  if (record0.length >= 40) {
-    const isMobi =
-      record0[16] === 0x4d &&
-      record0[17] === 0x4f &&
-      record0[18] === 0x42 &&
-      record0[19] === 0x49;
-
-    if (isMobi) {
-      const dv0 = new DataView(record0.buffer, record0.byteOffset, record0.byteLength);
+  if (isMobiHeader(record0)) {
+    const dv0 = new DataView(record0.buffer, record0.byteOffset, record0.byteLength);
+    const mobiVersion = dv0.getUint32(36, false);
+    if (mobiVersion >= 8) {
+      kf8RecordIndex = 0;
+    } else {
+      // Record 0 is MOBI 7 / legacy. Check EXTH tag 121
       const mobiHeaderLen = dv0.getUint32(20, false);
       const exthFlags = record0.length >= 16 + 116 ? dv0.getUint32(16 + 112, false) : 0;
-
       if (exthFlags & 0x40) {
         primaryExth = parseExthHeader(record0, mobiHeaderLen);
-        if (
-          primaryExth.kf8BoundaryOffset !== undefined &&
-          primaryExth.kf8BoundaryOffset > 0 &&
-          primaryExth.kf8BoundaryOffset < numRecords
-        ) {
-          kf8RecordIndex = primaryExth.kf8BoundaryOffset;
+        const bOffset = primaryExth.kf8BoundaryOffset;
+        if (bOffset !== undefined && bOffset > 0 && bOffset < numRecords) {
+          const bRec = getRecordData(bOffset);
+          if (bRec && isBoundaryRecord(bRec)) {
+            // In KindleGen dual files, tag 121 points directly to the BOUNDARY record.
+            // The KF8 control block is located at bOffset + 1.
+            if (bOffset + 1 < numRecords) {
+              kf8RecordIndex = bOffset + 1;
+            }
+          } else if (bOffset > 0) {
+            const prevRec = getRecordData(bOffset - 1);
+            if (prevRec && isBoundaryRecord(prevRec)) {
+              // In Calibre dual files, tag 121 points to KF8 header (bOffset - 1 is BOUNDARY).
+              kf8RecordIndex = bOffset;
+            } else if (bRec && isMobiHeader(bRec)) {
+              kf8RecordIndex = bOffset;
+            }
+          }
         }
       }
     }
+  }
+
+  // Strategy 2: If KF8 section not yet identified, scan for 'BOUNDARY' marker
+  if (kf8RecordIndex < 0) {
+    for (let i = 0; i < numRecords; i++) {
+      const rec = getRecordData(i);
+      if (rec && isBoundaryRecord(rec)) {
+        if (i + 1 < numRecords) {
+          const nextRec = getRecordData(i + 1);
+          if (nextRec && (isMobiHeader(nextRec) || nextRec.length >= 16)) {
+            kf8RecordIndex = i + 1;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Strategy 3: Scan all records for ANY record with 'MOBI' identifier and mobi_version >= 8
+  if (kf8RecordIndex < 0) {
+    for (let i = 0; i < numRecords; i++) {
+      const rec = getRecordData(i);
+      if (rec && isMobiHeader(rec)) {
+        const dv = new DataView(rec.buffer, rec.byteOffset, rec.byteLength);
+        const version = dv.getUint32(36, false);
+        if (version >= 8) {
+          kf8RecordIndex = i;
+          break;
+        }
+      }
+    }
+  }
+
+  // Fallback: If no separate KF8 section found, use Record 0
+  if (kf8RecordIndex < 0) {
+    kf8RecordIndex = 0;
   }
 
   // 4. Inspect KF8 Control Block
@@ -364,14 +522,7 @@ export async function parseAzw3(
   const compression = kf8View.getUint16(0, false);
   const textRecordCount = kf8View.getUint16(8, false);
   const encryptionType = kf8View.getUint16(12, false);
-
-  if (encryptionType !== 0) {
-    throw new Error('This AZW3 / Kindle Format 8 book is protected with DRM encryption and cannot be read.');
-  }
-
-  if (compression !== 1 && compression !== 2) {
-    throw new Error(`Unsupported AZW3 compression type (${compression}). Only PalmDOC LZ77 is supported.`);
-  }
+  const isDrmFlagged = encryptionType !== 0;
 
   let textEncoding = 65001;
   let firstImageIndex = -1;
@@ -381,12 +532,7 @@ export async function parseAzw3(
   let mobiFullName = '';
   let mobiHeaderLength = 0;
 
-  const isKf8Mobi =
-    kf8Rec0.length >= 20 &&
-    kf8Rec0[16] === 0x4d &&
-    kf8Rec0[17] === 0x4f &&
-    kf8Rec0[18] === 0x42 &&
-    kf8Rec0[19] === 0x49;
+  const isKf8Mobi = isMobiHeader(kf8Rec0);
 
   if (isKf8Mobi && kf8Rec0.length >= 40) {
     mobiHeaderLength = kf8View.getUint32(20, false);
@@ -406,7 +552,16 @@ export async function parseAzw3(
     }
 
     if (kf8Rec0.length >= 16 + 96) {
-      firstImageIndex = kf8View.getUint32(16 + 92, false);
+      const candIdx = kf8View.getUint32(16 + 92, false);
+      if (candIdx !== 0xffffffff) {
+        if (kf8RecordIndex + candIdx < numRecords && detectImageMimeType(getRecordData(kf8RecordIndex + candIdx) ?? new Uint8Array(0))) {
+          firstImageIndex = kf8RecordIndex + candIdx;
+        } else if (candIdx < numRecords && detectImageMimeType(getRecordData(candIdx) ?? new Uint8Array(0))) {
+          firstImageIndex = candIdx;
+        } else {
+          firstImageIndex = kf8RecordIndex > 0 ? kf8RecordIndex + candIdx : candIdx;
+        }
+      }
     }
 
     if (kf8Rec0.length >= 16 + 116) {
@@ -416,8 +571,29 @@ export async function parseAzw3(
     // FDST Table record index at offset 196 of Record 0 = 16 + 180
     if (kf8Rec0.length >= 16 + 184) {
       const fdstCandidate = kf8View.getUint32(196, false);
-      if (fdstCandidate !== 0xffffffff && fdstCandidate < numRecords) {
-        fdstRecordIndex = fdstCandidate;
+      if (fdstCandidate !== 0xffffffff) {
+        if (kf8RecordIndex + fdstCandidate < numRecords) {
+          const cand = getRecordData(kf8RecordIndex + fdstCandidate);
+          if (cand && cand.length >= 4 && cand[0] === 0x46 && cand[1] === 0x44 && cand[2] === 0x53 && cand[3] === 0x54) {
+            fdstRecordIndex = kf8RecordIndex + fdstCandidate;
+          }
+        }
+        if (fdstRecordIndex === -1 && fdstCandidate < numRecords) {
+          const cand = getRecordData(fdstCandidate);
+          if (cand && cand.length >= 4 && cand[0] === 0x46 && cand[1] === 0x44 && cand[2] === 0x53 && cand[3] === 0x54) {
+            fdstRecordIndex = fdstCandidate;
+          }
+        }
+      }
+    }
+
+    if (fdstRecordIndex === -1) {
+      for (let i = kf8RecordIndex + 1; i < numRecords; i++) {
+        const cand = getRecordData(i);
+        if (cand && cand.length >= 4 && cand[0] === 0x46 && cand[1] === 0x44 && cand[2] === 0x53 && cand[3] === 0x54) {
+          fdstRecordIndex = i;
+          break;
+        }
       }
     }
 
@@ -436,38 +612,56 @@ export async function parseAzw3(
   const exth: ParsedExth = { ...primaryExth, ...kf8Exth };
 
   // 5. Decompress Text Records (rawML)
-  const decompressedChunks: Uint8Array[] = [];
-  const maxTextRecords = Math.min(textRecordCount, numRecords - kf8RecordIndex - 1);
+  let rawMl = tryDecompressRecords(
+    kf8RecordIndex,
+    textRecordCount,
+    compression,
+    extraRecordDataFlags,
+    getRecordData,
+    numRecords
+  );
 
-  for (let r = 1; r <= maxTextRecords; r++) {
-    const rec = getRecordData(kf8RecordIndex + r);
-    if (!rec) break;
+  let usedFallbackMobi7 = false;
 
-    const trailingSize = getTrailingBytesSize(rec, extraRecordDataFlags);
-    const contentPayload = trailingSize > 0 && trailingSize < rec.length
-      ? rec.subarray(0, rec.length - trailingSize)
-      : rec;
-
-    if (compression === 2) {
-      decompressedChunks.push(decompressPalmDocLZ77(contentPayload));
-    } else {
-      decompressedChunks.push(contentPayload);
+  // In dual-format files, if KF8 decompression fails or yields unreadable ciphertext,
+  // attempt to fall back to the MOBI 7 (Record 0) stream if available
+  if ((!rawMl || !isReadableText(rawMl)) && kf8RecordIndex > 0 && record0.length >= 16) {
+    const dv0 = new DataView(record0.buffer, record0.byteOffset, record0.byteLength);
+    const m7Comp = dv0.getUint16(0, false);
+    const m7Count = dv0.getUint16(8, false);
+    let m7ExtraFlags = 0;
+    if (isMobiHeader(record0)) {
+      const m7HeaderLen = dv0.getUint32(20, false);
+      if (m7HeaderLen >= 244 && record0.length >= 16 + 244) {
+        m7ExtraFlags = dv0.getUint16(16 + 242, false);
+      }
+    }
+    const m7Raw = tryDecompressRecords(0, m7Count, m7Comp, m7ExtraFlags, getRecordData, numRecords);
+    if (m7Raw && isReadableText(m7Raw)) {
+      rawMl = m7Raw;
+      usedFallbackMobi7 = true;
     }
   }
 
-  const totalLength = decompressedChunks.reduce((acc, c) => acc + c.length, 0);
-  const rawMl = new Uint8Array(totalLength);
-  let chunkOffset = 0;
-  for (const chunk of decompressedChunks) {
-    rawMl.set(chunk, chunkOffset);
-    chunkOffset += chunk.length;
+  // If content is still missing or unreadable
+  if (!rawMl || !isReadableText(rawMl)) {
+    if (isDrmFlagged) {
+      throw new Error(
+        'This AZW3 / Kindle Format 8 book is protected with Amazon Kindle DRM encryption and cannot be read directly. ' +
+        'To read this book in WebXReader, the DRM must be removed (for example, by converting the book using Calibre with the DeDRM plugin).'
+      );
+    }
+    if (compression !== 1 && compression !== 2) {
+      throw new Error(`Unsupported AZW3 compression type (${compression}). WebXReader supports standard PalmDOC LZ77 and uncompressed KF8 books.`);
+    }
+    throw new Error('Failed to decompress AZW3 file: the book appears corrupted or contains unsupported records.');
   }
 
   // 6. Resolve FDST (Flow Directory Section Table)
   // Flow 0 is the main XHTML document; subsequent flows contain CSS or SVG assets
   let xhtmlBytes = rawMl;
 
-  if (fdstRecordIndex !== -1) {
+  if (!usedFallbackMobi7 && fdstRecordIndex !== -1) {
     const fdstRecord = getRecordData(fdstRecordIndex);
     if (fdstRecord && fdstRecord.length >= 12) {
       // Magic 'FDST'

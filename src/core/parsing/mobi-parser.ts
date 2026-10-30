@@ -157,6 +157,10 @@ export function decompressPalmDocLZ77(src: Uint8Array): Uint8Array {
       const count = (compound & 0x07) + 3;
       const start = dst.length - distance;
 
+      if (start < 0 || distance === 0) {
+        throw new Error('Corrupted or encrypted PalmDOC LZ77 stream: invalid backwards distance');
+      }
+
       for (let k = 0; k < count; k++) {
         dst.push(dst[start + k]);
       }
@@ -287,10 +291,7 @@ export async function parseMobi(
   const compression = rec0View.getUint16(0, false);
   const textRecordCount = rec0View.getUint16(8, false);
   const encryptionType = rec0View.getUint16(12, false);
-
-  if (encryptionType !== 0) {
-    throw new Error('This MOBI book is protected with DRM encryption and cannot be read.');
-  }
+  const isDrmFlagged = encryptionType !== 0;
 
   if (compression !== 1 && compression !== 2) {
     throw new Error(`Unsupported MOBI compression type (${compression}). Only PalmDOC LZ77 is supported.`);
@@ -448,6 +449,41 @@ export async function parseMobi(
   for (const chunk of decompressedChunks) {
     fullBytes.set(chunk, chunkOffset);
     chunkOffset += chunk.length;
+  }
+
+  // Verify decompressed content
+  let hasValidContent = false;
+  if (decompressedChunks.length > 0 && fullBytes.length > 0) {
+    const sample = fullBytes.subarray(0, Math.min(fullBytes.length, 2048));
+    let sampleText = '';
+    try {
+      sampleText = new TextDecoder('utf-8').decode(sample);
+    } catch {
+      try { sampleText = new TextDecoder('windows-1252').decode(sample); } catch {}
+    }
+    if (/<(?:html|head|body|div|p|span|section|article|h[1-6]|mbp|a|table|\?xml)/i.test(sampleText)) {
+      hasValidContent = true;
+    } else {
+      let printable = 0;
+      for (let i = 0; i < sampleText.length; i++) {
+        const c = sampleText.charCodeAt(i);
+        if (c === 9 || c === 10 || c === 13 || (c >= 32 && c !== 65533)) printable++;
+      }
+      if (sampleText.length > 0 && printable / sampleText.length >= 0.75) hasValidContent = true;
+    }
+  }
+
+  if (!hasValidContent) {
+    if (isDrmFlagged) {
+      throw new Error(
+        'This MOBI book is protected with DRM encryption and cannot be read directly. ' +
+        'To read this book in WebXReader, the DRM must be removed (for example, by converting the book using Calibre with the DeDRM plugin).'
+      );
+    }
+    if (compression !== 1 && compression !== 2) {
+      throw new Error(`Unsupported MOBI compression type (${compression}). Only PalmDOC LZ77 is supported.`);
+    }
+    throw new Error('Failed to decompress MOBI file: the book appears corrupted or unreadable.');
   }
 
   // 7. Decode HTML/Text Content
