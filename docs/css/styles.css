@@ -1,0 +1,119 @@
+:root {
+    --primary-color: #2563eb;
+    --bg-color: #f9fafb;
+    --text-color: #1f2937;
+    --border-color: #e5e7eb;
+    --sidebar-bg: #ffffff;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    color: var(--text-color);
+    background-color: var(--bg-color);
+    margin: 0;
+    padding: 0;
+}
+
+header {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 2rem;
+    text-align: center;
+}
+
+header h1 {
+    margin: 0 0 0.5rem 0;
+}
+
+.container {
+    display: flex;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+    gap: 2rem;
+}
+
+nav#toc {
+    flex: 0 0 250px;
+    background: var(--sidebar-bg);
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    align-self: start;
+    position: sticky;
+    top: 2rem;
+}
+
+nav#toc h2 {
+    margin-top: 0;
+    font-size: 1.2rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+nav#toc ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+nav#toc li {
+    margin-bottom: 0.5rem;
+}
+
+nav#toc a {
+    text-decoration: none;
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+nav#toc a:hover {
+    text-decoration: underline;
+}
+
+main {
+    flex: 1;
+    background: var(--sidebar-bg);
+    padding: 2rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+section {
+    margin-bottom: 3rem;
+}
+
+section h2 {
+    color: var(--primary-color);
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 0.5rem;
+    margin-top: 0;
+}
+
+ul {
+    padding-left: 1.5rem;
+}
+
+li {
+    margin-bottom: 0.5rem;
+}
+
+footer {
+    text-align: center;
+    padding: 2rem;
+    color: #6b7280;
+    border-top: 1px solid var(--border-color);
+    margin-top: 2rem;
+}
+
+@media (max-width: 768px) {
+    .container {
+        flex-direction: column;
+    }
+    nav#toc {
+        position: static;
+        flex: auto;
+    }
+}

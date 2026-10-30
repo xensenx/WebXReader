@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebXReader Documentation</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <header>
+        <h1>WebXReader Documentation</h1>
+        <p>A privacy-focused, browser-based digital library and reader.</p>
+    </header>
+
+    <div class="container">
+        <nav id="toc">
+            <h2>Table of Contents</h2>
+            <ul id="toc-list"></ul>
+        </nav>
+
+        <main>
+            <section id="overview">
+                <h2>Overview</h2>
+                <p>WebXReader is a local-first reading application designed to help you organize, manage, and read your digital library directly in your browser. It is built with privacy in mind and runs mostly on the client side without sending your data to remote servers.</p>
+            </section>
+
+            <section id="architecture">
+                <h2>Architecture</h2>
+                <p>The application is built using modern web technologies:</p>
+                <ul>
+                    <li><strong>Framework:</strong> React with Vite.</li>
+                    <li><strong>Routing:</strong> React Router (HashRouter) for client-side navigation.</li>
+                    <li><strong>Data Storage:</strong>
+                        <ul>
+                            <li>IndexedDB for storing books and reading data.</li>
+                            <li>localStorage and sessionStorage for settings and temporary states.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Offline Support:</strong> Utilizes Service Workers for offline capabilities and caching.</li>
+                </ul>
+            </section>
+
+            <section id="supported-formats">
+                <h2>Supported Formats</h2>
+                <p>WebXReader supports a variety of document and comic formats. The formats are managed through a central registry.</p>
+                <ul>
+                    <li><strong>Text-based:</strong> TXT, Markdown, HTML, EPUB.</li>
+                    <li><strong>Fixed-layout:</strong> PDF, CBZ (Comic Book Zip).</li>
+                </ul>
+                <p>Capabilities such as search, pagination, and theming vary by format depending on the specific engine used.</p>
+            </section>
+
+            <section id="core-features">
+                <h2>Core Features</h2>
+                <ul>
+                    <li><strong>Library Management:</strong> Organize your books, track reading progress, search, and filter.</li>
+                    <li><strong>Reading Experience:</strong> Continuous scroll, pagination, vertical writing mode, and customizable typography.</li>
+                    <li><strong>Import/Export:</strong> Backup and restore your entire library or settings via JSON files.</li>
+                </ul>
+            </section>
+
+            <section id="audit-findings">
+                <h2>Audit Findings (30-10-2026)</h2>
+                <p>A recent code audit identified the following key areas:</p>
+                <ul>
+                    <li><strong>Security:</strong> Persistent same-origin XSS path through backup restore (imported backup chapter HTML is stored without sanitization).</li>
+                    <li><strong>Functional/Data-integrity defects:</strong>
+                        <ul>
+                            <li>Dragging books while a search or filter is active removes hidden books from the saved custom order.</li>
+                            <li>Version 2 backup with missing book content can be reported as restored, leaving unreadable library entries.</li>
+                            <li>Settings persistence failure is caught and logged as success, allowing incomplete resets.</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+        </main>
+    </div>
+
+    <footer>
+        <p>&copy; WebXReader Project</p>
+    </footer>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
