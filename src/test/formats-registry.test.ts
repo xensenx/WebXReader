@@ -25,13 +25,17 @@ describe('Format Registry & System', () => {
     expect(detectFormatFromFilename('novel.fb2')?.id).toBe('fb2');
     expect(detectFormatFromFilename('NOVEL.FB2')?.id).toBe('fb2');
     expect(detectFormatFromFilename('archive.fb2.zip')?.id).toBe('fb2');
+    expect(detectFormatFromFilename('novel.mobi')?.id).toBe('mobi');
+    expect(detectFormatFromFilename('NOVEL.MOBI')?.id).toBe('mobi');
+    expect(detectFormatFromFilename('book.prc')?.id).toBe('mobi');
+    expect(detectFormatFromFilename('book.azw')?.id).toBe('mobi');
     expect(detectFormatFromFilename('unknown.xyz')).toBeNull();
     expect(detectFormatFromFilename('no-extension')).toBeNull();
   });
 
   it('provides format definitions for all supported formats', () => {
     const formats = getAllFormats();
-    expect(formats.length).toBe(8);
+    expect(formats.length).toBe(9);
 
     const ids = formats.map((f) => f.id);
     expect(ids).toContain('epub');
@@ -42,6 +46,7 @@ describe('Format Registry & System', () => {
     expect(ids).toContain('html');
     expect(ids).toContain('rtf');
     expect(ids).toContain('fb2');
+    expect(ids).toContain('mobi');
 
     const cbzDef = getRequiredFormat('cbz');
     expect(cbzDef.label).toBe('Comic Book Zip (CBZ)');
@@ -61,6 +66,12 @@ describe('Format Registry & System', () => {
     expect(fb2Def.category).toBe('reflowable');
     expect(fb2Def.capabilities.continuousScroll).toBe(true);
     expect(fb2Def.capabilities.customTypography).toBe(true);
+
+    const mobiDef = getRequiredFormat('mobi');
+    expect(mobiDef.label).toBe('Mobipocket / Kindle (MOBI)');
+    expect(mobiDef.category).toBe('reflowable');
+    expect(mobiDef.capabilities.continuousScroll).toBe(true);
+    expect(mobiDef.capabilities.customTypography).toBe(true);
   });
 
   it('accurately identifies fixed layout formats', () => {
@@ -72,6 +83,7 @@ describe('Format Registry & System', () => {
     expect(isFixedLayout('html')).toBe(false);
     expect(isFixedLayout('rtf')).toBe(false);
     expect(isFixedLayout('fb2')).toBe(false);
+    expect(isFixedLayout('mobi')).toBe(false);
     expect(isFixedLayout(undefined)).toBe(false);
   });
 
@@ -83,10 +95,12 @@ describe('Format Registry & System', () => {
     expect(formatSupportsFeature('txt', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('rtf', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('fb2', 'continuousScroll')).toBe(true);
+    expect(formatSupportsFeature('mobi', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('pdf', 'doubleSided')).toBe(false);
     expect(formatSupportsFeature('txt', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('rtf', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('fb2', 'doubleSided')).toBe(true);
+    expect(formatSupportsFeature('mobi', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('epub', 'doubleSided')).toBe(false);
   });
 
@@ -102,6 +116,9 @@ describe('Format Registry & System', () => {
     expect(accept).toContain('.htm');
     expect(accept).toContain('.rtf');
     expect(accept).toContain('.fb2');
+    expect(accept).toContain('.mobi');
+    expect(accept).toContain('.prc');
+    expect(accept).toContain('.azw');
 
     expect(getFormatMimeType('cbz')).toBe('application/vnd.comicbook+zip');
     expect(getFormatMimeType('pdf')).toBe('application/pdf');
@@ -111,6 +128,7 @@ describe('Format Registry & System', () => {
     expect(getFormatMimeType('html')).toBe('text/html');
     expect(getFormatMimeType('rtf')).toBe('application/rtf');
     expect(getFormatMimeType('fb2')).toBe('application/x-fictionbook+xml');
+    expect(getFormatMimeType('mobi')).toBe('application/x-mobipocket-ebook');
   });
 
   it('handles unknown formats gracefully', () => {

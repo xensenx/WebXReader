@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 import { importFile } from '../features/import/import-service';
 import { clearDatabase, listBooks, getBookContent } from '../core/storage/database';
 
@@ -53,7 +55,7 @@ describe('Import Service', () => {
       expect(result.book.title).toBe('Starlight Chronicles');
       expect(result.book.author).toBe('Alex Mercer');
       expect(result.book.sourceFormat).toBe('rtf');
-      expect(result.book.totalChapters).toBeGreaterThanOrEqual(2);
+      expect(result.book.totalChapters).toBe(3);
       expect(result.isDuplicate).toBe(false);
     }
 
@@ -63,8 +65,8 @@ describe('Import Service', () => {
 
     const content = await getBookContent(result.success ? result.book.id : '');
     expect(content?.format).toBe('rtf');
-    expect(content?.chapters?.length).toBeGreaterThanOrEqual(2);
-    expect(content?.chapters?.[0]?.content).toContain('class="rtf-align-center"');
+    expect(content?.chapters?.length).toBe(3);
+    expect(content?.chapters?.[1]?.title).toContain('The Launch');
   });
 
   it('successfully imports a FictionBook (.fb2) novel with metadata and chapters', async () => {
@@ -72,18 +74,19 @@ describe('Import Service', () => {
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
   <description>
     <title-info>
+      <genre>adventure</genre>
       <author><first-name>Arthur</first-name><last-name>Conan Doyle</last-name></author>
       <book-title>The Lost World</book-title>
     </title-info>
   </description>
   <body>
     <section>
-      <title><p>Chapter 1: There are Heroisms All Round Us</p></title>
-      <p>Mr. Hungerton, her father, really was the most flirtatious of men.</p>
+      <title><p>Chapter 1: There Are Heroisms All Round Us</p></title>
+      <p>Mr. Hungerton, her father, really was the most flippant person.</p>
     </section>
     <section>
       <title><p>Chapter 2: Try Your Luck with Professor Challenger</p></title>
-      <p>I always had an idea that Challenger was a savage creature.</p>
+      <p>I always felt that a man should be ready for adventure.</p>
     </section>
   </body>
 </FictionBook>`;
@@ -107,6 +110,31 @@ describe('Import Service', () => {
     expect(content?.format).toBe('fb2');
     expect(content?.chapters?.length).toBe(2);
     expect(content?.chapters?.[0]?.title).toContain('Chapter 1');
+  });
+
+  it('successfully imports a Mobipocket / Kindle (.mobi) novel with metadata and chapters', async () => {
+    const fixturePath = path.resolve(__dirname, '../../fixtures/sample-novel.mobi');
+    const buffer = fs.readFileSync(fixturePath);
+    const file = new File([buffer], 'sample-novel.mobi', { type: 'application/x-mobipocket-ebook' });
+
+    const result = await importFile(file, { autoDetectChapters: true });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.title).toBe('The Sign of the Four');
+      expect(result.book.author).toBe('Sir Arthur Conan Doyle');
+      expect(result.book.sourceFormat).toBe('mobi');
+      expect(result.book.totalChapters).toBe(4);
+      expect(result.book.coverImage).toBeDefined();
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('mobi');
+
+    const content = await getBookContent(result.success ? result.book.id : '');
+    expect(content?.format).toBe('mobi');
+    expect(content?.chapters?.length).toBe(4);
+    expect(content?.chapters?.[1]?.title).toContain('The Science of Deduction');
   });
 
   it('identifies duplicate file imports by content hash', async () => {

@@ -12,6 +12,7 @@ import { markdownFormat } from './definitions/markdown';
 import { htmlFormat } from './definitions/html';
 import { rtfFormat } from './definitions/rtf';
 import { fb2Format } from './definitions/fb2';
+import { mobiFormat } from './definitions/mobi';
 import { epubFormat } from './definitions/epub';
 import { pdfFormat } from './definitions/pdf';
 import { cbzFormat } from './definitions/cbz';
@@ -24,6 +25,7 @@ const FORMAT_REGISTRY = new Map<BookFormat, FormatDefinition>([
   ['html', htmlFormat],
   ['rtf', rtfFormat],
   ['fb2', fb2Format],
+  ['mobi', mobiFormat],
   ['epub', epubFormat],
   ['pdf', pdfFormat],
   ['cbz', cbzFormat],

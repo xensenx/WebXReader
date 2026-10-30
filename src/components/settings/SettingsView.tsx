@@ -298,6 +298,22 @@ export function SettingsView() {
 
           <div className={styles.row}>
             <div className={styles.rowCol}>
+              <span className={styles.rowLabel}>Kindle / MOBI (.mobi) Chapter Detection</span>
+              <span className={styles.rowDesc}>
+                Automatically split chapters on page breaks and headings during MOBI import
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.autoDetectChaptersMobi ?? true}
+              onChange={(e) => updateSettings({ autoDetectChaptersMobi: e.target.checked })}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
+              aria-label="MOBI Chapter Detection"
+            />
+          </div>
+
+          <div className={styles.row}>
+            <div className={styles.rowCol}>
               <span className={styles.rowLabel}>Large import warning</span>
               <span className={styles.rowDesc}>Show a notice while processing files above this size.</span>
             </div>
