@@ -10,6 +10,7 @@ import type { FormatCapabilities, FormatDefinition } from './types';
 import { txtFormat } from './definitions/txt';
 import { markdownFormat } from './definitions/markdown';
 import { htmlFormat } from './definitions/html';
+import { rtfFormat } from './definitions/rtf';
 import { epubFormat } from './definitions/epub';
 import { pdfFormat } from './definitions/pdf';
 import { cbzFormat } from './definitions/cbz';
@@ -20,6 +21,7 @@ const FORMAT_REGISTRY = new Map<BookFormat, FormatDefinition>([
   ['txt', txtFormat],
   ['markdown', markdownFormat],
   ['html', htmlFormat],
+  ['rtf', rtfFormat],
   ['epub', epubFormat],
   ['pdf', pdfFormat],
   ['cbz', cbzFormat],
@@ -101,7 +103,7 @@ export function isFixedLayout(format?: BookFormat | string): boolean {
 }
 
 /**
- * Checks if a format supports a specific feature capability.
+ * Checks if a format supports a specific UI capability.
  */
 export function formatSupportsFeature(
   format: BookFormat | string | undefined,

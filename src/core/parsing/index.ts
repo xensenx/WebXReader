@@ -19,3 +19,6 @@ export type { PdfParseResult } from './pdf-parser';
 
 export { parseCbz } from './cbz-parser';
 export type { CbzParseResult } from './cbz-parser';
+
+export { parseRtf } from './rtf-parser';
+export type { RtfParseResult, RtfParseOptions } from './rtf-parser';

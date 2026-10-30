@@ -282,6 +282,38 @@ export function ReaderSettings({
             </div>
           )}
 
+          {/* RTF Document Formatting */}
+          {format === 'rtf' && (
+            <div className={styles.section}>
+              <span className={styles.sectionTitle}>Document Formatting</span>
+              <div className={styles.modeRow} aria-label="RTF formatting mode">
+                <button
+                  className={`${styles.modeBtn} ${
+                    (settings.rtfPreserveAlignment ?? true) ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ rtfPreserveAlignment: true })}
+                  type="button"
+                >
+                  <span>Preserve Layout</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    !(settings.rtfPreserveAlignment ?? true) ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ rtfPreserveAlignment: false })}
+                  type="button"
+                >
+                  <span>Unified Text</span>
+                </button>
+              </div>
+              <p className={styles.modeHint}>
+                {(settings.rtfPreserveAlignment ?? true)
+                  ? 'Honors centered and right-aligned text from the RTF document.'
+                  : 'Normalizes all text to the selected reader alignment.'}
+              </p>
+            </div>
+          )}
+
           {/* Font Family */}
           {canTypography && (
             <>

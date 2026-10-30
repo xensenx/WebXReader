@@ -4,7 +4,7 @@
  */
 
 /** Supported import formats */
-export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf' | 'cbz';
+export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf' | 'cbz' | 'rtf';
 
 /** Reading status of a book */
 export type ReadingStatus = 'unread' | 'reading' | 'completed';
@@ -289,6 +289,8 @@ export interface UserSettings {
   customBookOrder?: string[];
   /** Auto-detect chapters for TXT */
   autoDetectChapters: boolean;
+  /** Auto-detect chapters for RTF */
+  autoDetectChaptersRtf?: boolean;
   /** Import size warning threshold in MB */
   importSizeWarningMB: number;
   /** Last updated */
@@ -325,6 +327,8 @@ export interface BookSettings {
   comicReadingDirection?: ComicReadingDirection;
   /** Override comic page fit mode */
   comicFitMode?: ComicFitMode;
+  /** Override whether RTF document alignments are preserved */
+  rtfPreserveAlignment?: boolean;
   /** Last updated */
   updatedAt: number;
 }
@@ -375,6 +379,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   librarySortDirection: 'desc',
   customBookOrder: [],
   autoDetectChapters: true,
+  autoDetectChaptersRtf: true,
   importSizeWarningMB: 50,
   updatedAt: Date.now(),
 };

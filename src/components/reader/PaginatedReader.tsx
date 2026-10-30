@@ -354,7 +354,7 @@ export const PaginatedReader = memo(function PaginatedReader({
                   {chapter.title}
                 </h2>
               )}
-              <div className={styles.chapterBody} data-chapter-body="true" dangerouslySetInnerHTML={{ __html: safeChapterContents[index] || '' }} />
+              <div className={styles.chapterBody} data-chapter-body="true" data-rtf-preserve-align={settings.rtfPreserveAlignment === false ? 'false' : 'true'} dangerouslySetInnerHTML={{ __html: safeChapterContents[index] || '' }} />
               {index < chapters.length - 1 && <div className={styles.chapterDivider} aria-hidden="true">❖ ❖ ❖</div>}
             </section>
           ))}

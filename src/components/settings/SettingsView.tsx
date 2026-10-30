@@ -266,6 +266,22 @@ export function SettingsView() {
 
           <div className={styles.row}>
             <div className={styles.rowCol}>
+              <span className={styles.rowLabel}>Rich Text (.rtf) Chapter Detection</span>
+              <span className={styles.rowDesc}>
+                Automatically detect sections, page breaks, and headings during RTF import
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.autoDetectChaptersRtf ?? true}
+              onChange={(e) => updateSettings({ autoDetectChaptersRtf: e.target.checked })}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
+              aria-label="Rich Text Chapter Detection"
+            />
+          </div>
+
+          <div className={styles.row}>
+            <div className={styles.rowCol}>
               <span className={styles.rowLabel}>Large import warning</span>
               <span className={styles.rowDesc}>Show a notice while processing files above this size.</span>
             </div>

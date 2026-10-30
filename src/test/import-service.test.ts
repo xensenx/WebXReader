@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { importFile } from '../features/import/import-service';
-import { clearDatabase, listBooks } from '../core/storage/database';
+import { clearDatabase, listBooks, getBookContent } from '../core/storage/database';
 
 describe('Import Service', () => {
   beforeEach(async () => {
@@ -34,6 +34,39 @@ describe('Import Service', () => {
     expect(books[0].sourceFormat).toBe('txt');
   });
 
+  it('successfully imports a Rich Text (.rtf) novel with chapters and formatting', async () => {
+    const rtfContent = `{\\rtf1\\ansi\\ansicpg1252
+{\\info{\\title Starlight Chronicles}{\\author Alex Mercer}}
+\\pard\\qc\\b\\fs32 Title: Starlight Chronicles\\b0\\par
+\\page
+\\pard\\b Chapter 1: The Launch\\b0\\par
+\\pard The rocket engines roared to life.\\par
+\\page
+\\pard\\b Chapter 2: Orbit\\b0\\par
+\\pard Silence fell as weightlessness took hold.\\par
+}`;
+    const file = new File([rtfContent], 'starlight.rtf', { type: 'application/rtf' });
+
+    const result = await importFile(file, { autoDetectChapters: true });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.title).toBe('Starlight Chronicles');
+      expect(result.book.author).toBe('Alex Mercer');
+      expect(result.book.sourceFormat).toBe('rtf');
+      expect(result.book.totalChapters).toBeGreaterThanOrEqual(2);
+      expect(result.isDuplicate).toBe(false);
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('rtf');
+
+    const content = await getBookContent(result.success ? result.book.id : '');
+    expect(content?.format).toBe('rtf');
+    expect(content?.chapters?.length).toBeGreaterThanOrEqual(2);
+    expect(content?.chapters?.[0]?.content).toContain('class="rtf-align-center"');
+  });
+
   it('identifies duplicate file imports by content hash', async () => {
     const txtContent = `A unique story text that will be tested for duplicates.`;
     const file1 = new File([txtContent], 'story.txt', { type: 'text/plain' });
@@ -57,7 +90,6 @@ describe('Import Service', () => {
     const result = await importFile(file);
     expect(result.success).toBe(true);
     if (result.success) {
-      // Books without an extracted cover should have undefined, not a broken UUID
       expect(result.book.coverImage).toBeUndefined();
     }
   });

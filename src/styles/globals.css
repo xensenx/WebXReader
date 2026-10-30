@@ -300,3 +300,66 @@ select {
   white-space: nowrap;
   border-width: 0;
 }
+
+/* ============================================================
+   RTF Document Formatting & Typography
+   ============================================================ */
+
+.rtf-align-center {
+  text-align: center;
+}
+
+.rtf-align-right {
+  text-align: right;
+}
+
+.rtf-align-justify {
+  text-align: justify;
+}
+
+.rtf-align-left {
+  text-align: left;
+}
+
+.rtf-tab {
+  display: inline-block;
+  width: 2em;
+}
+
+.rtf-page-break,
+.rtf-section-break {
+  border: none;
+  border-top: 1px dashed var(--color-border);
+  margin: 2.5rem 0;
+  opacity: 0.7;
+}
+
+.rtf-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.5em 0;
+  overflow-x: auto;
+  display: table;
+}
+
+.rtf-table td,
+.rtf-table th {
+  border: 1px solid var(--color-border);
+  padding: 8px 12px;
+  vertical-align: top;
+}
+
+.rtf-size-lg {
+  font-size: 1.25em;
+}
+
+.rtf-size-xl {
+  font-size: 1.5em;
+}
+
+/* Document layout normalization override */
+[data-rtf-preserve-align="false"] .rtf-align-center,
+[data-rtf-preserve-align="false"] .rtf-align-right,
+[data-rtf-preserve-align="false"] .rtf-align-justify {
+  text-align: inherit !important;
+}

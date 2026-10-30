@@ -366,7 +366,7 @@ export function ImportDialog({
                   checked={autoDetectChapters}
                   onChange={(e) => setAutoDetectChapters(e.target.checked)}
                 />
-                <span>Automatically detect chapters in plain text (.txt) files</span>
+                <span>Automatically detect chapters in text files (.txt, .rtf)</span>
               </label>
               <label className={styles.optionLabel}>
                 <span>Text encoding</span>

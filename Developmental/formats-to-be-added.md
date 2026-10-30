@@ -1,6 +1,6 @@
 Format	Extension	Notes
 
-.rtf	
+.rtf	rtf	Implemented (Rich Text Format with reflowable rendering, chapter detection, and layout settings)
 .cbr	
 .cb7	
 .mobi	

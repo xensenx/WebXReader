@@ -211,6 +211,7 @@ export const ScrollReader = memo(function ScrollReader({
             <div
               className={styles.chapterBody}
               data-chapter-body="true"
+              data-rtf-preserve-align={settings.rtfPreserveAlignment === false ? 'false' : 'true'}
               dangerouslySetInnerHTML={{ __html: safeChapterContents[index] || '' }}
             />
 

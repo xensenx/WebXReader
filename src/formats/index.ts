@@ -31,6 +31,7 @@ export type {
 export { txtFormat } from './definitions/txt';
 export { markdownFormat } from './definitions/markdown';
 export { htmlFormat } from './definitions/html';
+export { rtfFormat } from './definitions/rtf';
 export { epubFormat } from './definitions/epub';
 export { pdfFormat } from './definitions/pdf';
 export { cbzFormat } from './definitions/cbz';

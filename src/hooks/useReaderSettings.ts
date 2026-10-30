@@ -27,6 +27,7 @@ export interface EffectiveReaderSettings {
   theme: UserSettings['theme'];
   comicReadingDirection?: ComicReadingDirection;
   comicFitMode?: ComicFitMode;
+  rtfPreserveAlignment?: boolean;
 }
 
 /** Fields that can be overridden per-book */
@@ -60,6 +61,7 @@ function mergeSettings(
     theme: global.theme,
     comicReadingDirection: bookOverrides?.comicReadingDirection,
     comicFitMode: bookOverrides?.comicFitMode,
+    rtfPreserveAlignment: bookOverrides?.rtfPreserveAlignment ?? true,
   };
 }
 
