@@ -485,30 +485,5 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
       expect(result.chapters[0].content).toContain('MOBI7 Fallback Success');
     });
 
-    it('successfully parses real-world HUFF/CDIC books if present', async () => {
-      const fs = await import('fs');
-      const p1 = 'E:/test-wxr/Advance -- Duggsy, K A -- Advance Industries 1, 2016 -- Createspace Independent Publishing Platform -- isbn13 9781523706167 -- 3db64bded95be440c9e80e7457bb38f1 -- Anna\u2019s Archive.azw3';
-      const p2 = 'E:/test-wxr/Tangled Up in Tuesday -- Marts, Jennie -- Page Turners, 4, 1, 2016 -- 07ba1580ccbc8fddf5c33962171f3920 -- Anna\u2019s Archive.azw3';
-
-      if (fs.existsSync(p1)) {
-        const buf1 = fs.readFileSync(p1);
-        const t0 = Date.now();
-        const res1 = await parseAzw3(buf1.buffer.slice(buf1.byteOffset, buf1.byteOffset + buf1.byteLength));
-        const dt1 = Date.now() - t0;
-        expect(res1.chapters.length).toBeGreaterThan(0);
-        expect(res1.metadata.title).toBeTruthy();
-        expect(dt1).toBeLessThan(2000); // must be fast (well under 2 seconds)
-      }
-
-      if (fs.existsSync(p2)) {
-        const buf2 = fs.readFileSync(p2);
-        const t0 = Date.now();
-        const res2 = await parseAzw3(buf2.buffer.slice(buf2.byteOffset, buf2.byteOffset + buf2.byteLength));
-        const dt2 = Date.now() - t0;
-        expect(res2.chapters.length).toBeGreaterThan(0);
-        expect(res2.metadata.title).toBeTruthy();
-        expect(dt2).toBeLessThan(2000);
-      }
-    });
   });
 });

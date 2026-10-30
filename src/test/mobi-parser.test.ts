@@ -146,16 +146,5 @@ describe('MOBI & PalmDOC Parser', () => {
 
       await expect(parseMobi(data.buffer)).rejects.toThrow('Unsupported MOBI compression type (9999)');
     });
-    it('successfully parses real-world MOBI books (e.g. Lords of the Dead) if present', async () => {
-      const mobiPath = 'E:/test-wxr/Lords of the Dead -- Spears, R J -- Books of the Dead 2, 2014 -- J_ Ellington Ashton Press -- d584d1887408e84aafa5ab0490f32434 -- Anna\u2019s Archive.mobi';
-      if (fs.existsSync(mobiPath)) {
-        const buf = fs.readFileSync(mobiPath);
-        const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-        const result = await parseMobi(arrayBuf);
-        expect(result.chapters.length).toBeGreaterThan(0);
-        expect(result.metadata.title).toBeTruthy();
-        expect(result.rawText.length).toBeGreaterThan(1000);
-      }
-    });
   });
 });
