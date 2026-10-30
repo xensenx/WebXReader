@@ -25,3 +25,6 @@ export type { RtfParseResult, RtfParseOptions } from './rtf-parser';
 
 export { parseFb2 } from './fb2-parser';
 export type { Fb2ParseResult, Fb2ParseOptions } from './fb2-parser';
+
+export { parseMobi, decompressPalmDocLZ77 } from './mobi-parser';
+export type { MobiParseResult, MobiParseOptions } from './mobi-parser';

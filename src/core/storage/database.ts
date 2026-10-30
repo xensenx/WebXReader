@@ -519,7 +519,7 @@ function deserializeBookContent(content: BackupBookContent): BookContent {
   };
 }
 
-const BOOK_FORMATS: readonly BookFormat[] = ['epub', 'txt', 'markdown', 'html', 'pdf', 'cbz'];
+const BOOK_FORMATS: readonly BookFormat[] = ['epub', 'txt', 'markdown', 'html', 'pdf', 'cbz', 'rtf', 'fb2', 'mobi'];
 
 function isBookFormat(value: unknown): value is BookFormat {
   return typeof value === 'string' && BOOK_FORMATS.includes(value as BookFormat);

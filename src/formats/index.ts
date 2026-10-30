@@ -33,6 +33,7 @@ export { markdownFormat } from './definitions/markdown';
 export { htmlFormat } from './definitions/html';
 export { rtfFormat } from './definitions/rtf';
 export { fb2Format } from './definitions/fb2';
+export { mobiFormat } from './definitions/mobi';
 export { epubFormat } from './definitions/epub';
 export { pdfFormat } from './definitions/pdf';
 export { cbzFormat } from './definitions/cbz';
