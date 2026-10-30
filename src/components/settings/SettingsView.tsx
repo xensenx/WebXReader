@@ -330,6 +330,38 @@ export function SettingsView() {
 
           <div className={styles.row}>
             <div className={styles.rowCol}>
+              <span className={styles.rowLabel}>Word Document (.docx) Chapter Detection</span>
+              <span className={styles.rowDesc}>
+                Automatically split chapters on headings and page breaks during DOCX import
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.autoDetectChaptersDocx ?? true}
+              onChange={(e) => updateSettings({ autoDetectChaptersDocx: e.target.checked })}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
+              aria-label="DOCX Chapter Detection"
+            />
+          </div>
+
+          <div className={styles.row}>
+            <div className={styles.rowCol}>
+              <span className={styles.rowLabel}>Word 97-2004 (.doc) Chapter Detection</span>
+              <span className={styles.rowDesc}>
+                Automatically split chapters on page breaks and section breaks during DOC import
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.autoDetectChaptersDoc ?? true}
+              onChange={(e) => updateSettings({ autoDetectChaptersDoc: e.target.checked })}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
+              aria-label="DOC Chapter Detection"
+            />
+          </div>
+
+          <div className={styles.row}>
+            <div className={styles.rowCol}>
               <span className={styles.rowLabel}>Large import warning</span>
               <span className={styles.rowDesc}>Show a notice while processing files above this size.</span>
             </div>

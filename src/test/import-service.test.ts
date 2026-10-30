@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import JSZip from 'jszip';
+import CFB from 'cfb';
 import { importFile } from '../features/import/import-service';
 import { clearDatabase, listBooks, getBookContent } from '../core/storage/database';
 
@@ -200,5 +202,84 @@ describe('Import Service', () => {
       expect(result.book.sourceFormat).toBe('pdf');
       expect(result.book.title).toBe('sample novel');
     }
+  });
+  it('successfully imports a Word document (.docx)', async () => {
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`);
+    zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`);
+    zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Modern Word Document Testing</w:t></w:r></w:p>
+  </w:body>
+</w:document>`);
+
+    const docxBuf = await zip.generateAsync({ type: 'uint8array' });
+    const file = new File([docxBuf as unknown as BlobPart], 'modern_test.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+
+    const result = await importFile(file);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('docx');
+      expect(result.book.title).toBe('modern test');
+      expect(result.book.totalChapters).toBeGreaterThanOrEqual(1);
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('docx');
+  });
+
+  it('successfully imports a legacy Word document (.doc)', async () => {
+    const cfb = CFB.utils.cfb_new();
+    const text = 'Legacy Word Document Testing';
+    const wordDoc = Buffer.alloc(0x0400 + text.length * 2);
+    wordDoc.writeUInt16LE(0xa5ec, 0); // FIB magic
+    wordDoc.writeUInt16LE(0x0200, 0x000a); // 1Table flag
+
+    const textOffset = 0x0250;
+    const textBuf = Buffer.from(text, 'latin1');
+    textBuf.copy(wordDoc, textOffset);
+    const compressedFc = (textOffset * 2) | 0x40000000;
+
+    const clxBuf = Buffer.alloc(1 + 4 + 16);
+    clxBuf.writeUInt8(0x02, 0);
+    clxBuf.writeUInt32LE(16, 1);
+    clxBuf.writeUInt32LE(0, 5);
+    clxBuf.writeUInt32LE(text.length, 9);
+    clxBuf.writeUInt16LE(0, 13);
+    clxBuf.writeUInt32LE(compressedFc, 15);
+    clxBuf.writeUInt16LE(0, 19);
+
+    wordDoc.writeUInt32LE(0, 0x01a2);
+    wordDoc.writeUInt32LE(clxBuf.length, 0x01a6);
+
+    CFB.utils.cfb_add(cfb, '/WordDocument', wordDoc);
+    CFB.utils.cfb_add(cfb, '/1Table', clxBuf);
+
+    const docBytes = CFB.write(cfb, { type: 'buffer' });
+    const file = new File([docBytes], 'legacy_test.doc', { type: 'application/msword' });
+
+    const result = await importFile(file);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('doc');
+      expect(result.book.title).toBe('legacy test');
+      expect(result.book.totalChapters).toBeGreaterThanOrEqual(1);
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('doc');
   });
 });

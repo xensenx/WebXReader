@@ -14,6 +14,8 @@ import { rtfFormat } from './definitions/rtf';
 import { fb2Format } from './definitions/fb2';
 import { mobiFormat } from './definitions/mobi';
 import { azw3Format } from './definitions/azw3';
+import { docxFormat } from './definitions/docx';
+import { docFormat } from './definitions/doc';
 import { epubFormat } from './definitions/epub';
 import { pdfFormat } from './definitions/pdf';
 import { cbzFormat } from './definitions/cbz';
@@ -28,6 +30,8 @@ const FORMAT_REGISTRY = new Map<BookFormat, FormatDefinition>([
   ['fb2', fb2Format],
   ['mobi', mobiFormat],
   ['azw3', azw3Format],
+  ['docx', docxFormat],
+  ['doc', docFormat],
   ['epub', epubFormat],
   ['pdf', pdfFormat],
   ['cbz', cbzFormat],

@@ -35,6 +35,8 @@ export { rtfFormat } from './definitions/rtf';
 export { fb2Format } from './definitions/fb2';
 export { mobiFormat } from './definitions/mobi';
 export { azw3Format } from './definitions/azw3';
+export { docxFormat } from './definitions/docx';
+export { docFormat } from './definitions/doc';
 export { epubFormat } from './definitions/epub';
 export { pdfFormat } from './definitions/pdf';
 export { cbzFormat } from './definitions/cbz';

@@ -8,19 +8,35 @@ import DOMPurify from 'dompurify';
 export function sanitizeReaderHtml(content: unknown): string {
   if (typeof content !== 'string') return '';
 
-  return DOMPurify.sanitize(content, {
-    ALLOWED_TAGS: [
-      'p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'del', 'ins',
-      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-      'ul', 'ol', 'li',
-      'blockquote', 'pre', 'code',
-      'a',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td',
-      'hr', 'div', 'span', 'sup', 'sub',
-      'figure', 'figcaption', 'section', 'article',
-    ],
-    ALLOWED_ATTR: ['href', 'alt', 'title', 'class', 'id', 'target', 'rel'],
-    ALLOW_DATA_ATTR: false,
-    FORBID_TAGS: ['script', 'style', 'img', 'iframe', 'object', 'embed', 'video', 'audio', 'source'],
-  });
+  const sanitizeFn =
+    typeof (DOMPurify as any)?.sanitize === 'function'
+      ? (DOMPurify as any).sanitize.bind(DOMPurify)
+      : typeof DOMPurify === 'function' && typeof window !== 'undefined'
+      ? (DOMPurify as any)(window).sanitize
+      : null;
+
+  if (sanitizeFn) {
+    return sanitizeFn(content, {
+      ALLOWED_TAGS: [
+        'p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'del', 'ins',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'ul', 'ol', 'li',
+        'blockquote', 'pre', 'code',
+        'a',
+        'table', 'thead', 'tbody', 'tr', 'th', 'td',
+        'hr', 'div', 'span', 'sup', 'sub',
+        'figure', 'figcaption', 'section', 'article',
+      ],
+      ALLOWED_ATTR: ['href', 'alt', 'title', 'class', 'id', 'target', 'rel'],
+      ALLOW_DATA_ATTR: false,
+      FORBID_TAGS: ['script', 'style', 'img', 'iframe', 'object', 'embed', 'video', 'audio', 'source'],
+    });
+  }
+
+  // Fallback for non-browser/CLI environments without DOM window
+  return content
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/on\w+="[^"]*"/gi, '')
+    .replace(/on\w+='[^']*'/gi, '');
 }

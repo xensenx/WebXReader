@@ -12,10 +12,12 @@
     "preview": "npm run build && vite preview"
   },
   "dependencies": {
+    "cfb": "^1.2.2",
     "dompurify": "^3.4.17",
     "epubjs": "^0.3.93",
     "jszip": "^3.10.2",
     "lucide-react": "^1.61.0",
+    "mammoth": "^1.13.0",
     "marked": "^18.1.1",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",

@@ -31,3 +31,9 @@ export type { MobiParseResult, MobiParseOptions } from './mobi-parser';
 
 export { parseAzw3 } from './azw3-parser';
 export type { Azw3ParseResult, Azw3ParseOptions } from './azw3-parser';
+
+export { parseDocx } from './docx-parser';
+export type { DocxParseResult, DocxParseOptions } from './docx-parser';
+
+export { parseDoc } from './doc-parser';
+export type { DocParseResult, DocParseOptions } from './doc-parser';
