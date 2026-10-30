@@ -4,7 +4,7 @@
  */
 
 /** Supported import formats */
-export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf' | 'cbz' | 'rtf' | 'fb2' | 'mobi';
+export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf' | 'cbz' | 'rtf' | 'fb2' | 'mobi' | 'azw3';
 
 /** Reading status of a book */
 export type ReadingStatus = 'unread' | 'reading' | 'completed';
@@ -293,6 +293,8 @@ export interface UserSettings {
   autoDetectChaptersRtf?: boolean;
   /** Auto-detect chapters for MOBI */
   autoDetectChaptersMobi?: boolean;
+  /** Auto-detect chapters for AZW3 / KF8 */
+  autoDetectChaptersAzw3?: boolean;
   /** Whether to append footnotes as a reference chapter for FB2 */
   fb2IncludeNotes?: boolean;
   /** Import size warning threshold in MB */
@@ -386,6 +388,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   autoDetectChaptersRtf: true,
   fb2IncludeNotes: true,
   autoDetectChaptersMobi: true,
+  autoDetectChaptersAzw3: true,
   importSizeWarningMB: 50,
   updatedAt: Date.now(),
 };

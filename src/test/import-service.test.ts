@@ -137,6 +137,31 @@ describe('Import Service', () => {
     expect(content?.chapters?.[1]?.title).toContain('The Science of Deduction');
   });
 
+  it('successfully imports an Amazon Kindle Format 8 (.azw3) novel with metadata and chapters', async () => {
+    const fixturePath = path.resolve(__dirname, '../../fixtures/sample-novel.azw3');
+    const buffer = fs.readFileSync(fixturePath);
+    const file = new File([buffer], 'sample-novel.azw3', { type: 'application/vnd.amazon.mobi8-ebook' });
+
+    const result = await importFile(file, { autoDetectChapters: true });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.title).toBe('A Study in Scarlet');
+      expect(result.book.author).toBe('Sir Arthur Conan Doyle');
+      expect(result.book.sourceFormat).toBe('azw3');
+      expect(result.book.totalChapters).toBe(4);
+      expect(result.book.coverImage).toBeDefined();
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('azw3');
+
+    const content = await getBookContent(result.success ? result.book.id : '');
+    expect(content?.format).toBe('azw3');
+    expect(content?.chapters?.length).toBe(4);
+    expect(content?.chapters?.[1]?.title).toContain('Mr. Sherlock Holmes');
+  });
+
   it('identifies duplicate file imports by content hash', async () => {
     const txtContent = `A unique story text that will be tested for duplicates.`;
     const file1 = new File([txtContent], 'story.txt', { type: 'text/plain' });

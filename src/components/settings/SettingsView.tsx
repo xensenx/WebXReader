@@ -314,6 +314,22 @@ export function SettingsView() {
 
           <div className={styles.row}>
             <div className={styles.rowCol}>
+              <span className={styles.rowLabel}>Kindle Format 8 (.azw3, .kf8) Chapter Detection</span>
+              <span className={styles.rowDesc}>
+                Automatically split chapters on HTML5 page breaks, sections, and headings during AZW3 import
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.autoDetectChaptersAzw3 ?? true}
+              onChange={(e) => updateSettings({ autoDetectChaptersAzw3: e.target.checked })}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
+              aria-label="AZW3 Chapter Detection"
+            />
+          </div>
+
+          <div className={styles.row}>
+            <div className={styles.rowCol}>
               <span className={styles.rowLabel}>Large import warning</span>
               <span className={styles.rowDesc}>Show a notice while processing files above this size.</span>
             </div>

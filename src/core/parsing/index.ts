@@ -28,3 +28,6 @@ export type { Fb2ParseResult, Fb2ParseOptions } from './fb2-parser';
 
 export { parseMobi, decompressPalmDocLZ77 } from './mobi-parser';
 export type { MobiParseResult, MobiParseOptions } from './mobi-parser';
+
+export { parseAzw3 } from './azw3-parser';
+export type { Azw3ParseResult, Azw3ParseOptions } from './azw3-parser';
