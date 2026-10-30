@@ -3,14 +3,11 @@ import { HuffReader } from '../core/parsing/huffcdic';
 
 describe('HUFF/CDIC Decompressor', () => {
   it('correctly unpacks HUFF and CDIC dictionary phrases', () => {
-    // 1. Build CDIC record
+    // 1. Build CDIC record with 2 terminal phrases
     // Header (16 bytes): 'CDIC\0\0\0\x10', phrases=2, bits=2
     const phrase0 = Buffer.from('Hello');
     const phrase1 = Buffer.from(' World');
 
-    // offsets table at 16:
-    // offset 0 -> at 16 + 4 = 20: blen (2 bytes) + 'Hello' (5 bytes) = 7 bytes
-    // offset 1 -> at 20 + 7 = 27: blen (2 bytes) + ' World' (6 bytes) = 8 bytes
     const cdic = Buffer.alloc(16 + 4 + (2 + 5) + (2 + 6));
     cdic.write('CDIC', 0, 4, 'ascii');
     cdic.writeUInt32BE(0x10, 4);
@@ -22,16 +19,15 @@ describe('HUFF/CDIC Decompressor', () => {
     // offset to phrase 1: 4 + 7 = 11 (from offset 16 -> at 27)
     cdic.writeUInt16BE(11, 18);
 
-    // phrase 0 at 20
-    cdic.writeUInt16BE(phrase0.length, 20); // blen = 5
+    // phrase 0 at 20 (bit 15 = 0x8000 signals terminal/plain-text slice)
+    cdic.writeUInt16BE(0x8000 | phrase0.length, 20);
     phrase0.copy(cdic, 22);
 
-    // phrase 1 at 27
-    cdic.writeUInt16BE(phrase1.length, 27); // blen = 6
+    // phrase 1 at 27 (bit 15 = 0x8000 signals terminal/plain-text slice)
+    cdic.writeUInt16BE(0x8000 | phrase1.length, 27);
     phrase1.copy(cdic, 29);
 
     // 2. Build HUFF record
-    // Header (24 bytes): 'HUFF\0\0\0\x18', off1=24, off2=24 + 256*4 = 1048
     const off1 = 24;
     const off2 = 24 + 256 * 4;
     const huff = Buffer.alloc(off2 + 64 * 4, 0);

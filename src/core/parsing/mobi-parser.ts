@@ -504,9 +504,9 @@ export async function parseMobi(
   // 6. Decompress Text Records (Records 1 to textRecordCount)
   let huffOffsetCandidate = 0;
   let huffCountCandidate = 0;
-  if (record0.length >= 16 + 120) {
-    huffOffsetCandidate = rec0View.getUint32(16 + 112, false);
-    huffCountCandidate = rec0View.getUint32(16 + 116, false);
+  if (record0.length >= 120) {
+    huffOffsetCandidate = rec0View.getUint32(112, false);
+    huffCountCandidate = rec0View.getUint32(116, false);
   }
   const huffReader = compression === 17480 ? findHuffReader(0, huffOffsetCandidate, huffCountCandidate, getRecordData, numRecords) : null;
   const decompressedChunks: Uint8Array[] = [];

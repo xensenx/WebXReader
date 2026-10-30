@@ -1,6 +1,9 @@
 /**
  * HUFF/CDIC (Huffman + CDIC phrase dictionary) decompressor for Mobipocket and Kindle (KF8/AZW3) ebooks.
  * Handles compression type 17480 (0x4448, ASCII 'DH').
+ *
+ * Implements Calibre / Mobipocket Huffman bitstream decoding with CDIC dictionary expansion
+ * and compound phrase memoization.
  */
 
 interface Dict1Entry {
@@ -11,14 +14,14 @@ interface Dict1Entry {
 
 interface CdicSlice {
   slice: Uint8Array;
-  isCompound: boolean;
+  flag: boolean; // true if terminal (plain text), false if compound (requires Huff unpack)
 }
 
 export class HuffReader {
   private dict1: Dict1Entry[] = [];
   private mincode: number[] = [];
   private maxcodeTable: number[] = [];
-  private dictionary: CdicSlice[] = [];
+  private dictionary: (CdicSlice | null)[] = [];
 
   constructor(huffRecord: Uint8Array, cdicRecords: Uint8Array[]) {
     this.loadHuff(huffRecord);
@@ -50,7 +53,6 @@ export class HuffReader {
       throw new Error('Truncated HUFF record: offset tables exceed record bounds');
     }
 
-    // off1 points to 256 uint32 entries
     this.dict1 = [];
     for (let i = 0; i < 256; i++) {
       const v = view.getUint32(off1 + i * 4, false);
@@ -59,21 +61,19 @@ export class HuffReader {
       const rawMaxcode = v >>> 8;
       let maxcode = 0;
       if (codelen > 0 && codelen <= 32) {
-        maxcode = (((rawMaxcode + 1) << (32 - codelen)) - 1) >>> 0;
+        maxcode = Number(((BigInt(rawMaxcode) + 1n) << BigInt(32 - codelen)) - 1n) >>> 0;
       }
       this.dict1.push({ codelen, term, maxcode });
     }
 
-    // off2 points to 64 uint32 entries (32 pairs of mincode, maxcode)
     this.mincode = [0];
     this.maxcodeTable = [0];
-
     for (let codelen = 1; codelen <= 32; codelen++) {
       const minVal = view.getUint32(off2 + (codelen - 1) * 8, false);
       const maxVal = view.getUint32(off2 + (codelen - 1) * 8 + 4, false);
 
-      this.mincode.push((minVal << (32 - codelen)) >>> 0);
-      this.maxcodeTable.push((((maxVal + 1) << (32 - codelen)) - 1) >>> 0);
+      this.mincode.push(Number((BigInt(minVal) << BigInt(32 - codelen)) & 0xffffffffn) >>> 0);
+      this.maxcodeTable.push(Number(((BigInt(maxVal) + 1n) << BigInt(32 - codelen)) - 1n) >>> 0);
     }
   }
 
@@ -103,10 +103,12 @@ export class HuffReader {
       if (16 + off + 2 > cdic.length) break;
       const blen = view.getUint16(16 + off, false);
       const len = blen & 0x7fff;
-      const isCompound = (blen & 0x8000) !== 0;
+      // In Mobipocket CDIC, bit 15 (0x8000) indicates a terminal (uncompressed/plain text) slice.
+      // If bit 15 is 0, the phrase is compound and requires recursive unpacking.
+      const flag = (blen & 0x8000) !== 0;
       if (18 + off + len > cdic.length) break;
-      const slice = cdic.subarray(18 + off, 18 + off + len);
-      this.dictionary.push({ slice, isCompound });
+      const slice = cdic.slice(18 + off, 18 + off + len);
+      this.dictionary.push({ slice, flag });
     }
   }
 
@@ -114,25 +116,10 @@ export class HuffReader {
    * Unpacks a single HUFF/CDIC-compressed record block.
    */
   public unpack(data: Uint8Array): Uint8Array {
-    const chunks: Uint8Array[] = [];
-    this.unpackInternal(data, chunks, 0);
-
-    const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
-    const result = new Uint8Array(totalLen);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return result;
-  }
-
-  private unpackInternal(data: Uint8Array, out: Uint8Array[], depth: number): void {
-    if (depth > 64 || data.length === 0) {
-      return;
+    if (data.length === 0) {
+      return new Uint8Array(0);
     }
 
-    // Pad with 8 zero bytes to safely read 64-bit blocks
     const padded = new Uint8Array(data.length + 8);
     padded.set(data);
     const view = new DataView(padded.buffer, padded.byteOffset, padded.byteLength);
@@ -141,6 +128,7 @@ export class HuffReader {
     let pos = 0;
     let x = view.getBigUint64(pos, false);
     let n = 32;
+    const chunks: Uint8Array[] = [];
 
     while (true) {
       if (n <= 0) {
@@ -155,7 +143,7 @@ export class HuffReader {
 
       const code = Number((x >> BigInt(n)) & 0xffffffffn) >>> 0;
       const d1 = this.dict1[code >>> 24];
-      if (!d1) break;
+      if (!d1 || d1.codelen === 0) break;
 
       let codelen = d1.codelen;
       let maxcode = d1.maxcode;
@@ -168,23 +156,40 @@ export class HuffReader {
         maxcode = this.maxcodeTable[codelen];
       }
 
+      n -= codelen;
       bitsleft -= codelen;
       if (bitsleft < 0) {
         break;
       }
-      n -= codelen;
 
       const r = Number((BigInt(maxcode >>> 0) - BigInt(code >>> 0)) >> BigInt(32 - codelen));
       if (r < 0 || r >= this.dictionary.length) {
         break;
       }
 
-      const v = this.dictionary[r];
-      if (v.isCompound) {
-        this.unpackInternal(v.slice, out, depth + 1);
+      const entry = this.dictionary[r];
+      if (!entry) {
+        break;
+      }
+
+      if (!entry.flag) {
+        // Compound slice: unpack and memoize in dictionary to avoid exponential re-decoding
+        this.dictionary[r] = null; // recursion cycle protection
+        const unpacked = this.unpack(entry.slice);
+        this.dictionary[r] = { slice: unpacked, flag: true };
+        chunks.push(unpacked);
       } else {
-        out.push(v.slice);
+        chunks.push(entry.slice);
       }
     }
+
+    const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
+    const result = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return result;
   }
 }

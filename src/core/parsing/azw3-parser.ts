@@ -650,9 +650,9 @@ export async function parseAzw3(
       exthFlags = kf8View.getUint32(16 + 112, false);
     }
 
-    // FDST Table record index at offset 196 of Record 0 = 16 + 180
-    if (kf8Rec0.length >= 16 + 184) {
-      const fdstCandidate = kf8View.getUint32(196, false);
+    // FDST Table record index at offset 192 of Record 0 = MOBI offset 176 (0xB0)
+    if (kf8Rec0.length >= 196) {
+      const fdstCandidate = kf8View.getUint32(192, false);
       if (fdstCandidate !== 0xffffffff) {
         if (kf8RecordIndex + fdstCandidate < numRecords) {
           const cand = getRecordData(kf8RecordIndex + fdstCandidate);
@@ -696,9 +696,9 @@ export async function parseAzw3(
   // Locate HUFF/CDIC reader if compression is 17480 (HUFF/CDIC)
   let huffOffsetCandidate = 0;
   let huffCountCandidate = 0;
-  if (kf8Rec0.length >= 16 + 120) {
-    huffOffsetCandidate = kf8View.getUint32(16 + 112, false);
-    huffCountCandidate = kf8View.getUint32(16 + 116, false);
+  if (kf8Rec0.length >= 120) {
+    huffOffsetCandidate = kf8View.getUint32(112, false);
+    huffCountCandidate = kf8View.getUint32(116, false);
   }
 
   let huffReader: HuffReader | null = null;
