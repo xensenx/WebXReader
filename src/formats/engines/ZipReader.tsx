@@ -1,5 +1,5 @@
 /**
- * General-purpose ZIP Archive Reader & Container Engine.
+ * General-purpose Archive Reader & Container Engine (ZIP & RAR).
  *
  * Provides a native directory explorer for navigating archives,
  * on-demand entry decompression, and seamless delegation to
@@ -52,6 +52,7 @@ import { parseAzw3 } from '../../core/parsing/azw3-parser';
 import { parseDocx } from '../../core/parsing/docx-parser';
 import { parseDoc } from '../../core/parsing/doc-parser';
 import { parseMht } from '../../core/parsing/mht-parser';
+import { openRarArchiveSession } from '../../core/parsing/rar-parser';
 
 const PdfReader = lazy(async () => {
   const module = await import('./PdfReader');
@@ -75,9 +76,10 @@ import { DoubleSidedReader } from '../../components/reader/DoubleSidedReader';
 
 import styles from './ZipReader.module.css';
 
-export interface ZipReaderProps {
+export interface ArchiveReaderProps {
   fileData: ArrayBuffer;
   book?: Book;
+  archiveType?: 'zip' | 'rar';
   initialSubPath?: string;
   initialPage?: number;
   initialProgressFraction?: number;
@@ -87,6 +89,17 @@ export interface ZipReaderProps {
   zoomAnchor?: any;
   onProgressUpdate?: (chapterId: string, progressFraction: number, pageIndex: number) => void;
   onToggleControls?: () => void;
+}
+
+export type ZipReaderProps = ArchiveReaderProps;
+
+export interface GenericArchiveSession {
+  type: 'zip' | 'rar';
+  entries: ZipEntryItem[];
+  getEntryData(path: string): Promise<ArrayBuffer>;
+  getEntryBlob(path: string, mimeType?: string): Promise<Blob>;
+  getEntryText(path: string): Promise<string>;
+  close(): void;
 }
 
 interface ActiveSubDocument {
@@ -102,9 +115,10 @@ interface ActiveImageCollection {
   currentIndex: number;
 }
 
-export const ZipReader = memo(function ZipReader({
+export const ArchiveReader = memo(function ArchiveReader({
   fileData,
   book,
+  archiveType,
   initialSubPath,
   initialPage = 1,
   initialProgressFraction: _initialProgressFraction = 0,
@@ -114,8 +128,11 @@ export const ZipReader = memo(function ZipReader({
   zoomAnchor,
   onProgressUpdate,
   onToggleControls,
-}: ZipReaderProps) {
-  const [zipInstance, setZipInstance] = useState<JSZip | null>(null);
+}: ArchiveReaderProps) {
+  const effectiveType: 'zip' | 'rar' = archiveType || (book?.sourceFormat === 'rar' ? 'rar' : 'zip');
+  const [archiveSession, setArchiveSession] = useState<GenericArchiveSession | null>(null);
+  const sessionRef = useRef<GenericArchiveSession | null>(null);
+
   const [entries, setEntries] = useState<ZipEntryItem[]>([]);
   const [loadingArchive, setLoadingArchive] = useState(true);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -133,29 +150,72 @@ export const ZipReader = memo(function ZipReader({
   // Blob URLs for image collection caching and revocation
   const activeBlobUrlsRef = useRef<Map<string, string>>(new Map());
 
-  // Load and parse ZIP on mount
+  // Load and parse archive on mount
   useEffect(() => {
     let isMounted = true;
     setLoadingArchive(true);
     setArchiveError(null);
 
-    async function initZip() {
+    async function initArchive() {
       try {
-        const [loadedZip, parsedResult] = await Promise.all([
-          JSZip.loadAsync(fileData),
-          parseZip(fileData, { filename: book?.originalFilename || book?.title }),
-        ]);
+        let session: GenericArchiveSession;
 
-        if (!isMounted) return;
-        setZipInstance(loadedZip);
-        setEntries(parsedResult.entries);
+        if (effectiveType === 'rar') {
+          const rarSession = await openRarArchiveSession(fileData, {
+            filename: book?.originalFilename || book?.title,
+          });
+          if (!isMounted) {
+            rarSession.close();
+            return;
+          }
+          session = {
+            type: 'rar',
+            entries: rarSession.entries,
+            getEntryData: (p) => rarSession.getEntryData(p),
+            getEntryBlob: (p, mime) => rarSession.getEntryBlob(p, mime),
+            getEntryText: (p) => rarSession.getEntryText(p),
+            close: () => rarSession.close(),
+          };
+        } else {
+          const [loadedZip, parsedResult] = await Promise.all([
+            JSZip.loadAsync(fileData),
+            parseZip(fileData, { filename: book?.originalFilename || book?.title }),
+          ]);
+
+          if (!isMounted) return;
+          session = {
+            type: 'zip',
+            entries: parsedResult.entries,
+            getEntryData: async (p) => {
+              const fileObj = loadedZip.file(p);
+              if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
+              return fileObj.async('arraybuffer');
+            },
+            getEntryBlob: async (p, mime) => {
+              const fileObj = loadedZip.file(p);
+              if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
+              const blob = await fileObj.async('blob');
+              return mime && blob.type !== mime ? new Blob([blob], { type: mime }) : blob;
+            },
+            getEntryText: async (p) => {
+              const fileObj = loadedZip.file(p);
+              if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
+              return fileObj.async('string');
+            },
+            close: () => {},
+          };
+        }
+
+        sessionRef.current = session;
+        setArchiveSession(session);
+        setEntries(session.entries);
 
         // Check if an initial sub-path was requested or saved in progress
         const targetPath = initialSubPath;
         if (targetPath) {
-          const matched = parsedResult.entries.find((e) => e.path === targetPath && !e.isDirectory);
+          const matched = session.entries.find((e) => e.path === targetPath && !e.isDirectory);
           if (matched && matched.isSupported) {
-            void openSubEntry(matched, loadedZip);
+            void openSubEntry(matched, session);
           }
         }
       } catch (err) {
@@ -166,13 +226,15 @@ export const ZipReader = memo(function ZipReader({
       }
     }
 
-    void initZip();
+    void initArchive();
 
     return () => {
       isMounted = false;
+      sessionRef.current?.close();
+      sessionRef.current = null;
       revokeActiveBlobUrls();
     };
-  }, [fileData]);
+  }, [fileData, effectiveType]);
 
   const revokeActiveBlobUrls = () => {
     activeBlobUrlsRef.current.forEach((url) => {
@@ -193,9 +255,9 @@ export const ZipReader = memo(function ZipReader({
   };
 
   // Open an individual supported file from the archive
-  const openSubEntry = async (entry: ZipEntryItem, zipOverride?: JSZip) => {
-    const zip = zipOverride || zipInstance;
-    if (!zip) return;
+  const openSubEntry = async (entry: ZipEntryItem, sessionOverride?: GenericArchiveSession) => {
+    const session = sessionOverride || archiveSession;
+    if (!session) return;
 
     if (!entry.isSupported) {
       showToast(`Files with format ".${entry.name.split('.').pop()}" cannot be opened.`);
@@ -204,11 +266,6 @@ export const ZipReader = memo(function ZipReader({
 
     setLoadingEntry(true);
     try {
-      const fileObj = zip.file(entry.path);
-      if (!fileObj) {
-        throw new Error(`File "${entry.name}" not found in archive.`);
-      }
-
       // If it's a standalone image, open as a single-item collection or sequence
       if (entry.kind === 'image') {
         const folder = entry.path.split('/').slice(0, -1).join('/');
@@ -238,7 +295,7 @@ export const ZipReader = memo(function ZipReader({
         entry.kind === 'cbr' ||
         entry.kind === 'cb7'
       ) {
-        const buffer = await fileObj.async('arraybuffer');
+        const buffer = await session.getEntryData(entry.path);
         setActiveCollection(null);
         setActiveDoc({
           entry,
@@ -250,7 +307,7 @@ export const ZipReader = memo(function ZipReader({
 
       // Reflowable text formats
       if (entry.kind === 'txt' || entry.kind === 'markdown' || entry.kind === 'html' || entry.kind === 'rtf') {
-        const text = await fileObj.async('string');
+        const text = await session.getEntryText(entry.path);
         let chapters: Chapter[] = [];
 
         if (entry.kind === 'txt') {
@@ -274,7 +331,7 @@ export const ZipReader = memo(function ZipReader({
       }
 
       // Complex document formats (DOCX, DOC, FB2, MOBI, AZW3, MHT)
-      const buffer = await fileObj.async('arraybuffer');
+      const buffer = await session.getEntryData(entry.path);
       let chapters: Chapter[] = [];
 
       if (entry.kind === 'docx') {
@@ -344,14 +401,12 @@ export const ZipReader = memo(function ZipReader({
   // Helper to load blob URL for an image entry
   const getImageBlobUrl = useCallback(
     async (entry: ZipEntryItem): Promise<string | undefined> => {
-      if (!zipInstance) return undefined;
+      if (!archiveSession) return undefined;
       const cached = activeBlobUrlsRef.current.get(entry.path);
       if (cached) return cached;
 
       try {
-        const fileObj = zipInstance.file(entry.path);
-        if (!fileObj) return undefined;
-        const blob = await fileObj.async('blob');
+        const blob = await archiveSession.getEntryBlob(entry.path);
         const url = URL.createObjectURL(blob);
         activeBlobUrlsRef.current.set(entry.path, url);
         return url;
@@ -359,7 +414,7 @@ export const ZipReader = memo(function ZipReader({
         return undefined;
       }
     },
-    [zipInstance]
+    [archiveSession]
   );
 
   // Compute items displayed in current directory
@@ -405,12 +460,14 @@ export const ZipReader = memo(function ZipReader({
     return crumbs;
   }, [currentFolder]);
 
+  const archiveDisplayName = effectiveType === 'rar' ? 'RAR Archive' : 'ZIP Archive';
+
   // Loading state
   if (loadingArchive) {
     return (
       <div className={styles.loadingCenter}>
         <div className={styles.spinner} />
-        <p>Inspecting ZIP Archive…</p>
+        <p>Inspecting {archiveDisplayName}…</p>
       </div>
     );
   }
@@ -624,7 +681,7 @@ export const ZipReader = memo(function ZipReader({
               </div>
               <div>
                 <h1 className={styles.archiveTitle}>
-                  {book?.title || 'ZIP Archive'}
+                  {book?.title || archiveDisplayName}
                 </h1>
                 <div className={styles.archiveStats}>
                   {entries.filter((e) => !e.isDirectory).length} files • {entries.filter((e) => e.isDirectory).length} folders
@@ -755,6 +812,8 @@ export const ZipReader = memo(function ZipReader({
     </div>
   );
 });
+
+export const ZipReader = ArchiveReader;
 
 /** Single image viewer helper */
 function SingleImageDisplay({

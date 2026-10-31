@@ -1,5 +1,5 @@
 /**
- * CBR Comic Book RAR format definition (.cbr, .rar).
+ * CBR Comic Book RAR format definition (.cbr).
  */
 
 import type { FormatDefinition, FormatParsedData } from '../types';
@@ -9,7 +9,7 @@ import { parseCbr } from '../../core/parsing/cbr-parser';
 export const cbrFormat: FormatDefinition = {
   id: 'cbr',
   label: 'Comic Book RAR (CBR)',
-  extensions: ['cbr', 'rar'],
+  extensions: ['cbr'],
   mimeTypes: [
     'application/vnd.comicbook-rar',
     'application/x-cbr',

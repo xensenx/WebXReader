@@ -855,7 +855,7 @@ export function ReaderView() {
   const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
   const isCbz = (book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && Boolean(content?.originalFile);
   const isDjvu = book?.sourceFormat === 'djvu' && Boolean(content?.originalFile);
-  const isZip = book?.sourceFormat === 'zip' && Boolean(content?.originalFile);
+  const isArchive = (book?.sourceFormat === 'zip' || book?.sourceFormat === 'rar') && Boolean(content?.originalFile);
   const searchProvider = useCallback<ReaderSearchProvider>((query) => {
     if (isEpub) return epubReaderRef.current?.search(query) ?? Promise.resolve([]);
     if (isPdf) return pdfReaderRef.current?.search(query) ?? Promise.resolve([]);
@@ -1066,10 +1066,11 @@ export function ReaderView() {
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
             />
-          ) : isZip ? (
+          ) : isArchive ? (
             <ZipReader
               fileData={content.originalFile!}
               book={book}
+              archiveType={book?.sourceFormat as 'zip' | 'rar'}
               initialSubPath={restoreLocation?.chapterId}
               initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
               initialProgressFraction={restoreLocation?.overallProgress}

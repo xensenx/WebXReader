@@ -15,7 +15,8 @@ describe('Format Registry & System', () => {
     expect(detectFormatFromFilename('comic.cbz')?.id).toBe('cbz');
     expect(detectFormatFromFilename('comic.cbr')?.id).toBe('cbr');
     expect(detectFormatFromFilename('COMIC.CBR')?.id).toBe('cbr');
-    expect(detectFormatFromFilename('archive.rar')?.id).toBe('cbr');
+    expect(detectFormatFromFilename('archive.rar')?.id).toBe('rar');
+    expect(detectFormatFromFilename('ARCHIVE.RAR')?.id).toBe('rar');
     expect(detectFormatFromFilename('comic.cb7')?.id).toBe('cb7');
     expect(detectFormatFromFilename('COMIC.CB7')?.id).toBe('cb7');
     expect(detectFormatFromFilename('archive.7z')?.id).toBe('cb7');
@@ -58,7 +59,7 @@ describe('Format Registry & System', () => {
 
   it('provides format definitions for all supported formats', () => {
     const formats = getAllFormats();
-    expect(formats.length).toBe(17);
+    expect(formats.length).toBe(18);
 
     const ids = formats.map((f) => f.id);
     expect(ids).toContain('epub');
@@ -78,6 +79,7 @@ describe('Format Registry & System', () => {
     expect(ids).toContain('djvu');
     expect(ids).toContain('mht');
     expect(ids).toContain('zip');
+    expect(ids).toContain('rar');
 
     const cbzDef = getRequiredFormat('cbz');
     expect(cbzDef.label).toBe('Comic Book Zip (CBZ)');
@@ -134,6 +136,11 @@ describe('Format Registry & System', () => {
     expect(zipDef.label).toBe('ZIP Archive');
     expect(zipDef.category).toBe('fixed-layout');
     expect(zipDef.capabilities.continuousScroll).toBe(true);
+
+    const rarDef = getRequiredFormat('rar');
+    expect(rarDef.label).toBe('RAR Archive');
+    expect(rarDef.category).toBe('fixed-layout');
+    expect(rarDef.capabilities.continuousScroll).toBe(true);
   });
 
   it('accurately identifies fixed layout formats', () => {
@@ -143,6 +150,7 @@ describe('Format Registry & System', () => {
     expect(isFixedLayout('djvu')).toBe(true);
     expect(isFixedLayout('pdf')).toBe(true);
     expect(isFixedLayout('zip')).toBe(true);
+    expect(isFixedLayout('rar')).toBe(true);
     expect(isFixedLayout('epub')).toBe(false);
     expect(isFixedLayout('txt')).toBe(false);
     expect(isFixedLayout('markdown')).toBe(false);

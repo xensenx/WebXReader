@@ -454,4 +454,31 @@ Content-Location: http://example.com/foundation.html
     expect(content?.originalFile).toBeDefined();
     expect(content?.originalFile?.byteLength).toBe(zipBuffer.byteLength);
   });
+
+  it('successfully imports a general-purpose RAR archive (.rar)', async () => {
+    const rarBuffer = createSyntheticRar([
+      { name: 'chapter1.txt', content: Buffer.from('Chapter 1 content inside RAR.') },
+      { name: 'chapter2.txt', content: Buffer.from('Chapter 2 content inside RAR.') },
+      { name: 'docs/guide.md', content: Buffer.from('# Documentation\nGuide text.') },
+      { name: 'cover.jpg', content: SAMPLE_JPEG },
+    ]);
+    const file = new File([rarBuffer], 'anthology.rar', { type: 'application/x-rar' });
+    const result = await importFile(file);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('rar');
+      expect(result.book.title).toBe('anthology');
+      expect(result.book.tableOfContents.length).toBeGreaterThan(0);
+      expect(result.book.coverImage).toBeDefined();
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('rar');
+
+    const content = await getBookContent(result.success ? result.book.id : '');
+    expect(content?.originalFile).toBeDefined();
+    expect(content?.originalFile?.byteLength).toBe(rarBuffer.byteLength);
+  });
 });

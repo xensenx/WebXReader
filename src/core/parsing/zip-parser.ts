@@ -330,7 +330,7 @@ export async function parseZip(
 /**
  * Builds a nested Chapter hierarchy from flat ZIP entries.
  */
-function buildChapterTree(entries: ZipEntryItem[]): Chapter[] {
+export function buildChapterTree(entries: ZipEntryItem[]): Chapter[] {
   interface Node {
     id: string;
     title: string;
