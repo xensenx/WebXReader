@@ -8,5 +8,5 @@ Format	Extension	Notes
 .fb2	fb2, fb2.zip	Implemented (FictionBook 2 with XML parsing, zip archive decompression, nested sections, and cover extraction)
 .docx	docx	Implemented (Microsoft Word Open XML format with semantic HTML conversion, table & list formatting, embedded media, Dublin Core metadata, and chapter splitting)
 .doc	doc	Implemented (Microsoft Word 97-2004 binary format with OLE2 Compound Document container parsing, Plcfpcd piece table reconstruction, Unicode & ANSI text extraction, and OLE summary metadata)
-.djvu, .djv	
+.djvu, .djv	djvu, djv	Implemented (DjVu document format with djvu-rs WebAssembly engine, continuous vertical scroll & paginated rendering, zoom with anchors, full-text OCR search, IFF metadata, and bookmarks)
 .xps	

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "cfb": "^1.2.2",
+    "djvu-rs": "^0.43.0",
     "dompurify": "^3.4.17",
     "epubjs": "^0.3.93",
     "jszip": "^3.10.2",

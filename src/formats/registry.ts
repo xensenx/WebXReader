@@ -19,6 +19,7 @@ import { docFormat } from './definitions/doc';
 import { epubFormat } from './definitions/epub';
 import { pdfFormat } from './definitions/pdf';
 import { cbzFormat } from './definitions/cbz';
+import { djvuFormat } from './definitions/djvu';
 import { getFileExtension } from '../utils';
 
 /** Master registry mapping format ID to definition */
@@ -35,6 +36,7 @@ const FORMAT_REGISTRY = new Map<BookFormat, FormatDefinition>([
   ['epub', epubFormat],
   ['pdf', pdfFormat],
   ['cbz', cbzFormat],
+  ['djvu', djvuFormat],
 ]);
 
 /** Extension-to-format lookup cache */

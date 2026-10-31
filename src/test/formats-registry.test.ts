@@ -36,13 +36,17 @@ describe('Format Registry & System', () => {
     expect(detectFormatFromFilename('DOCUMENT.DOCX')?.id).toBe('docx');
     expect(detectFormatFromFilename('legacy.doc')?.id).toBe('doc');
     expect(detectFormatFromFilename('LEGACY.DOC')?.id).toBe('doc');
+    expect(detectFormatFromFilename('document.djvu')?.id).toBe('djvu');
+    expect(detectFormatFromFilename('DOCUMENT.DJVU')?.id).toBe('djvu');
+    expect(detectFormatFromFilename('archive.djv')?.id).toBe('djvu');
+    expect(detectFormatFromFilename('ARCHIVE.DJV')?.id).toBe('djvu');
     expect(detectFormatFromFilename('unknown.xyz')).toBeNull();
     expect(detectFormatFromFilename('no-extension')).toBeNull();
   });
 
   it('provides format definitions for all supported formats', () => {
     const formats = getAllFormats();
-    expect(formats.length).toBe(12);
+    expect(formats.length).toBe(13);
 
     const ids = formats.map((f) => f.id);
     expect(ids).toContain('epub');
@@ -57,6 +61,7 @@ describe('Format Registry & System', () => {
     expect(ids).toContain('azw3');
     expect(ids).toContain('docx');
     expect(ids).toContain('doc');
+    expect(ids).toContain('djvu');
 
     const cbzDef = getRequiredFormat('cbz');
     expect(cbzDef.label).toBe('Comic Book Zip (CBZ)');
@@ -92,6 +97,7 @@ describe('Format Registry & System', () => {
 
   it('accurately identifies fixed layout formats', () => {
     expect(isFixedLayout('cbz')).toBe(true);
+    expect(isFixedLayout('djvu')).toBe(true);
     expect(isFixedLayout('pdf')).toBe(true);
     expect(isFixedLayout('epub')).toBe(false);
     expect(isFixedLayout('txt')).toBe(false);
@@ -118,6 +124,7 @@ describe('Format Registry & System', () => {
     expect(formatSupportsFeature('azw3', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('docx', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('doc', 'continuousScroll')).toBe(true);
+    expect(formatSupportsFeature('djvu', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('pdf', 'doubleSided')).toBe(false);
     expect(formatSupportsFeature('txt', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('rtf', 'doubleSided')).toBe(true);
@@ -146,6 +153,8 @@ describe('Format Registry & System', () => {
     expect(accept).toContain('.kf8');
     expect(accept).toContain('.docx');
     expect(accept).toContain('.doc');
+    expect(accept).toContain('.djvu');
+    expect(accept).toContain('.djv');
 
     expect(getFormatMimeType('cbz')).toBe('application/vnd.comicbook+zip');
     expect(getFormatMimeType('pdf')).toBe('application/pdf');
@@ -159,6 +168,7 @@ describe('Format Registry & System', () => {
     expect(getFormatMimeType('azw3')).toBe('application/vnd.amazon.mobi8-ebook');
     expect(getFormatMimeType('docx')).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     expect(getFormatMimeType('doc')).toBe('application/msword');
+    expect(getFormatMimeType('djvu')).toBe('image/vnd.djvu');
   });
 
   it('handles unknown formats gracefully', () => {
