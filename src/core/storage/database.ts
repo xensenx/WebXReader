@@ -296,7 +296,8 @@ export async function deleteBooks(ids: string[]): Promise<void> {
     }
 
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(new Error(`Failed to delete books: ${tx.error?.message}`));
+    tx.onerror = () => reject(new Error(`Failed to delete books: ${tx.error?.message ?? 'transaction failed'}`));
+    tx.onabort = () => reject(new Error(`Failed to delete books: ${tx.error?.message ?? 'transaction aborted'}`));
   });
 }
 

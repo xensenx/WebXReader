@@ -193,6 +193,17 @@ export function ReaderView() {
   const isArchive = (book?.sourceFormat === 'zip' || book?.sourceFormat === 'rar') && Boolean(content?.originalFile);
   const isImage = (book?.sourceFormat === 'png' || book?.sourceFormat === 'jpeg') && Boolean(content?.originalFile);
 
+  const zoomPreviewRefs = useMemo(
+    () => ({ epubReaderRef, pdfReaderRef, cbzReaderRef, djvuReaderRef, imageReaderRef }),
+    [],
+  );
+  const searchReaders = useMemo(
+    () => ({ epubReaderRef, pdfReaderRef, djvuReaderRef }),
+    [],
+  );
+  const stageReady =
+    !loading && !progressLoading && !readerSettingsLoading && (bookId === undefined || book?.id === bookId);
+
   const {
     readerZoom,
     zoomAnchor,
@@ -204,14 +215,8 @@ export function ReaderView() {
   } = useReaderZoom({
     sourceFormat: book?.sourceFormat,
     readerStageRef,
-    loading,
-    previewRefs: {
-      epubReaderRef,
-      pdfReaderRef,
-      cbzReaderRef,
-      djvuReaderRef,
-      imageReaderRef,
-    },
+    loading: !stageReady,
+    previewRefs: zoomPreviewRefs,
   });
 
   const {
@@ -225,11 +230,7 @@ export function ReaderView() {
     isEpub,
     isPdf,
     isDjvu,
-    readers: {
-      epubReaderRef,
-      pdfReaderRef,
-      djvuReaderRef,
-    },
+    readers: searchReaders,
     setActiveChapterId,
     onScrollToElement: scrollToReaderElement,
     onScrollToRange: scrollToReaderRange,
