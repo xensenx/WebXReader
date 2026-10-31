@@ -268,6 +268,20 @@ export function parseJpegHeader(bytes: Uint8Array): ImageMetadata {
       }
     }
 
+    // Check COM marker (0xFE) for embedded comment / title
+    if (marker === 0xfe && segmentLength > 2) {
+      try {
+        const commentBytes = bytes.slice(payloadOffset, payloadOffset + segmentLength - 2);
+        const comment = new TextDecoder('utf-8').decode(commentBytes).trim();
+        if (comment) {
+          title = comment;
+          description = description || comment;
+        }
+      } catch {
+        // ignore decoding errors
+      }
+    }
+
     // Check SOF markers (Start of Frame)
     const isSof =
       marker === 0xc0 || // Baseline

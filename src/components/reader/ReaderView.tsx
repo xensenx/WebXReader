@@ -2,7 +2,7 @@
  * ReaderView: the dedicated desktop-class novel reader environment.
  */
 
-import { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -32,9 +32,8 @@ import { DoubleSidedReader } from './DoubleSidedReader';
 import { TableOfContents } from './TableOfContents';
 import { BookmarkPanel } from './BookmarkPanel';
 import { SearchPanel } from './SearchPanel';
-import type { ReaderSearchProvider, ReaderSearchResult } from './search-types';
-import { findTextRange } from '../../utils/text-search';
-import { showTransientSearchHighlight } from '../../utils/transient-search-highlight';
+import { useReaderZoom, MIN_READER_ZOOM, MAX_READER_ZOOM, MIN_PDF_ZOOM, MAX_PDF_ZOOM } from './hooks/useReaderZoom';
+import { useInBookSearch } from './hooks/useInBookSearch';
 import { ReaderSettings } from './ReaderSettings';
 import { ProgressBar } from './ProgressBar';
 import { Button } from '../common/Button';
@@ -43,7 +42,6 @@ import {
   formatSupportsFeature,
   type EpubReaderHandle,
   type PdfReaderHandle,
-  type PdfZoomAnchor,
   type CbzReaderHandle,
   type DjvuReaderHandle,
   type ImageReaderHandle,
@@ -76,41 +74,6 @@ const ImageReader = lazy(async () => {
   const module = await import('../../formats/engines/ImageReader');
   return { default: module.ImageReader };
 });
-
-const MIN_READER_ZOOM = 0.5;
-const MAX_READER_ZOOM = 3;
-const MIN_PDF_ZOOM = 0.24;
-const MAX_PDF_ZOOM = 8;
-
-type ReaderZoomAnchor = PdfZoomAnchor;
-
-function clampReaderZoom(value: number, fixedLayout: boolean) {
-  const min = fixedLayout ? MIN_PDF_ZOOM : MIN_READER_ZOOM;
-  const max = fixedLayout ? MAX_PDF_ZOOM : MAX_READER_ZOOM;
-  // Keep PDF wheel/pinch zoom continuous. Rounding each input step makes
-  // small trackpad deltas visibly stall and jump at high magnification.
-  const zoom = fixedLayout ? value : Math.round(value * 100) / 100;
-  return Math.min(max, Math.max(min, zoom));
-}
-
-function getWheelDeltaPixels(event: WheelEvent, viewport?: HTMLElement | null) {
-  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 16;
-  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * (viewport?.clientHeight || window.innerHeight);
-  return event.deltaY;
-}
-
-function getTouchZoomGesture(touches: TouchList) {
-  const first = touches[0];
-  const second = touches[1];
-  if (!first || !second) return null;
-  return {
-    distance: Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY),
-    point: {
-      x: (first.clientX + second.clientX) / 2,
-      y: (first.clientY + second.clientY) / 2,
-    },
-  };
-}
 
 function getReaderScrollContainer(element: HTMLElement): HTMLElement | null {
   let parent = element.parentElement;
@@ -189,28 +152,11 @@ export function ReaderView() {
   const [activeChapterId, setActiveChapterId] = useState<string>('');
   const [headerVisible, setHeaderVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [readerZoom, setReaderZoom] = useState(1);
-  const readerZoomRef = useRef(1);
-  const [zoomAnchor, setZoomAnchor] = useState<ReaderZoomAnchor | undefined>(undefined);
-  const pdfZoomAnchorRef = useRef<ReaderZoomAnchor | undefined>(undefined);
-  const zoomLabelRef = useRef<HTMLSpanElement>(null);
-  const previousReaderZoomRef = useRef(readerZoom);
   const readerStageRef = useRef<HTMLDivElement>(null);
-  const zoomAnchorIdRef = useRef(0);
-  const wheelZoomDeltaRef = useRef(0);
-  const wheelZoomPointRef = useRef<{ x: number; y: number } | undefined>(undefined);
-  const wheelZoomFrameRef = useRef<number | null>(null);
-  const lastWheelZoomAtRef = useRef(0);
-  const pdfZoomCommitTimerRef = useRef<number | null>(null);
-  const touchZoomStartRef = useRef<{ distance: number; zoom: number } | null>(null);
-  const touchZoomPendingRef = useRef<{ zoom: number; point: { x: number; y: number } } | null>(null);
-  const touchZoomFrameRef = useRef<number | null>(null);
-  const lastTouchZoomAtRef = useRef(0);
 
   // Drawers / Panels
   const [tocOpen, setTocOpen] = useState(false);
   const [bookmarksOpen, setBookmarksOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Hooks
@@ -240,157 +186,54 @@ export function ReaderView() {
     flushRef.current = flush;
   }, [flush]);
 
-  const captureZoomAnchor = useCallback((clientX?: number, clientY?: number) => {
-    const stage = readerStageRef.current;
-    const viewport = stage?.querySelector<HTMLElement>('[data-reader-viewport]');
-    if (!stage || !viewport) return undefined;
+  const isEpub = book?.sourceFormat === 'epub' && Boolean(content?.originalFile);
+  const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
+  const isCbz = (book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && Boolean(content?.originalFile);
+  const isDjvu = book?.sourceFormat === 'djvu' && Boolean(content?.originalFile);
+  const isArchive = (book?.sourceFormat === 'zip' || book?.sourceFormat === 'rar') && Boolean(content?.originalFile);
+  const isImage = (book?.sourceFormat === 'png' || book?.sourceFormat === 'jpeg') && Boolean(content?.originalFile);
 
-    const viewportRect = viewport.getBoundingClientRect();
-    const x = clientX ?? viewportRect.left + viewportRect.width / 2;
-    const y = clientY ?? viewportRect.top + viewportRect.height / 2;
-    const viewportX = Math.max(0, Math.min(viewport.clientWidth, x - viewportRect.left));
-    const viewportY = Math.max(0, Math.min(viewport.clientHeight, y - viewportRect.top));
-    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page], [data-cbz-page], [data-djvu-page], [data-image-page]');
-    const page = hitPage && stage.contains(hitPage) ? hitPage : null;
-    const pageRect = page?.getBoundingClientRect();
+  const {
+    readerZoom,
+    zoomAnchor,
+    zoomLabelRef,
+    zoomBy,
+    zoomTo,
+    resetZoom,
+    queueWheelZoom,
+  } = useReaderZoom({
+    sourceFormat: book?.sourceFormat,
+    readerStageRef,
+    loading,
+    previewRefs: {
+      epubReaderRef,
+      pdfReaderRef,
+      cbzReaderRef,
+      djvuReaderRef,
+      imageReaderRef,
+    },
+  });
 
-    return {
-      id: ++zoomAnchorIdRef.current,
-      pageNumber: page ? Number(page.dataset.pdfPage || page.dataset.cbzPage || page.dataset.djvuPage || page.dataset.imagePage) : undefined,
-      pageX: pageRect?.width ? Math.max(0, Math.min(1, (x - pageRect.left) / pageRect.width)) : undefined,
-      pageY: pageRect?.height ? Math.max(0, Math.min(1, (y - pageRect.top) / pageRect.height)) : undefined,
-      viewportX,
-      viewportY,
-      scrollRatioX: (viewport.scrollLeft + viewportX) / Math.max(1, viewport.scrollWidth),
-      scrollRatioY: (viewport.scrollTop + viewportY) / Math.max(1, viewport.scrollHeight),
-    } satisfies ReaderZoomAnchor;
-  }, []);
-
-  const updateZoom = useCallback((nextZoom: number, fixedLayout: boolean, anchor?: ReaderZoomAnchor) => {
-    if (Math.abs(nextZoom - readerZoomRef.current) < 1e-7) return;
-    readerZoomRef.current = nextZoom;
-    if (!fixedLayout) {
-      if (anchor) setZoomAnchor(anchor);
-      setReaderZoom(nextZoom);
-      return;
-    }
-
-    if (anchor) pdfZoomAnchorRef.current = anchor;
-    const activeAnchor = pdfZoomAnchorRef.current ?? captureZoomAnchor();
-    if (activeAnchor) {
-      pdfZoomAnchorRef.current = activeAnchor;
-      pdfReaderRef.current?.previewZoom(nextZoom, activeAnchor);
-      cbzReaderRef.current?.previewZoom(nextZoom, activeAnchor);
-      djvuReaderRef.current?.previewZoom(nextZoom, activeAnchor);
-      imageReaderRef.current?.previewZoom(nextZoom, activeAnchor);
-    }
-    if (zoomLabelRef.current) {
-      const percent = Math.round(nextZoom * 100);
-      zoomLabelRef.current.textContent = `${percent}%`;
-      zoomLabelRef.current.setAttribute('aria-label', `Book zoom ${percent} percent`);
-    }
-
-    if (pdfZoomCommitTimerRef.current !== null) {
-      window.clearTimeout(pdfZoomCommitTimerRef.current);
-    }
-    pdfZoomCommitTimerRef.current = window.setTimeout(() => {
-      setZoomAnchor(pdfZoomAnchorRef.current);
-      setReaderZoom(readerZoomRef.current);
-      pdfZoomCommitTimerRef.current = null;
-    }, 120);
-  }, [captureZoomAnchor]);
-
-  const zoomBy = useCallback((factor: number, point?: { x: number; y: number }) => {
-    const anchor = captureZoomAnchor(point?.x, point?.y);
-    const fixedLayout = isFixedLayout(book?.sourceFormat);
-    updateZoom(clampReaderZoom(readerZoomRef.current * factor, fixedLayout), fixedLayout, anchor);
-  }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
-
-  const zoomTo = useCallback((targetZoom: number, point?: { x: number; y: number }) => {
-    const anchor = captureZoomAnchor(point?.x, point?.y);
-    const fixedLayout = isFixedLayout(book?.sourceFormat);
-    updateZoom(clampReaderZoom(targetZoom, fixedLayout), fixedLayout, anchor);
-  }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
-
-  const resetZoom = useCallback(() => {
-    const anchor = captureZoomAnchor();
-    updateZoom(1, isFixedLayout(book?.sourceFormat), anchor);
-  }, [book?.sourceFormat, captureZoomAnchor, updateZoom]);
-
-  const queueWheelZoom = useCallback((deltaY: number, point?: { x: number; y: number }) => {
-    const fixedLayout = isFixedLayout(book?.sourceFormat);
-    wheelZoomDeltaRef.current += deltaY;
-    if (point) wheelZoomPointRef.current = point;
-    if (wheelZoomFrameRef.current !== null) return;
-
-    const applyPendingZoom = () => {
-      const elapsed = performance.now() - lastWheelZoomAtRef.current;
-      if (!fixedLayout && wheelZoomDeltaRef.current !== 0 && elapsed < 50) {
-        wheelZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
-        return;
-      }
-
-      wheelZoomFrameRef.current = null;
-      const delta = wheelZoomDeltaRef.current;
-      const latestPoint = wheelZoomPointRef.current;
-      wheelZoomDeltaRef.current = 0;
-      wheelZoomPointRef.current = undefined;
-      if (delta !== 0) {
-        if (!fixedLayout) lastWheelZoomAtRef.current = performance.now();
-        zoomBy(Math.exp(-delta * 0.0008), latestPoint);
-      }
-    };
-
-    wheelZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
-  }, [book?.sourceFormat, zoomBy]);
-
-  const queueTouchZoom = useCallback((zoom: number, point: { x: number; y: number }) => {
-    const fixedLayout = isFixedLayout(book?.sourceFormat);
-    touchZoomPendingRef.current = { zoom, point };
-    if (touchZoomFrameRef.current !== null) return;
-
-    const applyPendingZoom = () => {
-      const elapsed = performance.now() - lastTouchZoomAtRef.current;
-      if (!fixedLayout && touchZoomPendingRef.current && elapsed < 40) {
-        touchZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
-        return;
-      }
-
-      touchZoomFrameRef.current = null;
-      const pending = touchZoomPendingRef.current;
-      touchZoomPendingRef.current = null;
-      if (!pending) return;
-      if (!fixedLayout) lastTouchZoomAtRef.current = performance.now();
-      zoomTo(pending.zoom, pending.point);
-    };
-
-    touchZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
-  }, [book?.sourceFormat, zoomTo]);
-
-  useEffect(() => () => {
-    if (wheelZoomFrameRef.current !== null) cancelAnimationFrame(wheelZoomFrameRef.current);
-    if (touchZoomFrameRef.current !== null) cancelAnimationFrame(touchZoomFrameRef.current);
-    if (pdfZoomCommitTimerRef.current !== null) window.clearTimeout(pdfZoomCommitTimerRef.current);
-  }, []);
-
-  useLayoutEffect(() => {
-    if (previousReaderZoomRef.current === readerZoom) return;
-    previousReaderZoomRef.current = readerZoom;
-    if (isFixedLayout(book?.sourceFormat) || book?.sourceFormat === 'epub' || !zoomAnchor) return;
-
-    const viewport = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
-    if (!viewport) return;
-    const horizontal = viewport.dataset.readerViewport === 'paginated';
-    viewport.scrollTo({
-      left: horizontal
-        ? Math.max(0, zoomAnchor.scrollRatioX * viewport.scrollWidth - zoomAnchor.viewportX)
-        : viewport.scrollLeft,
-      top: horizontal
-        ? viewport.scrollTop
-        : Math.max(0, zoomAnchor.scrollRatioY * viewport.scrollHeight - zoomAnchor.viewportY),
-      behavior: 'auto',
-    });
-  }, [book?.sourceFormat, readerZoom, zoomAnchor]);
+  const {
+    searchOpen,
+    setSearchOpen,
+    searchProvider,
+    handleSelectSearchResult,
+  } = useInBookSearch({
+    book,
+    readerStageRef,
+    isEpub,
+    isPdf,
+    isDjvu,
+    readers: {
+      epubReaderRef,
+      pdfReaderRef,
+      djvuReaderRef,
+    },
+    setActiveChapterId,
+    onScrollToElement: scrollToReaderElement,
+    onScrollToRange: scrollToReaderRange,
+  });
 
   // Capture initial progress once on load so readers are not re-rendered on scroll
   const initialProgressRef = useRef<{
@@ -407,29 +250,8 @@ export function ReaderView() {
     setActiveChapterId('');
     setBook(null);
     setContent(null);
-    readerZoomRef.current = 1;
-    setReaderZoom(1);
-    setZoomAnchor(undefined);
-    pdfZoomAnchorRef.current = undefined;
-    wheelZoomDeltaRef.current = 0;
-    wheelZoomPointRef.current = undefined;
-    lastWheelZoomAtRef.current = 0;
-    if (wheelZoomFrameRef.current !== null) {
-      cancelAnimationFrame(wheelZoomFrameRef.current);
-      wheelZoomFrameRef.current = null;
-    }
-    touchZoomStartRef.current = null;
-    touchZoomPendingRef.current = null;
-    lastTouchZoomAtRef.current = 0;
-    if (touchZoomFrameRef.current !== null) {
-      cancelAnimationFrame(touchZoomFrameRef.current);
-      touchZoomFrameRef.current = null;
-    }
-    if (pdfZoomCommitTimerRef.current !== null) {
-      window.clearTimeout(pdfZoomCommitTimerRef.current);
-      pdfZoomCommitTimerRef.current = null;
-    }
-  }, [bookId]);
+    resetZoom();
+  }, [bookId, resetZoom]);
 
   useEffect(() => {
     if (initialProgressRef.current || !progress) return;
@@ -582,72 +404,11 @@ export function ReaderView() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleFullscreen, tocOpen, bookmarksOpen, searchOpen, settingsOpen, zoomBy, resetZoom]);
+  }, [toggleFullscreen, tocOpen, bookmarksOpen, searchOpen, settingsOpen, zoomBy, resetZoom, setSearchOpen]);
 
   const handleToggleControls = useCallback(() => {
     setHeaderVisible((p) => !p);
   }, []);
-
-  // Prevent browser zoom and native scrolling inside the reading surface during Ctrl+wheel
-  // and route the gesture cleanly to the reader zoom controller.
-  useEffect(() => {
-    const stage = readerStageRef.current;
-    if (!stage) return;
-
-    const handleNativeWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      const target = event.target as Node | null;
-      if (!stage.contains(target)) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      queueWheelZoom(getWheelDeltaPixels(event, stage.querySelector<HTMLElement>('[data-reader-viewport]')), {
-        x: event.clientX,
-        y: event.clientY,
-      });
-    };
-
-    stage.addEventListener('wheel', handleNativeWheel, { capture: true, passive: false });
-    return () => stage.removeEventListener('wheel', handleNativeWheel, true);
-  }, [loading, queueWheelZoom]);
-
-  useEffect(() => {
-    const stage = readerStageRef.current;
-    if (!stage) return;
-
-    const handleTouchStart = (event: TouchEvent) => {
-      if (event.touches.length < 2) return;
-      const gesture = getTouchZoomGesture(event.touches);
-      if (!gesture || gesture.distance <= 0) return;
-      touchZoomStartRef.current = { distance: gesture.distance, zoom: readerZoomRef.current };
-      event.stopPropagation();
-    };
-    const handleTouchMove = (event: TouchEvent) => {
-      const start = touchZoomStartRef.current;
-      if (!start || event.touches.length < 2) return;
-      const gesture = getTouchZoomGesture(event.touches);
-      if (!gesture) return;
-      if (event.cancelable) event.preventDefault();
-      event.stopPropagation();
-      queueTouchZoom(start.zoom * gesture.distance / start.distance, gesture.point);
-    };
-    const handleTouchEnd = (event: TouchEvent) => {
-      if (!touchZoomStartRef.current) return;
-      event.stopPropagation();
-      if (event.touches.length < 2) touchZoomStartRef.current = null;
-    };
-
-    stage.addEventListener('touchstart', handleTouchStart, { capture: true, passive: true });
-    stage.addEventListener('touchmove', handleTouchMove, { capture: true, passive: false });
-    stage.addEventListener('touchend', handleTouchEnd, { capture: true, passive: true });
-    stage.addEventListener('touchcancel', handleTouchEnd, { capture: true, passive: true });
-    return () => {
-      stage.removeEventListener('touchstart', handleTouchStart, true);
-      stage.removeEventListener('touchmove', handleTouchMove, true);
-      stage.removeEventListener('touchend', handleTouchEnd, true);
-      stage.removeEventListener('touchcancel', handleTouchEnd, true);
-    };
-  }, [loading, queueTouchZoom]);
 
   // Handle scroll progress update
   const handleScrollProgress = useCallback(
@@ -817,40 +578,6 @@ export function ReaderView() {
     }
   };
 
-  // Navigate to the exact result in the active format, then select its text.
-  const handleSelectSearchResult = (result: ReaderSearchResult, query: string) => {
-    if (book?.sourceFormat === 'djvu' && result.pageNumber && djvuReaderRef.current) {
-      void djvuReaderRef.current.goToSearchMatch(result.pageNumber, query, result.matchIndex);
-      return;
-    }
-    if (book?.sourceFormat === 'pdf' && result.pageNumber && pdfReaderRef.current) {
-      void pdfReaderRef.current.goToSearchMatch(result.pageNumber, query, result.matchIndex);
-      return;
-    }
-    if (book?.sourceFormat === 'epub' && result.href && epubReaderRef.current) {
-      void epubReaderRef.current.goToSearchMatch(result.href, query, result.matchIndex);
-      return;
-    }
-
-    setActiveChapterId(result.chapterId);
-    const chapterElement = document.getElementById(`chapter-${result.chapterId}`) ||
-      Array.from(readerStageRef.current?.querySelectorAll<HTMLElement>('[data-chapter-id]') || [])
-        .find((element) => element.dataset.chapterId === result.chapterId);
-    if (!chapterElement) return;
-
-    const textRoot = chapterElement.querySelector('[data-chapter-body]') || chapterElement;
-    const range = findTextRange(textRoot, query, result.matchIndex);
-    if (!range) {
-      scrollToReaderElement(chapterElement);
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      showTransientSearchHighlight(range);
-      scrollToReaderRange(range);
-    });
-  };
-
   // Find active chapter title
   const currentChapterTitle = useMemo(() => {
     if (!book) return '';
@@ -858,18 +585,6 @@ export function ReaderView() {
     return found ? found.title : '';
   }, [book, activeChapterId]);
 
-  const isEpub = book?.sourceFormat === 'epub' && Boolean(content?.originalFile);
-  const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
-  const isCbz = (book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && Boolean(content?.originalFile);
-  const isDjvu = book?.sourceFormat === 'djvu' && Boolean(content?.originalFile);
-  const isArchive = (book?.sourceFormat === 'zip' || book?.sourceFormat === 'rar') && Boolean(content?.originalFile);
-  const isImage = (book?.sourceFormat === 'png' || book?.sourceFormat === 'jpeg') && Boolean(content?.originalFile);
-  const searchProvider = useCallback<ReaderSearchProvider>((query) => {
-    if (isEpub) return epubReaderRef.current?.search(query) ?? Promise.resolve([]);
-    if (isPdf) return pdfReaderRef.current?.search(query) ?? Promise.resolve([]);
-    if (isDjvu) return djvuReaderRef.current?.search(query) ?? Promise.resolve([]);
-    return Promise.resolve([]);
-  }, [isEpub, isPdf, isDjvu]);
   const effectiveReadingMode = isPdf && readerSettings.readingMode === 'vertical'
       ? 'paginated'
       : readerSettings.readingMode;

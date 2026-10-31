@@ -155,22 +155,6 @@ export function getFileExtension(filename: string): string {
 }
 
 /**
- * Simple HTML sanitizer - removes script tags and event handlers.
- * For production, use DOMPurify or similar.
- */
-export function sanitizeHtml(html: string): string {
-  // Remove script tags and their content
-  let cleaned = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-  // Remove on* event handlers
-  cleaned = cleaned.replace(/\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi, '');
-  // Remove javascript: URLs
-  cleaned = cleaned.replace(/href\s*=\s*["']?\s*javascript:/gi, 'href="');
-  // Remove data: URLs except for images
-  cleaned = cleaned.replace(/src\s*=\s*["']?\s*data:(?!image\/)/gi, 'src="');
-  return cleaned;
-}
-
-/**
  * Safely reads text from a File with encoding detection.
  */
 export async function readFileAsText(file: File, encoding?: string): Promise<string> {

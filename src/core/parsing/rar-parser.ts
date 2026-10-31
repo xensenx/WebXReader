@@ -20,6 +20,7 @@ import {
   MAX_SINGLE_ENTRY_SIZE,
 } from './zip-parser';
 import { naturalCompare, shouldIgnoreEntry, getImageMimeType } from './comic-archive';
+import { removeDirRecursive, walkDirectoryWithStats } from './sevenzip-common';
 
 export interface RarParseResult {
   metadata: {
@@ -66,70 +67,6 @@ export function validateRarSignature(bytes: Uint8Array): void {
   }
 }
 
-function removeDirRecursive(FS: any, dir: string) {
-  try {
-    const entries = FS.readdir(dir);
-    for (const name of entries) {
-      if (name === '.' || name === '..') continue;
-      const full = `${dir}/${name}`;
-      try {
-        const stat = FS.stat(full);
-        if (FS.isDir(stat.mode)) {
-          removeDirRecursive(FS, full);
-        } else {
-          FS.unlink(full);
-        }
-      } catch {
-        // ignore
-      }
-    }
-    FS.rmdir(dir);
-  } catch {
-    // ignore
-  }
-}
-
-interface WalkItem {
-  rel: string;
-  full: string;
-  isDir: boolean;
-  size: number;
-  mtime?: Date;
-}
-
-function walkDirectoryWithStats(
-  FS: any,
-  dir: string,
-  base: string = ''
-): WalkItem[] {
-  const entries = FS.readdir(dir);
-  const results: WalkItem[] = [];
-
-  for (const name of entries) {
-    if (name === '.' || name === '..') continue;
-    const full = `${dir}/${name}`;
-    const rel = base ? `${base}/${name}` : name;
-    try {
-      const stat = FS.stat(full);
-      const isDir = FS.isDir(stat.mode);
-      results.push({
-        rel,
-        full,
-        isDir,
-        size: isDir ? 0 : stat.size,
-        mtime: stat.mtime ? new Date(stat.mtime) : undefined,
-      });
-      if (isDir) {
-        results.push(...walkDirectoryWithStats(FS, full, rel));
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  return results;
-}
-
 /**
  * Parses a RAR archive from an ArrayBuffer, validates safety, and constructs a navigable directory model.
  */
@@ -162,9 +99,9 @@ export async function parseRar(
     try {
       // Extract with 7z ('x' handles solid RAR4 and RAR5, -p- disables password prompt to detect encrypted)
       sevenZip.callMain(['x', inputFile, `-o${outDir}`, '-y', '-p-']);
-    } catch (err: any) {
+    } catch (err: unknown) {
       hadExitError = true;
-      const msg = String(err?.message || err || '');
+      const msg = String((err as { message?: string })?.message || err || '');
       if (msg.includes('Wrong password') || msg.includes('password') || msg.includes('Encrypted')) {
         throw new Error('This RAR archive is password-protected or encrypted. Encrypted archives cannot be opened without a password.');
       }
@@ -270,7 +207,7 @@ export async function parseRar(
       const fullCoverPath = pathToFullMap.get(explicitCover.path);
       if (fullCoverPath) {
         try {
-          const coverBytes = FS.readFile(fullCoverPath);
+          const coverBytes = FS.readFile(fullCoverPath) as Uint8Array;
           const mime = getImageMimeType(explicitCover.path);
           const binary = Array.from(coverBytes, (byte: number) => String.fromCharCode(byte)).join('');
           coverImage = `data:${mime};base64,${btoa(binary)}`;
@@ -330,8 +267,8 @@ export async function openRarArchiveSession(
   try {
     // Extract archive with 7-Zip
     sevenZip.callMain(['x', inputFile, `-o${outDir}`, '-y', '-p-']);
-  } catch (err: any) {
-    const msg = String(err?.message || err || '');
+  } catch (err: unknown) {
+    const msg = String((err as { message?: string })?.message || err || '');
     if (msg.includes('Wrong password') || msg.includes('password') || msg.includes('Encrypted')) {
       removeDirRecursive(FS, baseDir);
       throw new Error('This RAR archive is password-protected or encrypted. Encrypted archives cannot be opened without a password.');
@@ -397,7 +334,7 @@ export async function openRarArchiveSession(
       if (isClosed) throw new Error('Archive session is closed.');
       const fullPath = pathToFullMap.get(relativePath);
       if (!fullPath) throw new Error(`File "${relativePath}" not found in RAR archive.`);
-      const data: Uint8Array = FS.readFile(fullPath);
+      const data = FS.readFile(fullPath) as Uint8Array;
       const copy = new Uint8Array(data.byteLength);
       copy.set(data);
       return copy.buffer;
@@ -406,7 +343,7 @@ export async function openRarArchiveSession(
       if (isClosed) throw new Error('Archive session is closed.');
       const fullPath = pathToFullMap.get(relativePath);
       if (!fullPath) throw new Error(`File "${relativePath}" not found in RAR archive.`);
-      const data: Uint8Array = FS.readFile(fullPath);
+      const data = FS.readFile(fullPath) as Uint8Array;
       const copy = new Uint8Array(data.byteLength);
       copy.set(data);
       const mime = mimeType || getImageMimeType(relativePath) || 'application/octet-stream';
@@ -416,7 +353,7 @@ export async function openRarArchiveSession(
       if (isClosed) throw new Error('Archive session is closed.');
       const fullPath = pathToFullMap.get(relativePath);
       if (!fullPath) throw new Error(`File "${relativePath}" not found in RAR archive.`);
-      return FS.readFile(fullPath, { encoding: 'utf8' });
+      return FS.readFile(fullPath, { encoding: 'utf8' }) as string;
     },
     close: () => {
       if (!isClosed) {

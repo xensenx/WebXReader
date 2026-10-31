@@ -69,6 +69,42 @@ export interface ZipParseResult {
   coverImage?: string;
 }
 
+const EXTENSION_TO_KIND: Record<string, ZipItemKind> = {
+  epub: 'epub',
+  pdf: 'pdf',
+  cbz: 'cbz',
+  cbr: 'cbr',
+  cb7: 'cb7',
+  djvu: 'djvu',
+  djv: 'djvu',
+  mht: 'mht',
+  mhtml: 'mht',
+  fb2: 'fb2',
+  mobi: 'mobi',
+  prc: 'mobi',
+  azw3: 'azw3',
+  azw: 'azw3',
+  kf8: 'azw3',
+  docx: 'docx',
+  doc: 'doc',
+  rtf: 'rtf',
+  html: 'html',
+  htm: 'html',
+  xhtml: 'html',
+  md: 'markdown',
+  markdown: 'markdown',
+  txt: 'txt',
+  text: 'txt',
+  png: 'image',
+  jpg: 'image',
+  jpeg: 'image',
+  webp: 'image',
+  gif: 'image',
+  avif: 'image',
+  bmp: 'image',
+  svg: 'image',
+};
+
 /**
  * Detects the specific WebXReader supported format or image type from an entry filename.
  */
@@ -78,61 +114,7 @@ export function detectZipEntryKind(filename: string): ZipItemKind {
   if (lower.endsWith('.fb2.zip')) return 'fb2';
 
   const ext = lower.split('.').pop() || '';
-
-  switch (ext) {
-    case 'epub':
-      return 'epub';
-    case 'pdf':
-      return 'pdf';
-    case 'cbz':
-      return 'cbz';
-    case 'cbr':
-      return 'cbr';
-    case 'cb7':
-      return 'cb7';
-    case 'djvu':
-    case 'djv':
-      return 'djvu';
-    case 'mht':
-    case 'mhtml':
-      return 'mht';
-    case 'fb2':
-      return 'fb2';
-    case 'mobi':
-    case 'prc':
-      return 'mobi';
-    case 'azw3':
-    case 'azw':
-    case 'kf8':
-      return 'azw3';
-    case 'docx':
-      return 'docx';
-    case 'doc':
-      return 'doc';
-    case 'rtf':
-      return 'rtf';
-    case 'html':
-    case 'htm':
-    case 'xhtml':
-      return 'html';
-    case 'md':
-    case 'markdown':
-      return 'markdown';
-    case 'txt':
-    case 'text':
-      return 'txt';
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'webp':
-    case 'gif':
-    case 'avif':
-    case 'bmp':
-    case 'svg':
-      return 'image';
-    default:
-      return 'unsupported';
-  }
+  return EXTENSION_TO_KIND[ext] ?? 'unsupported';
 }
 
 /**

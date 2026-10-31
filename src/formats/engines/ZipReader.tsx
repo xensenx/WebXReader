@@ -150,92 +150,6 @@ export const ArchiveReader = memo(function ArchiveReader({
   // Blob URLs for image collection caching and revocation
   const activeBlobUrlsRef = useRef<Map<string, string>>(new Map());
 
-  // Load and parse archive on mount
-  useEffect(() => {
-    let isMounted = true;
-    setLoadingArchive(true);
-    setArchiveError(null);
-
-    async function initArchive() {
-      try {
-        let session: GenericArchiveSession;
-
-        if (effectiveType === 'rar') {
-          const rarSession = await openRarArchiveSession(fileData, {
-            filename: book?.originalFilename || book?.title,
-          });
-          if (!isMounted) {
-            rarSession.close();
-            return;
-          }
-          session = {
-            type: 'rar',
-            entries: rarSession.entries,
-            getEntryData: (p) => rarSession.getEntryData(p),
-            getEntryBlob: (p, mime) => rarSession.getEntryBlob(p, mime),
-            getEntryText: (p) => rarSession.getEntryText(p),
-            close: () => rarSession.close(),
-          };
-        } else {
-          const [loadedZip, parsedResult] = await Promise.all([
-            JSZip.loadAsync(fileData),
-            parseZip(fileData, { filename: book?.originalFilename || book?.title }),
-          ]);
-
-          if (!isMounted) return;
-          session = {
-            type: 'zip',
-            entries: parsedResult.entries,
-            getEntryData: async (p) => {
-              const fileObj = loadedZip.file(p);
-              if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
-              return fileObj.async('arraybuffer');
-            },
-            getEntryBlob: async (p, mime) => {
-              const fileObj = loadedZip.file(p);
-              if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
-              const blob = await fileObj.async('blob');
-              return mime && blob.type !== mime ? new Blob([blob], { type: mime }) : blob;
-            },
-            getEntryText: async (p) => {
-              const fileObj = loadedZip.file(p);
-              if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
-              return fileObj.async('string');
-            },
-            close: () => {},
-          };
-        }
-
-        sessionRef.current = session;
-        setArchiveSession(session);
-        setEntries(session.entries);
-
-        // Check if an initial sub-path was requested or saved in progress
-        const targetPath = initialSubPath;
-        if (targetPath) {
-          const matched = session.entries.find((e) => e.path === targetPath && !e.isDirectory);
-          if (matched && matched.isSupported) {
-            void openSubEntry(matched, session);
-          }
-        }
-      } catch (err) {
-        if (!isMounted) return;
-        setArchiveError(err instanceof Error ? err.message : String(err));
-      } finally {
-        if (isMounted) setLoadingArchive(false);
-      }
-    }
-
-    void initArchive();
-
-    return () => {
-      isMounted = false;
-      sessionRef.current?.close();
-      sessionRef.current = null;
-      revokeActiveBlobUrls();
-    };
-  }, [fileData, effectiveType]);
-
   const revokeActiveBlobUrls = () => {
     activeBlobUrlsRef.current.forEach((url) => {
       try {
@@ -367,6 +281,92 @@ export const ArchiveReader = memo(function ArchiveReader({
       setLoadingEntry(false);
     }
   };
+
+  // Load and parse archive on mount
+  useEffect(() => {
+    let isMounted = true;
+    setLoadingArchive(true);
+    setArchiveError(null);
+
+    async function initArchive() {
+      try {
+        let session: GenericArchiveSession;
+
+        if (effectiveType === 'rar') {
+          const rarSession = await openRarArchiveSession(fileData, {
+            filename: book?.originalFilename || book?.title,
+          });
+          if (!isMounted) {
+            rarSession.close();
+            return;
+          }
+          session = {
+            type: 'rar',
+            entries: rarSession.entries,
+            getEntryData: (p) => rarSession.getEntryData(p),
+            getEntryBlob: (p, mime) => rarSession.getEntryBlob(p, mime),
+            getEntryText: (p) => rarSession.getEntryText(p),
+            close: () => rarSession.close(),
+          };
+        } else {
+          const [loadedZip, parsedResult] = await Promise.all([
+            JSZip.loadAsync(fileData),
+            parseZip(fileData, { filename: book?.originalFilename || book?.title }),
+          ]);
+
+          if (!isMounted) return;
+          session = {
+            type: 'zip',
+            entries: parsedResult.entries,
+            getEntryData: async (p) => {
+              const fileObj = loadedZip.file(p);
+              if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
+              return fileObj.async('arraybuffer');
+            },
+            getEntryBlob: async (p, mime) => {
+              const fileObj = loadedZip.file(p);
+              if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
+              const blob = await fileObj.async('blob');
+              return mime && blob.type !== mime ? new Blob([blob], { type: mime }) : blob;
+            },
+            getEntryText: async (p) => {
+              const fileObj = loadedZip.file(p);
+              if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
+              return fileObj.async('string');
+            },
+            close: () => {},
+          };
+        }
+
+        sessionRef.current = session;
+        setArchiveSession(session);
+        setEntries(session.entries);
+
+        // Check if an initial sub-path was requested or saved in progress
+        const targetPath = initialSubPath;
+        if (targetPath) {
+          const matched = session.entries.find((e) => e.path === targetPath && !e.isDirectory);
+          if (matched && matched.isSupported) {
+            void openSubEntry(matched, session);
+          }
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        setArchiveError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (isMounted) setLoadingArchive(false);
+      }
+    }
+
+    void initArchive();
+
+    return () => {
+      isMounted = false;
+      sessionRef.current?.close();
+      sessionRef.current = null;
+      revokeActiveBlobUrls();
+    };
+  }, [fileData, effectiveType]);
 
   // Open an image collection for the current folder or whole archive
   const openImageCollection = (folderFilter = currentFolder) => {
