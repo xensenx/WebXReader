@@ -185,7 +185,16 @@ describe('Backup and Export Service', () => {
 
     const success = await downloadOriginalBook('chapter-book');
     expect(success).toBe(true);
-    expect(clickedLinks).toContain('novel.html');
+    expect(clickedLinks).toContain('novel.txt');
+
+    // Verify downloaded blob MIME type and reconstructed plain text
+    const lastBlobCall = vi.mocked(URL.createObjectURL).mock.calls.at(-1);
+    const downloadedBlob = lastBlobCall?.[0] as Blob;
+    expect(downloadedBlob).toBeDefined();
+    expect(downloadedBlob.type).toBe('text/plain;charset=utf-8');
+    const text = await downloadedBlob.text();
+    expect(text).toContain('Prologue');
+    expect(text).toContain('The story begins here.');
   });
 
   it('throws when attempting to download non-existent book', async () => {

@@ -66,13 +66,16 @@ export async function downloadOriginalBook(bookId: string): Promise<boolean> {
   }
 
   let blob: Blob;
-  const filename = book.originalFilename || `${book.title}.${book.sourceFormat}`;
+  let filename = book.originalFilename || `${book.title}.${book.sourceFormat}`;
 
   if (content.originalFile) {
     const type = getFormatMimeType(book.sourceFormat);
     blob = new Blob([content.originalFile], { type });
   } else if (content.rawText) {
     blob = new Blob([content.rawText], { type: 'text/plain;charset=utf-8' });
+    if (!filename.toLowerCase().endsWith('.txt')) {
+      filename = `${filename.replace(/\.[^/.]+$/, '')}.txt`;
+    }
   } else if (content.chapters && content.chapters.length > 0) {
     // Reconstruct plain text from chapters
     const combined = content.chapters
@@ -84,6 +87,9 @@ export async function downloadOriginalBook(bookId: string): Promise<boolean> {
       })
       .join('\n\n--- \n\n');
     blob = new Blob([combined], { type: 'text/plain;charset=utf-8' });
+    if (!filename.toLowerCase().endsWith('.txt')) {
+      filename = `${filename.replace(/\.[^/.]+$/, '')}.txt`;
+    }
   } else {
     throw new Error('No exportable content available for this book.');
   }
