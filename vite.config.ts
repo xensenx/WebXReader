@@ -20,6 +20,9 @@ export default defineConfig({
       localsConvention: 'camelCase',
     },
   },
+  optimizeDeps: {
+    exclude: ['djvu-rs'],
+  },
   build: {
     target: 'es2022',
     sourcemap: true,

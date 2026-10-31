@@ -38,7 +38,7 @@ export async function ensureDjvuInitialized(): Promise<void> {
       }
     }
 
-    // Standard browser / Vite asset loader
+    // Standard browser init (uses djvu-rs's built-in variant selector and wasm loader)
     await init();
   })();
 
