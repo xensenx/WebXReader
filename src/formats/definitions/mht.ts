@@ -45,7 +45,7 @@ export const mhtFormat: FormatDefinition = {
       chapters,
       coverImage,
       rawText,
-      originalFile: buffer,
+
     };
   },
 };

@@ -6,6 +6,7 @@ import {
   decodeQuotedPrintableToBytes,
   decodeTextWithCharset,
   inlineMhtmlResources,
+  splitHtmlIntoChapters,
 } from '../core/parsing/mht-parser';
 
 // Sample 1x1 valid transparent PNG base64
@@ -238,6 +239,37 @@ Content-Transfer-Encoding: 7bit
       await expect(
         parseMht(`Content-Type: text/plain\n\nNo boundary here`)
       ).rejects.toThrow(/boundary delimiter not found/i);
+    });
+
+    it('splits nested headings in complex real-world HTML structures', () => {
+      const nestedHtml = `
+<div class="main-container">
+  <article>
+    <header><h1>First Article</h1></header>
+    <section><p>Some introductory paragraph content here.</p></section>
+  </article>
+  <div class="content-body">
+    <h2>Sub-Section 1</h2>
+    <p>Details about sub section 1.</p>
+    <h2>Sub-Section 2</h2>
+    <p>Details about sub section 2.</p>
+  </div>
+</div>`;
+      const chapters = splitHtmlIntoChapters(nestedHtml, 'My Document');
+      expect(chapters.length).toBe(3);
+      expect(chapters[0].title).toBe('First Article');
+      expect(chapters[1].title).toBe('Sub-Section 1');
+      expect(chapters[2].title).toBe('Sub-Section 2');
+    });
+
+    it('chunks oversized HTML without headings into readable chapters', () => {
+      const longHtml = '<div>' + '<p>A paragraph of text that repeats to create a long document.</p>'.repeat(600) + '</div>';
+      expect(longHtml.length).toBeGreaterThan(30000);
+
+      const chapters = splitHtmlIntoChapters(longHtml, 'Long Book');
+      expect(chapters.length).toBeGreaterThan(1);
+      expect(chapters[0].title).toBe('Long Book');
+      expect(chapters[1].title).toBe('Part 2');
     });
   });
 });

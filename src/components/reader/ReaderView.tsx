@@ -17,7 +17,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-import { getBook, getBookContent } from '../../core/storage/database';
+import { getBook, getBookContent, updateBook, saveBookContent } from '../../core/storage/database';
+import { splitHtmlIntoChapters } from '../../core/parsing/mht-parser';
 import { useReadingProgress } from '../../hooks/useReadingProgress';
 import { useBookmarks } from '../../hooks/useBookmarks';
 import { useReaderSettings } from '../../hooks/useReaderSettings';
@@ -460,6 +461,33 @@ export function ReaderView() {
           setError('Book or book content not found in local database.');
           setLoading(false);
           return;
+        }
+
+        // Optimization: strip dead originalFile buffer and re-split oversized single chapter
+        if (c.format === 'mht') {
+          let updated = false;
+          if (c.originalFile) {
+            delete c.originalFile;
+            updated = true;
+          }
+          if (c.chapters && c.chapters.length === 1 && (c.chapters[0].content?.length ?? 0) > 25000) {
+            const newChapters = splitHtmlIntoChapters(c.chapters[0].content!, b.title);
+            if (newChapters.length > 1) {
+              c.chapters = newChapters;
+              b.tableOfContents = newChapters.map((ch) => ({
+                id: ch.id,
+                title: ch.title,
+                level: ch.level,
+                order: ch.order,
+              }));
+              b.totalChapters = newChapters.length;
+              updateBook(b).catch(() => {});
+              updated = true;
+            }
+          }
+          if (updated) {
+            saveBookContent(c).catch(() => {});
+          }
         }
 
         setBook(b);

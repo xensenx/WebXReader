@@ -304,7 +304,12 @@ export async function findBookByHash(contentHash: string): Promise<Book | undefi
 // ============================================================
 
 export async function getBookContent(bookId: string): Promise<BookContent | undefined> {
-  return withTransaction<BookContent | undefined>(STORES.bookContent, 'readonly', (store) => store.get(bookId));
+  const content = await withTransaction<BookContent | undefined>(STORES.bookContent, 'readonly', (store) => store.get(bookId));
+  if (content && content.originalFile && content.format === 'mht') {
+    delete content.originalFile;
+    withTransaction(STORES.bookContent, 'readwrite', (store) => store.put(content)).catch(() => {});
+  }
+  return content;
 }
 
 export async function saveBookContent(content: BookContent): Promise<void> {

@@ -48,5 +48,5 @@ export type { ComicParseResult } from './comic-archive';
 export { openComicArchiveSession } from './sevenzip-extractor';
 export type { ComicArchiveSession } from './sevenzip-extractor';
 
-export { parseMht, decodeRfc2047, parseMimeHeaders, decodeQuotedPrintableToBytes, inlineMhtmlResources } from './mht-parser';
+export { parseMht, decodeRfc2047, parseMimeHeaders, decodeQuotedPrintableToBytes, inlineMhtmlResources, splitHtmlIntoChapters } from './mht-parser';
 export type { MhtParseResult, MhtParseOptions, MhtMetadata } from './mht-parser';

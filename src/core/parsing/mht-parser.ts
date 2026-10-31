@@ -380,7 +380,42 @@ function extractRawText(html: string): string {
 /**
  * Splits HTML content into structured chapters based on heading tags (h1, h2, h3).
  */
-function splitHtmlIntoChapters(cleanHtml: string, documentTitle?: string): Chapter[] {
+function chunkHtmlByBlocks(html: string, maxChunkLength = 25000): string[] {
+  if (html.length <= maxChunkLength) {
+    return [html];
+  }
+
+  const chunks: string[] = [];
+  const blockRegex = /<\/(?:p|div|section|article|blockquote|table)>/gi;
+  let currentChunkStart = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = blockRegex.exec(html)) !== null) {
+    const splitPoint = match.index + match[0].length;
+    if (splitPoint - currentChunkStart >= maxChunkLength) {
+      const chunk = html.slice(currentChunkStart, splitPoint).trim();
+      if (chunk.length > 0) {
+        chunks.push(chunk);
+      }
+      currentChunkStart = splitPoint;
+    }
+  }
+
+  if (currentChunkStart < html.length) {
+    const remaining = html.slice(currentChunkStart).trim();
+    if (remaining.length > 0) {
+      if (chunks.length > 0 && remaining.length < 5000) {
+        chunks[chunks.length - 1] += '\n' + remaining;
+      } else {
+        chunks.push(remaining);
+      }
+    }
+  }
+
+  return chunks.length > 0 ? chunks : [html];
+}
+
+export function splitHtmlIntoChapters(cleanHtml: string, documentTitle?: string): Chapter[] {
   // Use DOM parser if available
   if (typeof DOMParser !== 'undefined') {
     try {
@@ -425,7 +460,7 @@ function splitHtmlIntoChapters(cleanHtml: string, documentTitle?: string): Chapt
 
       flush();
 
-      if (chapters.length > 0) {
+      if (chapters.length > 1) {
         return chapters;
       }
     } catch {
@@ -446,7 +481,7 @@ function splitHtmlIntoChapters(cleanHtml: string, documentTitle?: string): Chapt
 
       if (i === 0 && matchIndex > 0) {
         const preamble = cleanHtml.slice(0, matchIndex).trim();
-        if (preamble.length > 0) {
+        if (preamble.replace(/<[^>]+>/g, '').trim().length > 0) {
           chapters.push({
             id: generateId(),
             title: documentTitle || 'Introduction',
@@ -471,8 +506,22 @@ function splitHtmlIntoChapters(cleanHtml: string, documentTitle?: string): Chapt
       });
     }
 
-    if (chapters.length > 0) {
+    if (chapters.length > 1 || (chapters.length === 1 && cleanHtml.length <= 35000)) {
       return chapters;
+    }
+  }
+
+  // Fallback for long documents with no headings: chunk into readable blocks
+  if (cleanHtml.length > 30000) {
+    const chunks = chunkHtmlByBlocks(cleanHtml, 25000);
+    if (chunks.length > 1) {
+      return chunks.map((chunk, idx) => ({
+        id: generateId(),
+        title: idx === 0 && documentTitle ? documentTitle : `Part ${idx + 1}`,
+        content: chunk,
+        level: 0,
+        order: idx,
+      }));
     }
   }
 
