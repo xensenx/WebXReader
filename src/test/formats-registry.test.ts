@@ -13,6 +13,12 @@ import {
 describe('Format Registry & System', () => {
   it('detects correct formats from filenames and extensions', () => {
     expect(detectFormatFromFilename('comic.cbz')?.id).toBe('cbz');
+    expect(detectFormatFromFilename('comic.cbr')?.id).toBe('cbr');
+    expect(detectFormatFromFilename('COMIC.CBR')?.id).toBe('cbr');
+    expect(detectFormatFromFilename('archive.rar')?.id).toBe('cbr');
+    expect(detectFormatFromFilename('comic.cb7')?.id).toBe('cb7');
+    expect(detectFormatFromFilename('COMIC.CB7')?.id).toBe('cb7');
+    expect(detectFormatFromFilename('archive.7z')?.id).toBe('cb7');
     expect(detectFormatFromFilename('DOCUMENT.PDF')?.id).toBe('pdf');
     expect(detectFormatFromFilename('book.epub')?.id).toBe('epub');
     expect(detectFormatFromFilename('notes.markdown')?.id).toBe('markdown');
@@ -46,12 +52,14 @@ describe('Format Registry & System', () => {
 
   it('provides format definitions for all supported formats', () => {
     const formats = getAllFormats();
-    expect(formats.length).toBe(13);
+    expect(formats.length).toBe(15);
 
     const ids = formats.map((f) => f.id);
     expect(ids).toContain('epub');
     expect(ids).toContain('pdf');
     expect(ids).toContain('cbz');
+    expect(ids).toContain('cbr');
+    expect(ids).toContain('cb7');
     expect(ids).toContain('txt');
     expect(ids).toContain('markdown');
     expect(ids).toContain('html');
@@ -69,6 +77,20 @@ describe('Format Registry & System', () => {
     expect(cbzDef.capabilities.readingDirection).toBe(true);
     expect(cbzDef.capabilities.pageGap).toBe(true);
     expect(cbzDef.capabilities.fitMode).toBe(true);
+
+    const cbrDef = getRequiredFormat('cbr');
+    expect(cbrDef.label).toBe('Comic Book RAR (CBR)');
+    expect(cbrDef.category).toBe('fixed-layout');
+    expect(cbrDef.capabilities.readingDirection).toBe(true);
+    expect(cbrDef.capabilities.pageGap).toBe(true);
+    expect(cbrDef.capabilities.fitMode).toBe(true);
+
+    const cb7Def = getRequiredFormat('cb7');
+    expect(cb7Def.label).toBe('Comic Book 7z (CB7)');
+    expect(cb7Def.category).toBe('fixed-layout');
+    expect(cb7Def.capabilities.readingDirection).toBe(true);
+    expect(cb7Def.capabilities.pageGap).toBe(true);
+    expect(cb7Def.capabilities.fitMode).toBe(true);
 
     const rtfDef = getRequiredFormat('rtf');
     expect(rtfDef.label).toBe('Rich Text Format');
@@ -97,6 +119,8 @@ describe('Format Registry & System', () => {
 
   it('accurately identifies fixed layout formats', () => {
     expect(isFixedLayout('cbz')).toBe(true);
+    expect(isFixedLayout('cbr')).toBe(true);
+    expect(isFixedLayout('cb7')).toBe(true);
     expect(isFixedLayout('djvu')).toBe(true);
     expect(isFixedLayout('pdf')).toBe(true);
     expect(isFixedLayout('epub')).toBe(false);
@@ -114,9 +138,13 @@ describe('Format Registry & System', () => {
 
   it('correctly checks format capabilities', () => {
     expect(formatSupportsFeature('cbz', 'readingDirection')).toBe(true);
+    expect(formatSupportsFeature('cbr', 'readingDirection')).toBe(true);
+    expect(formatSupportsFeature('cb7', 'readingDirection')).toBe(true);
     expect(formatSupportsFeature('pdf', 'readingDirection')).toBe(false);
     expect(formatSupportsFeature('epub', 'customTypography')).toBe(true);
     expect(formatSupportsFeature('cbz', 'customTypography')).toBe(false);
+    expect(formatSupportsFeature('cbr', 'customTypography')).toBe(false);
+    expect(formatSupportsFeature('cb7', 'customTypography')).toBe(false);
     expect(formatSupportsFeature('txt', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('rtf', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('fb2', 'continuousScroll')).toBe(true);
@@ -137,6 +165,10 @@ describe('Format Registry & System', () => {
   it('generates consistent accept attribute and MIME types', () => {
     const accept = getAcceptAttribute();
     expect(accept).toContain('.cbz');
+    expect(accept).toContain('.cbr');
+    expect(accept).toContain('.rar');
+    expect(accept).toContain('.cb7');
+    expect(accept).toContain('.7z');
     expect(accept).toContain('.pdf');
     expect(accept).toContain('.epub');
     expect(accept).toContain('.txt');
@@ -157,6 +189,8 @@ describe('Format Registry & System', () => {
     expect(accept).toContain('.djv');
 
     expect(getFormatMimeType('cbz')).toBe('application/vnd.comicbook+zip');
+    expect(getFormatMimeType('cbr')).toBe('application/vnd.comicbook-rar');
+    expect(getFormatMimeType('cb7')).toBe('application/x-cb7');
     expect(getFormatMimeType('pdf')).toBe('application/pdf');
     expect(getFormatMimeType('epub')).toBe('application/epub+zip');
     expect(getFormatMimeType('txt')).toBe('text/plain');

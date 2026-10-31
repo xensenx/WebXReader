@@ -34,15 +34,13 @@ PNG
 JPEG
 
 Total planned formats: 21
-implemented so far : 13 
-left to implement : 8
+implemented so far : 15
+left to implement : 6
 
 formats yet to be implemented:
 XPS
-CBR
-CB7
 PNG
 JPEG
 ZIP
 RAR
-LIT 
+LIT

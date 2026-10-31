@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import JSZip from 'jszip';
 import CFB from 'cfb';
+import { SAMPLE_JPEG, createSyntheticRar, createSyntheticCb7 } from './comic-test-helpers';
 import { importFile } from '../features/import/import-service';
 import { clearDatabase, listBooks, getBookContent } from '../core/storage/database';
 
@@ -317,5 +318,70 @@ describe('Import Service', () => {
     const books = await listBooks();
     expect(books.length).toBe(1);
     expect(books[0].sourceFormat).toBe('djvu');
+  });
+  it('successfully imports a Comic Book RAR (.cbr)', async () => {
+    const comicInfoXml = Buffer.from(
+      `<?xml version="1.0"?>
+<ComicInfo xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Title>The Heroic Awakening</Title>
+  <Series>WebX Heroes</Series>
+  <Writer>Stan Lee</Writer>
+</ComicInfo>`,
+      'utf8'
+    );
+
+    const rarBuffer = createSyntheticRar([
+      { name: 'ComicInfo.xml', content: comicInfoXml },
+      { name: '001_cover.jpg', content: SAMPLE_JPEG },
+      { name: '002_page.jpg', content: SAMPLE_JPEG },
+    ]);
+
+    const file = new File([rarBuffer], 'heroes_issue_1.cbr', { type: 'application/vnd.comicbook-rar' });
+    const result = await importFile(file);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('cbr');
+      expect(result.book.title).toBe('WebX Heroes: The Heroic Awakening');
+      expect(result.book.author).toBe('Stan Lee');
+      expect(result.book.totalChapters).toBe(2);
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('cbr');
+  });
+
+  it('successfully imports a Comic Book 7-Zip (.cb7)', async () => {
+    const comicInfoXml = Buffer.from(
+      `<?xml version="1.0"?>
+<ComicInfo>
+  <Title>Cyber Dimension</Title>
+  <Writer>Yukito Kishiro</Writer>
+</ComicInfo>`,
+      'utf8'
+    );
+
+    const cb7Buffer = await createSyntheticCb7([
+      { name: 'ComicInfo.xml', content: comicInfoXml },
+      { name: 'page_01.jpg', content: SAMPLE_JPEG },
+      { name: 'page_02.jpg', content: SAMPLE_JPEG },
+      { name: 'page_03.jpg', content: SAMPLE_JPEG },
+    ]);
+
+    const file = new File([cb7Buffer], 'cyber_dimension.cb7', { type: 'application/x-cb7' });
+    const result = await importFile(file);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('cb7');
+      expect(result.book.title).toBe('Cyber Dimension');
+      expect(result.book.author).toBe('Yukito Kishiro');
+      expect(result.book.totalChapters).toBe(3);
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('cb7');
   });
 });

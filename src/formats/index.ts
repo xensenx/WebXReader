@@ -40,10 +40,13 @@ export { docFormat } from './definitions/doc';
 export { epubFormat } from './definitions/epub';
 export { pdfFormat } from './definitions/pdf';
 export { cbzFormat } from './definitions/cbz';
+export { cbrFormat } from './definitions/cbr';
+export { cb7Format } from './definitions/cb7';
 export { djvuFormat } from './definitions/djvu';
 
 // Dedicated reader engine types (engines themselves are lazy loaded on demand)
 export type { CbzReaderHandle, CbzZoomAnchor } from './engines/CbzReader';
+export type { CbzReaderHandle as ComicReaderHandle, CbzZoomAnchor as ComicZoomAnchor } from './engines/CbzReader';
 export type { PdfReaderHandle, PdfZoomAnchor } from './engines/PdfReader';
 export type { EpubReaderHandle } from './engines/EpubReader';
 export type { DjvuReaderHandle, DjvuZoomAnchor } from './engines/DjvuReader';

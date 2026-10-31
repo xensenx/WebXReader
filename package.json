@@ -12,6 +12,7 @@
     "preview": "npm run build && vite preview"
   },
   "dependencies": {
+    "7z-wasm": "^1.2.0",
     "cfb": "^1.2.2",
     "djvu-rs": "^0.43.0",
     "dompurify": "^3.4.17",

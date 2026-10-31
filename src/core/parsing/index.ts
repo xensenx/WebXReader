@@ -37,6 +37,13 @@ export type { DocxParseResult, DocxParseOptions } from './docx-parser';
 
 export { parseDoc } from './doc-parser';
 export type { DocParseResult, DocParseOptions } from './doc-parser';
+
 export { parseDjvu } from './djvu-parser';
 export type { DjvuParseResult, DjvuParseOptions } from './djvu-parser';
 export { ensureDjvuInitialized } from './djvu-init';
+
+export { parseCbr } from './cbr-parser';
+export { parseCb7 } from './cb7-parser';
+export type { ComicParseResult } from './comic-archive';
+export { openComicArchiveSession } from './sevenzip-extractor';
+export type { ComicArchiveSession } from './sevenzip-extractor';

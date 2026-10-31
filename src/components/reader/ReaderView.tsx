@@ -713,7 +713,7 @@ export function ReaderView() {
   const handleSelectBookmark = (bm: Bookmark) => {
     if (book?.sourceFormat === 'epub' && bm.epubCfi && epubReaderRef.current) {
       epubReaderRef.current.goToCfi(bm.epubCfi);
-    } else if (book?.sourceFormat === 'cbz' && bm.chapterId && cbzReaderRef.current) {
+    } else if ((book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && bm.chapterId && cbzReaderRef.current) {
       const page = parseInt(bm.chapterId, 10);
       if (!isNaN(page)) {
         cbzReaderRef.current.goToPage(page);
@@ -757,7 +757,7 @@ export function ReaderView() {
 
     if (book?.sourceFormat === 'epub' && chapter?.href && epubReaderRef.current) {
       epubReaderRef.current.goToHref(chapter.href);
-    } else if (book?.sourceFormat === 'cbz' && chapter?.href && cbzReaderRef.current) {
+    } else if ((book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && chapter?.href && cbzReaderRef.current) {
       const page = parseInt(chapter.href, 10);
       if (!isNaN(page)) {
         cbzReaderRef.current.goToPage(page);
@@ -821,7 +821,7 @@ export function ReaderView() {
 
   const isEpub = book?.sourceFormat === 'epub' && Boolean(content?.originalFile);
   const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
-  const isCbz = book?.sourceFormat === 'cbz' && Boolean(content?.originalFile);
+  const isCbz = (book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && Boolean(content?.originalFile);
   const isDjvu = book?.sourceFormat === 'djvu' && Boolean(content?.originalFile);
   const searchProvider = useCallback<ReaderSearchProvider>((query) => {
     if (isEpub) return epubReaderRef.current?.search(query) ?? Promise.resolve([]);
@@ -1037,6 +1037,7 @@ export function ReaderView() {
             <CbzReader
               ref={cbzReaderRef}
               fileData={content.originalFile!}
+              format={book?.sourceFormat}
               initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
               readingMode={readerSettings.readingMode}
               readingDirection={readerSettings.comicReadingDirection ?? (book?.identifiers?.readingDirection as 'ltr' | 'rtl') ?? 'ltr'}

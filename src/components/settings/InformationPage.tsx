@@ -92,7 +92,7 @@ function AboutWebXReader() {
           <p>
             Your imported books, reading progress, bookmarks, annotations, and preferences are kept
             in this browser. WebXReader has no account system or cloud library. It supports TXT,
-            Markdown, HTML, RTF, FictionBook (FB2), MOBI, Kindle Format 8 (AZW3), Word Documents (DOCX, DOC), DjVu Documents (DJVU, DJV), EPUB, PDF, and CBZ comic books, with reading layouts and typography you can adjust.
+            Markdown, HTML, RTF, FictionBook (FB2), MOBI, Kindle Format 8 (AZW3), Word Documents (DOCX, DOC), DjVu Documents (DJVU, DJV), EPUB, PDF, and Comic Books (CBZ, CBR, CB7), with reading layouts and typography you can adjust.
           </p>
         </section>
 
