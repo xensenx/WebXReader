@@ -1,5 +1,6 @@
 /**
- * Styles for CBZ Comic Reader.
+ * Styles for Universal Comic Reader (CBZ, CBR, CB7).
+ * Follows the proven PdfReader architecture for rock-solid zoom, centering, and scrolling.
  */
 
 .container {
@@ -8,15 +9,30 @@
   width: 100%;
   height: 100%;
   position: relative;
-  background-color: var(--reader-bg, var(--bg-primary));
-  color: var(--reader-text, var(--text-primary));
+  background-color: var(--color-reader-bg, #525659);
+  color: var(--color-reader-text, #f1f1f1);
   overflow: hidden;
   min-height: 0;
   user-select: none;
   outline: none;
 }
 
-/* Continuous Vertical Scroll Viewport */
+[data-theme='light'] .container {
+  background-color: #e5e7eb;
+  color: #1f2937;
+}
+
+[data-theme='sepia'] .container {
+  background-color: #eeddbb;
+  color: #4a3f35;
+}
+
+[data-theme='dark'] .container {
+  background-color: #1a1a1a;
+  color: #e4e4e7;
+}
+
+/* The viewport is the scroll surface */
 .viewport {
   flex: 1;
   min-height: 0;
@@ -35,28 +51,44 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 18px;
   width: max-content;
   min-width: 100%;
   min-height: 100%;
 }
 
-/* Individual page wrapper in continuous scroll */
+/* Double-page spread row */
+.spreadRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: max-content;
+}
+
+/* Page shell with explicit width/height matching PdfReader */
 .pageShell {
   position: relative;
   flex: 0 0 auto;
   display: flex;
   justify-content: center;
   align-items: center;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-  border-radius: 4px;
+  background-color: #ffffff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  border-radius: 3px;
   overflow: hidden;
-  background-color: rgba(128, 128, 128, 0.06);
+  user-select: none;
+  scroll-margin-block: 16px;
 }
 
-.scrollImage {
+/* High-res comic page image */
+.comicImage {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: contain;
+  background-color: #ffffff;
   user-select: none;
   -webkit-user-drag: none;
   pointer-events: none;
@@ -67,119 +99,46 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 520px;
   width: 100%;
-  background-color: rgba(128, 128, 128, 0.08);
-  border-radius: 4px;
-  color: var(--text-secondary);
+  height: 100%;
+  background-color: rgba(128, 128, 128, 0.1);
+  color: var(--text-secondary, #9ca3af);
   font-size: var(--text-sm, 14px);
   gap: 12px;
 }
 
-/* Paginated / Spread stage */
-.pagedStage {
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  position: relative;
-  padding: 24px 16px;
-  outline: none;
-  scroll-behavior: auto;
+.placeholderText {
+  font-weight: 500;
+  opacity: 0.85;
 }
 
-.pagedContent {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: max-content;
-  height: max-content;
-  min-width: 100%;
-  min-height: 100%;
-}
-
-/* Single page view */
-.singleWrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-/* Double-page spread view */
-.spreadWrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.comicImage {
-  display: block;
-  user-select: none;
-  -webkit-user-drag: none;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-  border-radius: 4px;
-  transition: opacity 0.2s ease;
-}
-
-.spreadImage {
-  display: block;
-  user-select: none;
-  -webkit-user-drag: none;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
-  border-radius: 3px;
-  object-fit: contain;
-}
-
-/* Interactive navigation hit-areas in paged/spread mode */
-.navZone {
+/* Loading & Error Overlays */
+.loadingOverlay,
+.errorOverlay {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 25%;
-  z-index: 10;
-  cursor: pointer;
-}
-
-.navZoneLeft {
-  left: 0;
-}
-
-.navZoneRight {
-  right: 0;
-}
-
-.navZoneCenter {
-  left: 25%;
-  width: 50%;
-  cursor: default;
-}
-
-/* Loading & Error */
-.loadingContainer {
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
   gap: 16px;
-  color: var(--text-secondary);
+  background-color: inherit;
+  z-index: 50;
+  color: var(--color-reader-text, #f1f1f1);
+}
+
+.errorText {
+  color: var(--color-danger, #ef4444);
+  font-size: var(--text-base, 16px);
+  max-width: 480px;
+  text-align: center;
 }
 
 .spinner {
   width: 36px;
   height: 36px;
   border: 3px solid rgba(128, 128, 128, 0.2);
-  border-top-color: var(--color-primary);
+  border-top-color: var(--color-primary, #3b82f6);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
