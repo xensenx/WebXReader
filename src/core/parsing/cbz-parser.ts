@@ -96,8 +96,13 @@ export async function parseCbz(arrayBuffer: ArrayBuffer): Promise<ComicParseResu
     coverEntry = imageEntries[coverImageIndex].entry;
   }
 
-  const coverBlob = await coverEntry.async('blob');
-  const coverImage = await extractCoverDataUrl(coverBlob, getImageMimeType(coverEntry.name));
+  let coverImage: string | undefined;
+  try {
+    const coverBlob = await coverEntry.async('blob');
+    coverImage = await extractCoverDataUrl(coverBlob, getImageMimeType(coverEntry.name));
+  } catch (err) {
+    console.warn('Could not extract CBZ cover:', err);
+  }
 
   return {
     metadata,

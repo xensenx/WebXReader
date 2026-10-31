@@ -114,7 +114,9 @@ export function detectZipEntryKind(filename: string): ZipItemKind {
   if (lower.endsWith('.fb2.zip')) return 'fb2';
 
   const ext = lower.split('.').pop() || '';
-  return EXTENSION_TO_KIND[ext] ?? 'unsupported';
+  return Object.prototype.hasOwnProperty.call(EXTENSION_TO_KIND, ext)
+    ? EXTENSION_TO_KIND[ext]
+    : 'unsupported';
 }
 
 /**

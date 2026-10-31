@@ -272,7 +272,7 @@ export function parseJpegHeader(bytes: Uint8Array): ImageMetadata {
     if (marker === 0xfe && segmentLength > 2) {
       try {
         const commentBytes = bytes.slice(payloadOffset, payloadOffset + segmentLength - 2);
-        const comment = new TextDecoder('utf-8').decode(commentBytes).trim();
+        const comment = new TextDecoder('utf-8', { fatal: true }).decode(commentBytes).trim();
         if (comment) {
           title = comment;
           description = description || comment;
