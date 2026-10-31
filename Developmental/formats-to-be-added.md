@@ -3,12 +3,11 @@ TXT
 Markdown (MD)
 HTML
 
-2. E-book Formats — 5
+2. E-book Formats — 4
 EPUB
 FB2
 MOBI
 AZW3
-LIT
 
 3. Word-Processing Documents — 3
 DOC
@@ -33,13 +32,12 @@ RAR
 PNG
 JPEG
 
-Total planned formats: 21
+Total planned formats: 20
 implemented so far : 16
-left to implement : 5
+left to implement : 4
 
 formats yet to be implemented:
 PNG
 JPEG
 ZIP
 RAR
-LIT
