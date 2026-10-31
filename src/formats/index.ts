@@ -10,6 +10,7 @@ export {
   getFormat,
   getRequiredFormat,
   detectFormatFromFilename,
+  detectFormatFromMimeType,
   getAllFormats,
   getAllSupportedExtensions,
   getAcceptAttribute,
@@ -48,6 +49,7 @@ export { zipFormat } from './definitions/zip';
 export { rarFormat } from './definitions/rar';
 export { pngFormat } from './definitions/png';
 export { jpegFormat } from './definitions/jpeg';
+
 export type { ImageReaderProps, ImageReaderHandle, ImageZoomAnchor } from './engines/ImageReader';
 export type { ZipReaderProps, ArchiveReaderProps } from './engines/ZipReader';
 

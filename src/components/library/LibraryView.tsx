@@ -912,7 +912,7 @@ export function LibraryView() {
           <EmptyState
             icon={BookOpen}
             title="Your Library is Empty"
-            description="Import a book or comic in EPUB, PDF, CBZ, TXT, Markdown, or HTML format to get started. All books stay safely on your device."
+            description="Import a book, comic, document, or image to get started. All items stay safely on your device."
             action={{
               label: 'Import First Book',
               onClick: () => {
@@ -1027,7 +1027,7 @@ export function LibraryView() {
         <div className={styles.dragOverlay}>
           <div className={styles.dragCard}>
             <Upload size={48} />
-            <span>Drop book or comic file to import</span>
+            <span>Drop book, comic, or image to import</span>
           </div>
         </div>
       )}

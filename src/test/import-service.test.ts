@@ -525,4 +525,25 @@ Content-Location: http://example.com/foundation.html
     expect(content?.originalFile).toBeDefined();
     expect(content?.originalFile?.byteLength).toBe(SAMPLE_JPEG.byteLength);
   });
+  it('successfully detects and imports an image with missing extension via MIME type or magic bytes', async () => {
+    // 1. Missing extension, detected by MIME type
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/AwMDEwMDAAMYAAQMAA4d/nOIAAAAASUVORK5CYII=',
+      'base64'
+    );
+    const fileWithMime = new File([pngBytes], 'unnamed_image_blob', { type: 'image/png' });
+    const result1 = await importFile(fileWithMime);
+    expect(result1.success).toBe(true);
+    if (result1.success) {
+      expect(result1.book.sourceFormat).toBe('png');
+    }
+
+    // 2. Missing extension and empty MIME type, detected via magic bytes
+    const jpegFileNoExt = new File([SAMPLE_JPEG], 'dropped_picture', { type: '' });
+    const result2 = await importFile(jpegFileNoExt);
+    expect(result2.success).toBe(true);
+    if (result2.success) {
+      expect(result2.book.sourceFormat).toBe('jpeg');
+    }
+  });
 });

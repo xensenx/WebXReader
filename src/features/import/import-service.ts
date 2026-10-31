@@ -18,9 +18,13 @@ import {
 } from '../../core/storage/database';
 import {
   detectFormatFromFilename,
+  detectFormatFromMimeType,
+  getFormat,
   getAllSupportedExtensions,
   type FormatParsedData,
+  type FormatDefinition,
 } from '../../formats';
+import { validateAndDetectImageFormat } from '../../core/parsing/image-parser';
 
 /** Options for the import process */
 export interface ImportOptions {
@@ -125,14 +129,10 @@ export async function importFile(
       };
     }
 
-    // 2. Validate format using the modular registry
-    const formatDef = detectFormatFromFilename(file.name);
-    if (!formatDef) {
-      const ext = getFileExtension(file.name) || 'unknown';
-      return {
-        success: false,
-        error: `Unsupported file type: "${ext}". Supported formats: ${getAllSupportedExtensions().join(', ')}`,
-      };
+    // 2. Validate format using extension or MIME type
+    let formatDef: FormatDefinition | null = detectFormatFromFilename(file.name);
+    if (!formatDef && file.type) {
+      formatDef = detectFormatFromMimeType(file.type);
     }
 
     // 3. Read file buffer for hash calculation and deduplication
@@ -146,10 +146,29 @@ export async function importFile(
       };
     }
 
-    // 4. Compute content hash for deduplication
+    // 4. Fallback content sniffing (e.g. dropped image without extension or misnamed)
+    if (!formatDef && arrayBuffer.byteLength >= 8) {
+      try {
+        const header = new Uint8Array(arrayBuffer, 0, Math.min(32, arrayBuffer.byteLength));
+        const detectedImageFormat = validateAndDetectImageFormat(header);
+        formatDef = getFormat(detectedImageFormat) ?? null;
+      } catch {
+        // Not a recognized binary format
+      }
+    }
+
+    if (!formatDef) {
+      const ext = getFileExtension(file.name) || (file.type ? file.type.split('/')[1] : 'unknown');
+      return {
+        success: false,
+        error: `Unsupported file type: "${ext}". Supported formats: ${getAllSupportedExtensions().join(', ')}`,
+      };
+    }
+
+    // 5. Compute content hash for deduplication
     const contentHash = await computeHash(arrayBuffer);
 
-    // 5. Check for duplicates
+    // 6. Check for duplicates
     if (!opts.forceImport) {
       const existingBook = await findBookByHash(contentHash);
       if (existingBook) {
@@ -162,10 +181,10 @@ export async function importFile(
       }
     }
 
-    // 6. Generate unique book ID
+    // 7. Generate unique book ID
     const bookId = generateId();
 
-    // 7. Delegate parsing to the format definition
+    // 8. Delegate parsing to the format definition
     let parsed: FormatParsedData;
     try {
       parsed = await formatDef.parse(file, {
@@ -179,10 +198,14 @@ export async function importFile(
       };
     }
 
-    // 8. Construct Book and BookContent entities
+    // If parsing extracted a canonical format identifier (e.g. image parser detected png/jpeg),
+    // sync final sourceFormat with the real format
+    const actualFormatId = (parsed.metadata?.identifiers?.format as BookFormat) || formatDef.id;
+
+    // 9. Construct Book and BookContent entities
     const book = createBook({
       id: bookId,
-      format: formatDef.id,
+      format: actualFormatId,
       filename: file.name,
       fileSize: file.size,
       contentHash,
@@ -196,10 +219,10 @@ export async function importFile(
       chapters: parsed.chapters,
       rawText: parsed.rawText,
       originalFile: parsed.originalFile ?? (formatDef.requiresOriginalFile ? arrayBuffer : undefined),
-      format: formatDef.id,
+      format: actualFormatId,
     };
 
-    // 9. Persist to local IndexedDB
+    // 10. Persist to local IndexedDB
     try {
       await saveBookBundle(book, content, parsed.coverImage);
     } catch (saveError) {

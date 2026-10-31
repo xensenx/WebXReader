@@ -199,7 +199,7 @@ export function ImportDialog({
           ? 'Import Results'
           : duplicateBook
           ? 'Duplicate Book Detected'
-          : 'Import Book or Comic'
+          : 'Import Book, Comic, or Image'
       }
       size="md"
     >
@@ -322,10 +322,11 @@ export function ImportDialog({
                   {importedBook.author || 'Unknown Author'}
                 </p>
                 <p className={styles.successChapters}>
-                  {importedBook.totalChapters}{' '}
-                  {importedBook.sourceFormat === 'cbz'
-                    ? importedBook.totalChapters === 1 ? 'page' : 'pages'
-                    : importedBook.totalChapters === 1 ? 'chapter' : 'chapters'} •{' '}
+                  {importedBook.sourceFormat === 'png' || importedBook.sourceFormat === 'jpeg'
+                    ? 'Image'
+                    : importedBook.sourceFormat === 'cbz' || importedBook.sourceFormat === 'cbr' || importedBook.sourceFormat === 'cb7'
+                    ? `${importedBook.totalChapters} ${importedBook.totalChapters === 1 ? 'page' : 'pages'}`
+                    : `${importedBook.totalChapters} ${importedBook.totalChapters === 1 ? 'chapter' : 'chapters'}`} •{' '}
                   {importedBook.sourceFormat.toUpperCase()}
                 </p>
               </div>

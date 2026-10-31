@@ -55,9 +55,15 @@ const FORMAT_REGISTRY = new Map<BookFormat, FormatDefinition>([
 
 /** Extension-to-format lookup cache */
 const EXTENSION_TO_FORMAT_MAP = new Map<string, FormatDefinition>();
+/** MIME-to-format lookup cache */
+const MIME_TO_FORMAT_MAP = new Map<string, FormatDefinition>();
+
 FORMAT_REGISTRY.forEach((def) => {
   def.extensions.forEach((ext) => {
     EXTENSION_TO_FORMAT_MAP.set(ext.toLowerCase(), def);
+  });
+  def.mimeTypes.forEach((mime) => {
+    MIME_TO_FORMAT_MAP.set(mime.toLowerCase(), def);
   });
 });
 
@@ -93,6 +99,15 @@ export function detectFormatFromFilename(filename: string): FormatDefinition | n
 }
 
 /**
+ * Detects format definition from a MIME type string.
+ */
+export function detectFormatFromMimeType(mimeType?: string | null): FormatDefinition | null {
+  if (!mimeType) return null;
+  const normalized = mimeType.toLowerCase().trim();
+  return MIME_TO_FORMAT_MAP.get(normalized) ?? null;
+}
+
+/**
  * Returns all registered format definitions.
  */
 export function getAllFormats(): FormatDefinition[] {
@@ -107,12 +122,13 @@ export function getAllSupportedExtensions(): string[] {
 }
 
 /**
- * Generates an accept string for HTML file inputs (e.g. ".txt,.epub,.pdf,.cbz,...").
+ * Generates an accept string for HTML file inputs (e.g. ".txt,.epub,...,image/*,image/png,...").
+ * Providing both extensions and MIME types ensures Windows and mobile browser file dialogs allow images.
  */
 export function getAcceptAttribute(): string {
-  return getAllSupportedExtensions()
-    .map((ext) => `.${ext}`)
-    .join(',');
+  const extensions = getAllSupportedExtensions().map((ext) => `.${ext}`);
+  const mimeTypes = Array.from(MIME_TO_FORMAT_MAP.keys());
+  return Array.from(new Set([...extensions, ...mimeTypes, 'image/*'])).join(',');
 }
 
 /**
