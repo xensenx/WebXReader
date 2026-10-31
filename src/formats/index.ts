@@ -43,6 +43,7 @@ export { cbzFormat } from './definitions/cbz';
 export { cbrFormat } from './definitions/cbr';
 export { cb7Format } from './definitions/cb7';
 export { djvuFormat } from './definitions/djvu';
+export { mhtFormat } from './definitions/mht';
 
 // Dedicated reader engine types (engines themselves are lazy loaded on demand)
 export type { CbzReaderHandle, CbzZoomAnchor } from './engines/CbzReader';

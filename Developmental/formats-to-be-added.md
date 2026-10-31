@@ -18,7 +18,7 @@ RTF
 4. Fixed-Layout & Document Formats — 3
 PDF
 DjVu (.djvu, .djv)
-XPS
+MHT (.mht, .mhtml)
 
 5. Comic-Book Formats — 3
 CBZ
@@ -34,11 +34,10 @@ PNG
 JPEG
 
 Total planned formats: 21
-implemented so far : 15
-left to implement : 6
+implemented so far : 16
+left to implement : 5
 
 formats yet to be implemented:
-XPS
 PNG
 JPEG
 ZIP

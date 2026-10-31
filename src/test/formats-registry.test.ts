@@ -46,13 +46,17 @@ describe('Format Registry & System', () => {
     expect(detectFormatFromFilename('DOCUMENT.DJVU')?.id).toBe('djvu');
     expect(detectFormatFromFilename('archive.djv')?.id).toBe('djvu');
     expect(detectFormatFromFilename('ARCHIVE.DJV')?.id).toBe('djvu');
+    expect(detectFormatFromFilename('article.mht')?.id).toBe('mht');
+    expect(detectFormatFromFilename('ARTICLE.MHT')?.id).toBe('mht');
+    expect(detectFormatFromFilename('archive.mhtml')?.id).toBe('mht');
+    expect(detectFormatFromFilename('ARCHIVE.MHTML')?.id).toBe('mht');
     expect(detectFormatFromFilename('unknown.xyz')).toBeNull();
     expect(detectFormatFromFilename('no-extension')).toBeNull();
   });
 
   it('provides format definitions for all supported formats', () => {
     const formats = getAllFormats();
-    expect(formats.length).toBe(15);
+    expect(formats.length).toBe(16);
 
     const ids = formats.map((f) => f.id);
     expect(ids).toContain('epub');
@@ -70,6 +74,7 @@ describe('Format Registry & System', () => {
     expect(ids).toContain('docx');
     expect(ids).toContain('doc');
     expect(ids).toContain('djvu');
+    expect(ids).toContain('mht');
 
     const cbzDef = getRequiredFormat('cbz');
     expect(cbzDef.label).toBe('Comic Book Zip (CBZ)');
@@ -115,6 +120,12 @@ describe('Format Registry & System', () => {
     expect(azw3Def.category).toBe('reflowable');
     expect(azw3Def.capabilities.continuousScroll).toBe(true);
     expect(azw3Def.capabilities.customTypography).toBe(true);
+
+    const mhtDef = getRequiredFormat('mht');
+    expect(mhtDef.label).toBe('MHTML Web Archive');
+    expect(mhtDef.category).toBe('reflowable');
+    expect(mhtDef.capabilities.continuousScroll).toBe(true);
+    expect(mhtDef.capabilities.customTypography).toBe(true);
   });
 
   it('accurately identifies fixed layout formats', () => {
@@ -133,6 +144,7 @@ describe('Format Registry & System', () => {
     expect(isFixedLayout('azw3')).toBe(false);
     expect(isFixedLayout('docx')).toBe(false);
     expect(isFixedLayout('doc')).toBe(false);
+    expect(isFixedLayout('mht')).toBe(false);
     expect(isFixedLayout(undefined)).toBe(false);
   });
 

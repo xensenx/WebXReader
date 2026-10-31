@@ -384,4 +384,47 @@ describe('Import Service', () => {
     expect(books.length).toBe(1);
     expect(books[0].sourceFormat).toBe('cb7');
   });
+  it('successfully imports an MHTML Web Archive (.mht)', async () => {
+    const mhtContent = `From: <Saved by WebXReader>
+Subject: Foundation and Empire
+From: Isaac Asimov
+Date: Mon, 20 Mar 2023 10:00:00 -0000
+Content-Type: multipart/related; boundary="----=_Boundary_MHT_TEST"
+
+------=_Boundary_MHT_TEST
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Content-Location: http://example.com/foundation.html
+
+<html>
+<head>
+  <title>Foundation and Empire</title>
+  <meta name="author" content="Isaac Asimov">
+  <meta name="description" content="The classic science fiction galactic empire story.">
+</head>
+<body>
+  <h1>Part I: The General</h1>
+  <p>Bel Riose was young, vigorous, a fanatic for glory.</p>
+  <h2>The Emperor's Summons</h2>
+  <p>He arrived at Trantor under imperial decree.</p>
+</body>
+</html>
+------=_Boundary_MHT_TEST--
+`;
+
+    const file = new File([mhtContent], 'foundation_and_empire.mht', { type: 'message/rfc822' });
+    const result = await importFile(file);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('mht');
+      expect(result.book.title).toBe('Foundation and Empire');
+      expect(result.book.author).toBe('Isaac Asimov');
+      expect(result.book.totalChapters).toBeGreaterThanOrEqual(2);
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('mht');
+  });
 });
