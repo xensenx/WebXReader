@@ -239,13 +239,13 @@ export function ReaderView() {
     const y = clientY ?? viewportRect.top + viewportRect.height / 2;
     const viewportX = Math.max(0, Math.min(viewport.clientWidth, x - viewportRect.left));
     const viewportY = Math.max(0, Math.min(viewport.clientHeight, y - viewportRect.top));
-    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page], [data-cbz-page]');
+    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page], [data-cbz-page], [data-djvu-page]');
     const page = hitPage && stage.contains(hitPage) ? hitPage : null;
     const pageRect = page?.getBoundingClientRect();
 
     return {
       id: ++zoomAnchorIdRef.current,
-      pageNumber: page ? Number(page.dataset.pdfPage || page.dataset.cbzPage) : undefined,
+      pageNumber: page ? Number(page.dataset.pdfPage || page.dataset.cbzPage || page.dataset.djvuPage) : undefined,
       pageX: pageRect?.width ? Math.max(0, Math.min(1, (x - pageRect.left) / pageRect.width)) : undefined,
       pageY: pageRect?.height ? Math.max(0, Math.min(1, (y - pageRect.top) / pageRect.height)) : undefined,
       viewportX,
@@ -270,6 +270,7 @@ export function ReaderView() {
       pdfZoomAnchorRef.current = activeAnchor;
       pdfReaderRef.current?.previewZoom(nextZoom, activeAnchor);
       cbzReaderRef.current?.previewZoom(nextZoom, activeAnchor);
+      djvuReaderRef.current?.previewZoom(nextZoom, activeAnchor);
     }
     if (zoomLabelRef.current) {
       const percent = Math.round(nextZoom * 100);
