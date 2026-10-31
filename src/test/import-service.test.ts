@@ -282,4 +282,40 @@ describe('Import Service', () => {
     expect(books.length).toBe(1);
     expect(books[0].sourceFormat).toBe('doc');
   });
+
+  it('successfully imports a DjVu document (.djvu)', async () => {
+    const infoPayload = Buffer.alloc(10);
+    infoPayload.writeUInt16BE(100, 0);
+    infoPayload.writeUInt16BE(200, 2);
+    infoPayload.writeUInt8(26, 4);
+    infoPayload.writeUInt8(0, 5);
+    infoPayload.writeUInt16LE(100, 6);
+    infoPayload.writeUInt8(22, 8);
+    infoPayload.writeUInt8(0, 9);
+
+    const infoChunk = Buffer.alloc(8 + 10);
+    infoChunk.write('INFO', 0);
+    infoChunk.writeUInt32BE(10, 4);
+    infoPayload.copy(infoChunk, 8);
+
+    const formPayload = Buffer.concat([Buffer.from('DJVU'), infoChunk]);
+    const formHeader = Buffer.alloc(8);
+    formHeader.write('FORM', 0);
+    formHeader.writeUInt32BE(formPayload.length, 4);
+
+    const djvuBytes = Buffer.concat([Buffer.from('AT&T'), formHeader, formPayload]);
+    const file = new File([djvuBytes], 'sample_scanned_book.djvu', { type: 'image/vnd.djvu' });
+
+    const result = await importFile(file);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('djvu');
+      expect(result.book.title).toBe('sample scanned book');
+      expect(result.book.totalChapters).toBe(1);
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('djvu');
+  });
 });

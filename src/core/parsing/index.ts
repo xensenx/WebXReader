@@ -37,3 +37,6 @@ export type { DocxParseResult, DocxParseOptions } from './docx-parser';
 
 export { parseDoc } from './doc-parser';
 export type { DocParseResult, DocParseOptions } from './doc-parser';
+export { parseDjvu } from './djvu-parser';
+export type { DjvuParseResult, DjvuParseOptions } from './djvu-parser';
+export { ensureDjvuInitialized } from './djvu-init';

@@ -44,6 +44,7 @@ import {
   type PdfReaderHandle,
   type PdfZoomAnchor,
   type CbzReaderHandle,
+  type DjvuReaderHandle,
 } from '../../formats';
 
 import styles from './ReaderView.module.css';
@@ -60,6 +61,10 @@ const PdfReader = lazy(async () => {
 const CbzReader = lazy(async () => {
   const module = await import('../../formats/engines/CbzReader');
   return { default: module.CbzReader };
+});
+const DjvuReader = lazy(async () => {
+  const module = await import('../../formats/engines/DjvuReader');
+  return { default: module.DjvuReader };
 });
 
 const MIN_READER_ZOOM = 0.5;
@@ -218,6 +223,7 @@ export function ReaderView() {
   const epubReaderRef = useRef<EpubReaderHandle>(null);
   const pdfReaderRef = useRef<PdfReaderHandle>(null);
   const cbzReaderRef = useRef<CbzReaderHandle>(null);
+  const djvuReaderRef = useRef<DjvuReaderHandle>(null);
   const flushRef = useRef(flush);
   useEffect(() => {
     flushRef.current = flush;
@@ -233,13 +239,13 @@ export function ReaderView() {
     const y = clientY ?? viewportRect.top + viewportRect.height / 2;
     const viewportX = Math.max(0, Math.min(viewport.clientWidth, x - viewportRect.left));
     const viewportY = Math.max(0, Math.min(viewport.clientHeight, y - viewportRect.top));
-    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page], [data-cbz-page]');
+    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page], [data-cbz-page], [data-djvu-page]');
     const page = hitPage && stage.contains(hitPage) ? hitPage : null;
     const pageRect = page?.getBoundingClientRect();
 
     return {
       id: ++zoomAnchorIdRef.current,
-      pageNumber: page ? Number(page.dataset.pdfPage || page.dataset.cbzPage) : undefined,
+      pageNumber: page ? Number(page.dataset.pdfPage || page.dataset.cbzPage || page.dataset.djvuPage) : undefined,
       pageX: pageRect?.width ? Math.max(0, Math.min(1, (x - pageRect.left) / pageRect.width)) : undefined,
       pageY: pageRect?.height ? Math.max(0, Math.min(1, (y - pageRect.top) / pageRect.height)) : undefined,
       viewportX,
@@ -264,6 +270,7 @@ export function ReaderView() {
       pdfZoomAnchorRef.current = activeAnchor;
       pdfReaderRef.current?.previewZoom(nextZoom, activeAnchor);
       cbzReaderRef.current?.previewZoom(nextZoom, activeAnchor);
+      djvuReaderRef.current?.previewZoom(nextZoom, activeAnchor);
     }
     if (zoomLabelRef.current) {
       const percent = Math.round(nextZoom * 100);
@@ -711,6 +718,11 @@ export function ReaderView() {
       if (!isNaN(page)) {
         cbzReaderRef.current.goToPage(page);
       }
+    } else if (book?.sourceFormat === 'djvu' && bm.chapterId && djvuReaderRef.current) {
+      const page = parseInt(bm.chapterId, 10);
+      if (!isNaN(page)) {
+        djvuReaderRef.current.goToPage(page);
+      }
     } else if (book?.sourceFormat === 'pdf' && bm.chapterId && pdfReaderRef.current) {
       const page = parseInt(bm.chapterId, 10);
       if (!isNaN(page)) {
@@ -750,6 +762,11 @@ export function ReaderView() {
       if (!isNaN(page)) {
         cbzReaderRef.current.goToPage(page);
       }
+    } else if (book?.sourceFormat === 'djvu' && djvuReaderRef.current) {
+      const page = chapter?.href ? parseInt(chapter.href, 10) : parseInt(chapterId.replace('page-', ''), 10);
+      if (!isNaN(page)) {
+        djvuReaderRef.current.goToPage(page);
+      }
     } else if (book?.sourceFormat === 'pdf' && chapter?.href && pdfReaderRef.current) {
       const page = parseInt(chapter.href, 10);
       if (!isNaN(page)) {
@@ -763,6 +780,10 @@ export function ReaderView() {
 
   // Navigate to the exact result in the active format, then select its text.
   const handleSelectSearchResult = (result: ReaderSearchResult, query: string) => {
+    if (book?.sourceFormat === 'djvu' && result.pageNumber && djvuReaderRef.current) {
+      void djvuReaderRef.current.goToSearchMatch(result.pageNumber, query, result.matchIndex);
+      return;
+    }
     if (book?.sourceFormat === 'pdf' && result.pageNumber && pdfReaderRef.current) {
       void pdfReaderRef.current.goToSearchMatch(result.pageNumber, query, result.matchIndex);
       return;
@@ -801,11 +822,13 @@ export function ReaderView() {
   const isEpub = book?.sourceFormat === 'epub' && Boolean(content?.originalFile);
   const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
   const isCbz = book?.sourceFormat === 'cbz' && Boolean(content?.originalFile);
+  const isDjvu = book?.sourceFormat === 'djvu' && Boolean(content?.originalFile);
   const searchProvider = useCallback<ReaderSearchProvider>((query) => {
     if (isEpub) return epubReaderRef.current?.search(query) ?? Promise.resolve([]);
     if (isPdf) return pdfReaderRef.current?.search(query) ?? Promise.resolve([]);
+    if (isDjvu) return djvuReaderRef.current?.search(query) ?? Promise.resolve([]);
     return Promise.resolve([]);
-  }, [isEpub, isPdf]);
+  }, [isEpub, isPdf, isDjvu]);
   const effectiveReadingMode = isPdf && readerSettings.readingMode === 'vertical'
       ? 'paginated'
       : readerSettings.readingMode;
@@ -999,6 +1022,17 @@ export function ReaderView() {
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
             />
+          ) : isDjvu ? (
+            <DjvuReader
+              ref={djvuReaderRef}
+              fileData={content.originalFile!}
+              initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
+              readingMode={readerSettings.readingMode === 'scroll' ? 'scroll' : 'paginated'}
+              onProgressUpdate={handlePaginatedProgress}
+              onToggleControls={handleToggleControls}
+              readerZoom={readerZoom}
+              zoomAnchor={zoomAnchor}
+            />
           ) : isCbz ? (
             <CbzReader
               ref={cbzReaderRef}
@@ -1072,12 +1106,15 @@ export function ReaderView() {
         progress={currentOverallProgress}
         chapterTitle={currentChapterTitle}
         onSeek={(fraction) => {
-          if (isPdf) {
-
+          if (isDjvu) {
+            djvuReaderRef.current?.goToProgress(fraction);
+            return;
+          }
           if (isCbz) {
             cbzReaderRef.current?.goToProgress(fraction);
             return;
           }
+          if (isPdf) {
             pdfReaderRef.current?.goToProgress(fraction);
             return;
           }
