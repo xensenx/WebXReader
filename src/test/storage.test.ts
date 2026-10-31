@@ -5,6 +5,7 @@ import {
   listBooks,
   updateBook,
   deleteBook,
+  deleteBooks,
   saveProgress,
   getProgress,
   getBookContent,
@@ -176,5 +177,44 @@ describe('IndexedDB Storage Operations', () => {
 
     const restoredSettings = await getSettings();
     expect(restoredSettings?.theme).toBe('dark');
+  });
+
+  it('atomically deletes multiple books and their associated progress and content in batch', async () => {
+    const bookA: Book = { ...dummyBook, id: 'batch-book-a', title: 'Batch Book A' };
+    const bookB: Book = { ...dummyBook, id: 'batch-book-b', title: 'Batch Book B' };
+    await addBook(bookA);
+    await addBook(bookB);
+    await saveBookContent({ bookId: 'batch-book-a', format: 'txt', rawText: 'Content A' });
+    await saveBookContent({ bookId: 'batch-book-b', format: 'txt', rawText: 'Content B' });
+    await saveProgress({
+      bookId: 'batch-book-a',
+      chapterId: 'ch-1',
+      chapterProgress: 0.5,
+      overallProgress: 0.25,
+      scrollPosition: 100,
+      pageIndex: 0,
+      readingMode: 'scroll',
+      lastUpdatedAt: 1000,
+    });
+    await saveProgress({
+      bookId: 'batch-book-b',
+      chapterId: 'ch-1',
+      chapterProgress: 0.5,
+      overallProgress: 0.25,
+      scrollPosition: 100,
+      pageIndex: 0,
+      readingMode: 'scroll',
+      lastUpdatedAt: 1000,
+    });
+
+    expect((await listBooks()).length).toBe(2);
+
+    await deleteBooks(['batch-book-a', 'batch-book-b']);
+
+    expect((await listBooks()).length).toBe(0);
+    expect(await getBookContent('batch-book-a')).toBeUndefined();
+    expect(await getBookContent('batch-book-b')).toBeUndefined();
+    expect(await getProgress('batch-book-a')).toBeUndefined();
+    expect(await getProgress('batch-book-b')).toBeUndefined();
   });
 });
