@@ -33,11 +33,10 @@ PNG
 JPEG
 
 Total planned formats: 20
-implemented so far : 16
-left to implement : 4
+implemented so far : 17
+left to implement : 3
 
 formats yet to be implemented:
 PNG
 JPEG
-ZIP
 RAR

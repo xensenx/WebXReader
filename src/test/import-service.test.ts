@@ -427,4 +427,31 @@ Content-Location: http://example.com/foundation.html
     expect(books.length).toBe(1);
     expect(books[0].sourceFormat).toBe('mht');
   });
+
+  it('successfully imports a general-purpose ZIP archive (.zip)', async () => {
+    const zip = new JSZip();
+    zip.file('chapter1.txt', 'The beginning of the journey.');
+    zip.file('chapter2.txt', 'The second part of the adventure.');
+    zip.folder('docs');
+    zip.file('docs/guide.md', '# User Guide\nHow to use WebXReader.');
+
+    const zipBuffer = await zip.generateAsync({ type: 'arraybuffer' });
+    const file = new File([zipBuffer], 'anthology.zip', { type: 'application/zip' });
+    const result = await importFile(file);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('zip');
+      expect(result.book.title).toBe('anthology');
+      expect(result.book.tableOfContents.length).toBeGreaterThan(0);
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('zip');
+
+    const content = await getBookContent(result.success ? result.book.id : '');
+    expect(content?.originalFile).toBeDefined();
+    expect(content?.originalFile?.byteLength).toBe(zipBuffer.byteLength);
+  });
 });

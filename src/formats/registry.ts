@@ -23,6 +23,7 @@ import { cbrFormat } from './definitions/cbr';
 import { cb7Format } from './definitions/cb7';
 import { djvuFormat } from './definitions/djvu';
 import { mhtFormat } from './definitions/mht';
+import { zipFormat } from './definitions/zip';
 import { getFileExtension } from '../utils';
 
 /** Master registry mapping format ID to definition */
@@ -43,6 +44,7 @@ const FORMAT_REGISTRY = new Map<BookFormat, FormatDefinition>([
   ['cb7', cb7Format],
   ['djvu', djvuFormat],
   ['mht', mhtFormat],
+  ['zip', zipFormat],
 ]);
 
 /** Extension-to-format lookup cache */

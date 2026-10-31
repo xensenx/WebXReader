@@ -63,6 +63,10 @@ const CbzReader = lazy(async () => {
   const module = await import('../../formats/engines/CbzReader');
   return { default: module.CbzReader };
 });
+const ZipReader = lazy(async () => {
+  const module = await import('../../formats/engines/ZipReader');
+  return { default: module.ZipReader };
+});
 const DjvuReader = lazy(async () => {
   const module = await import('../../formats/engines/DjvuReader');
   return { default: module.DjvuReader };
@@ -851,6 +855,7 @@ export function ReaderView() {
   const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
   const isCbz = (book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && Boolean(content?.originalFile);
   const isDjvu = book?.sourceFormat === 'djvu' && Boolean(content?.originalFile);
+  const isZip = book?.sourceFormat === 'zip' && Boolean(content?.originalFile);
   const searchProvider = useCallback<ReaderSearchProvider>((query) => {
     if (isEpub) return epubReaderRef.current?.search(query) ?? Promise.resolve([]);
     if (isPdf) return pdfReaderRef.current?.search(query) ?? Promise.resolve([]);
@@ -1060,6 +1065,20 @@ export function ReaderView() {
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
+            />
+          ) : isZip ? (
+            <ZipReader
+              fileData={content.originalFile!}
+              book={book}
+              initialSubPath={restoreLocation?.chapterId}
+              initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
+              initialProgressFraction={restoreLocation?.overallProgress}
+              readingMode={readerSettings.readingMode}
+              readerSettings={readerSettings}
+              readerZoom={readerZoom}
+              zoomAnchor={zoomAnchor}
+              onProgressUpdate={handlePaginatedProgress}
+              onToggleControls={handleToggleControls}
             />
           ) : isCbz ? (
             <CbzReader

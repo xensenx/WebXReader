@@ -50,3 +50,5 @@ export type { ComicArchiveSession } from './sevenzip-extractor';
 
 export { parseMht, decodeRfc2047, parseMimeHeaders, decodeQuotedPrintableToBytes, inlineMhtmlResources, splitHtmlIntoChapters } from './mht-parser';
 export type { MhtParseResult, MhtParseOptions, MhtMetadata } from './mht-parser';
+export { parseZip, detectZipEntryKind, sanitizeZipEntryPath } from './zip-parser';
+export type { ZipParseResult, ZipEntryItem, ZipItemKind } from './zip-parser';

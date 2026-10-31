@@ -50,13 +50,15 @@ describe('Format Registry & System', () => {
     expect(detectFormatFromFilename('ARTICLE.MHT')?.id).toBe('mht');
     expect(detectFormatFromFilename('archive.mhtml')?.id).toBe('mht');
     expect(detectFormatFromFilename('ARCHIVE.MHTML')?.id).toBe('mht');
+    expect(detectFormatFromFilename('archive.zip')?.id).toBe('zip');
+    expect(detectFormatFromFilename('ARCHIVE.ZIP')?.id).toBe('zip');
     expect(detectFormatFromFilename('unknown.xyz')).toBeNull();
     expect(detectFormatFromFilename('no-extension')).toBeNull();
   });
 
   it('provides format definitions for all supported formats', () => {
     const formats = getAllFormats();
-    expect(formats.length).toBe(16);
+    expect(formats.length).toBe(17);
 
     const ids = formats.map((f) => f.id);
     expect(ids).toContain('epub');
@@ -75,6 +77,7 @@ describe('Format Registry & System', () => {
     expect(ids).toContain('doc');
     expect(ids).toContain('djvu');
     expect(ids).toContain('mht');
+    expect(ids).toContain('zip');
 
     const cbzDef = getRequiredFormat('cbz');
     expect(cbzDef.label).toBe('Comic Book Zip (CBZ)');
@@ -126,6 +129,11 @@ describe('Format Registry & System', () => {
     expect(mhtDef.category).toBe('reflowable');
     expect(mhtDef.capabilities.continuousScroll).toBe(true);
     expect(mhtDef.capabilities.customTypography).toBe(true);
+
+    const zipDef = getRequiredFormat('zip');
+    expect(zipDef.label).toBe('ZIP Archive');
+    expect(zipDef.category).toBe('fixed-layout');
+    expect(zipDef.capabilities.continuousScroll).toBe(true);
   });
 
   it('accurately identifies fixed layout formats', () => {
@@ -134,6 +142,7 @@ describe('Format Registry & System', () => {
     expect(isFixedLayout('cb7')).toBe(true);
     expect(isFixedLayout('djvu')).toBe(true);
     expect(isFixedLayout('pdf')).toBe(true);
+    expect(isFixedLayout('zip')).toBe(true);
     expect(isFixedLayout('epub')).toBe(false);
     expect(isFixedLayout('txt')).toBe(false);
     expect(isFixedLayout('markdown')).toBe(false);
