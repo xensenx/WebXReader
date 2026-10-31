@@ -50,6 +50,8 @@ describe('ZIP Archive Parser & Security', () => {
       expect(detectZipEntryKind('photo.avif')).toBe('image');
       expect(detectZipEntryKind('program.exe')).toBe('unsupported');
       expect(detectZipEntryKind('data.bin')).toBe('unsupported');
+      expect(detectZipEntryKind('note.constructor')).toBe('unsupported');
+      expect(detectZipEntryKind('test.toString')).toBe('unsupported');
     });
   });
 

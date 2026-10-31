@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { Book, ReadingStatus } from '../types/book';
-import { listBooks, listProgress, deleteBook, updateBook, getCover } from '../core/storage/database';
+import { listBooks, listProgress, deleteBook, deleteBooks, updateBook, getCover } from '../core/storage/database';
 
 export type LibraryBook = Book & {
   /** Derived from the progress store; never used as the persisted book value. */
@@ -90,9 +90,7 @@ export function useBooks(): UseBooksResult {
 
   const removeBooks = useCallback(async (ids: string[]) => {
     try {
-      for (const id of ids) {
-        await deleteBook(id);
-      }
+      await deleteBooks(ids);
       await refreshBooks();
     } catch (err) {
       await refreshBooks();

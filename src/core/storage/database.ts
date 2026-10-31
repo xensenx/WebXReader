@@ -253,7 +253,8 @@ export async function saveBookBundle(
   });
 }
 
-export async function deleteBook(id: string): Promise<void> {
+export async function deleteBooks(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
   const db = await getDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
@@ -261,37 +262,47 @@ export async function deleteBook(id: string): Promise<void> {
       'readwrite'
     );
 
-    tx.objectStore(STORES.books).delete(id);
-    tx.objectStore(STORES.bookContent).delete(id);
-    tx.objectStore(STORES.progress).delete(id);
-    tx.objectStore(STORES.bookSettings).delete(id);
-    tx.objectStore(STORES.covers).delete(id);
+    const bookmarkStore = tx.objectStore(STORES.bookmarks);
+    const bookmarkIndex = bookmarkStore.index('bookId');
+    const annotationStore = tx.objectStore(STORES.annotations);
+    const annotationIndex = annotationStore.index('bookId');
 
-    // Delete all bookmarks for this book
-    const bookmarkIndex = tx.objectStore(STORES.bookmarks).index('bookId');
-    const bookmarkCursor = bookmarkIndex.openCursor(IDBKeyRange.only(id));
-    bookmarkCursor.onsuccess = (e) => {
-      const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
-      if (cursor) {
-        cursor.delete();
-        cursor.continue();
-      }
-    };
+    for (const id of ids) {
+      tx.objectStore(STORES.books).delete(id);
+      tx.objectStore(STORES.bookContent).delete(id);
+      tx.objectStore(STORES.progress).delete(id);
+      tx.objectStore(STORES.bookSettings).delete(id);
+      tx.objectStore(STORES.covers).delete(id);
 
-    // Delete all annotations for this book
-    const annotationIndex = tx.objectStore(STORES.annotations).index('bookId');
-    const annotationCursor = annotationIndex.openCursor(IDBKeyRange.only(id));
-    annotationCursor.onsuccess = (e) => {
-      const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
-      if (cursor) {
-        cursor.delete();
-        cursor.continue();
-      }
-    };
+      // Delete all bookmarks for this book
+      const bookmarkCursor = bookmarkIndex.openCursor(IDBKeyRange.only(id));
+      bookmarkCursor.onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        }
+      };
+
+      // Delete all annotations for this book
+      const annotationCursor = annotationIndex.openCursor(IDBKeyRange.only(id));
+      annotationCursor.onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        }
+      };
+    }
 
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(new Error(`Failed to delete book: ${tx.error?.message}`));
+    tx.onerror = () => reject(new Error(`Failed to delete books: ${tx.error?.message ?? 'transaction failed'}`));
+    tx.onabort = () => reject(new Error(`Failed to delete books: ${tx.error?.message ?? 'transaction aborted'}`));
   });
+}
+
+export async function deleteBook(id: string): Promise<void> {
+  return deleteBooks([id]);
 }
 
 export async function findBookByHash(contentHash: string): Promise<Book | undefined> {

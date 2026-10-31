@@ -9,6 +9,7 @@ import {
   naturalCompare,
   getImageMimeType,
 } from './comic-archive';
+import { removeDirRecursive, walkDirectory } from './sevenzip-common';
 
 export interface ExtractedComicArchive {
   imagePaths: string[];
@@ -24,56 +25,6 @@ export interface ComicArchiveSession {
 }
 
 let sessionCounter = 0;
-
-function removeDirRecursive(FS: any, dir: string) {
-  try {
-    const entries = FS.readdir(dir);
-    for (const name of entries) {
-      if (name === '.' || name === '..') continue;
-      const full = `${dir}/${name}`;
-      try {
-        const stat = FS.stat(full);
-        if (FS.isDir(stat.mode)) {
-          removeDirRecursive(FS, full);
-        } else {
-          FS.unlink(full);
-        }
-      } catch {
-        // ignore individual unlink error
-      }
-    }
-    FS.rmdir(dir);
-  } catch {
-    // ignore
-  }
-}
-
-function walkDirectory(
-  FS: any,
-  dir: string,
-  base: string = ''
-): { rel: string; full: string }[] {
-  const entries = FS.readdir(dir);
-  const results: { rel: string; full: string }[] = [];
-
-  for (const name of entries) {
-    if (name === '.' || name === '..') continue;
-    const full = `${dir}/${name}`;
-    const rel = base ? `${base}/${name}` : name;
-    try {
-      const stat = FS.stat(full);
-      if (FS.isDir(stat.mode)) {
-        results.push(...walkDirectory(FS, full, rel));
-      } else if (FS.isFile(stat.mode)) {
-        results.push({ rel, full });
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  return results;
-}
 
 /**
  * Extracts a comic archive in memory and returns image paths, files map, and optional ComicInfo.xml text.
@@ -99,7 +50,7 @@ export async function extractComicArchive(
 
     try {
       sevenZip.callMain(['x', inputFile, `-o${outDir}`, '-y']);
-    } catch (err) {
+    } catch {
       // callMain throws ExitStatus on completion or error
     }
 
@@ -121,9 +72,9 @@ export async function extractComicArchive(
       if (isImageFileName(entry.rel)) {
         imagePaths.push(entry.rel);
         const data = FS.readFile(entry.full);
-        files.set(entry.rel, data);
+        files.set(entry.rel, data as Uint8Array);
       } else if (entry.rel.toLowerCase().endsWith('comicinfo.xml')) {
-        comicInfoXml = FS.readFile(entry.full, { encoding: 'utf8' });
+        comicInfoXml = FS.readFile(entry.full, { encoding: 'utf8' }) as string;
       }
     }
 
@@ -167,7 +118,7 @@ export async function openComicArchiveSession(
 
   try {
     sevenZip.callMain(['x', inputFile, `-o${outDir}`, '-y']);
-  } catch (err) {
+  } catch {
     // callMain throws ExitStatus on completion
   }
 
@@ -206,7 +157,7 @@ export async function openComicArchiveSession(
       const fullPath = pathToFullMap.get(relPath);
       if (!fullPath) return undefined;
       try {
-        return FS.readFile(fullPath);
+        return FS.readFile(fullPath) as Uint8Array;
       } catch (err) {
         console.error(`Failed to read page data for ${relPath}:`, err);
         return undefined;

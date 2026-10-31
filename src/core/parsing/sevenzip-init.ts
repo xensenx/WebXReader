@@ -17,8 +17,10 @@ export async function getSevenZipWasmBinary(): Promise<ArrayBuffer> {
     // If running in Node.js (including Vitest jsdom test runner)
     if (typeof process !== 'undefined' && Boolean(process.versions?.node)) {
       try {
-        const fs = await import('node:fs');
-        const path = await import('node:path');
+        const fsMod = 'node:fs';
+        const pathMod = 'node:path';
+        const fs = await import(/* @vite-ignore */ fsMod);
+        const path = await import(/* @vite-ignore */ pathMod);
         const wasmPath = path.resolve(process.cwd(), 'node_modules/7z-wasm/7zz.wasm');
         if (fs.existsSync(wasmPath)) {
           const buffer = fs.readFileSync(wasmPath);
