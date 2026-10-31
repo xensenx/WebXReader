@@ -35,7 +35,7 @@ JPEG
 
 Total planned formats: 21
 implemented so far : 13 
-left to implement : 7 
+left to implement : 8
 
 formats yet to be implemented:
 XPS
