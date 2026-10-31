@@ -25,6 +25,8 @@ import { djvuFormat } from './definitions/djvu';
 import { mhtFormat } from './definitions/mht';
 import { zipFormat } from './definitions/zip';
 import { rarFormat } from './definitions/rar';
+import { pngFormat } from './definitions/png';
+import { jpegFormat } from './definitions/jpeg';
 import { getFileExtension } from '../utils';
 
 /** Master registry mapping format ID to definition */
@@ -47,6 +49,8 @@ const FORMAT_REGISTRY = new Map<BookFormat, FormatDefinition>([
   ['mht', mhtFormat],
   ['zip', zipFormat],
   ['rar', rarFormat],
+  ['png', pngFormat],
+  ['jpeg', jpegFormat],
 ]);
 
 /** Extension-to-format lookup cache */

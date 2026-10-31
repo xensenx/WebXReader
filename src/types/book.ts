@@ -4,7 +4,7 @@
  */
 
 /** Supported import formats */
-export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf' | 'cbz' | 'cbr' | 'cb7' | 'rtf' | 'fb2' | 'mobi' | 'azw3' | 'docx' | 'doc' | 'djvu' | 'mht' | 'zip' | 'rar';
+export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf' | 'cbz' | 'cbr' | 'cb7' | 'rtf' | 'fb2' | 'mobi' | 'azw3' | 'docx' | 'doc' | 'djvu' | 'mht' | 'zip' | 'rar' | 'png' | 'jpeg';
 
 /** Reading status of a book */
 export type ReadingStatus = 'unread' | 'reading' | 'completed';

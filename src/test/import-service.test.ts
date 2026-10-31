@@ -481,4 +481,48 @@ Content-Location: http://example.com/foundation.html
     expect(content?.originalFile).toBeDefined();
     expect(content?.originalFile?.byteLength).toBe(rarBuffer.byteLength);
   });
+
+  it('successfully imports a standalone PNG image (.png)', async () => {
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/AwMDEwMDAAMYAAQMAA4d/nOIAAAAASUVORK5CYII=',
+      'base64'
+    );
+    const file = new File([pngBytes], 'landscape.png', { type: 'image/png' });
+    const result = await importFile(file);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('png');
+      expect(result.book.title).toBe('landscape');
+      expect(result.book.coverImage).toBeDefined();
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('png');
+
+    const content = await getBookContent(result.success ? result.book.id : '');
+    expect(content?.originalFile).toBeDefined();
+    expect(content?.originalFile?.byteLength).toBe(pngBytes.byteLength);
+  });
+
+  it('successfully imports a standalone JPEG image (.jpg / .jpeg)', async () => {
+    const file = new File([SAMPLE_JPEG], 'portrait.jpg', { type: 'image/jpeg' });
+    const result = await importFile(file);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.book.sourceFormat).toBe('jpeg');
+      expect(result.book.title).toBe('portrait');
+      expect(result.book.coverImage).toBeDefined();
+    }
+
+    const books = await listBooks();
+    expect(books.length).toBe(1);
+    expect(books[0].sourceFormat).toBe('jpeg');
+
+    const content = await getBookContent(result.success ? result.book.id : '');
+    expect(content?.originalFile).toBeDefined();
+    expect(content?.originalFile?.byteLength).toBe(SAMPLE_JPEG.byteLength);
+  });
 });

@@ -46,6 +46,7 @@ import {
   type PdfZoomAnchor,
   type CbzReaderHandle,
   type DjvuReaderHandle,
+  type ImageReaderHandle,
 } from '../../formats';
 
 import styles from './ReaderView.module.css';
@@ -70,6 +71,10 @@ const ZipReader = lazy(async () => {
 const DjvuReader = lazy(async () => {
   const module = await import('../../formats/engines/DjvuReader');
   return { default: module.DjvuReader };
+});
+const ImageReader = lazy(async () => {
+  const module = await import('../../formats/engines/ImageReader');
+  return { default: module.ImageReader };
 });
 
 const MIN_READER_ZOOM = 0.5;
@@ -229,6 +234,7 @@ export function ReaderView() {
   const pdfReaderRef = useRef<PdfReaderHandle>(null);
   const cbzReaderRef = useRef<CbzReaderHandle>(null);
   const djvuReaderRef = useRef<DjvuReaderHandle>(null);
+  const imageReaderRef = useRef<ImageReaderHandle>(null);
   const flushRef = useRef(flush);
   useEffect(() => {
     flushRef.current = flush;
@@ -244,7 +250,7 @@ export function ReaderView() {
     const y = clientY ?? viewportRect.top + viewportRect.height / 2;
     const viewportX = Math.max(0, Math.min(viewport.clientWidth, x - viewportRect.left));
     const viewportY = Math.max(0, Math.min(viewport.clientHeight, y - viewportRect.top));
-    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page], [data-cbz-page], [data-djvu-page]');
+    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-pdf-page], [data-cbz-page], [data-djvu-page], [data-image-page]');
     const page = hitPage && stage.contains(hitPage) ? hitPage : null;
     const pageRect = page?.getBoundingClientRect();
 
@@ -276,6 +282,7 @@ export function ReaderView() {
       pdfReaderRef.current?.previewZoom(nextZoom, activeAnchor);
       cbzReaderRef.current?.previewZoom(nextZoom, activeAnchor);
       djvuReaderRef.current?.previewZoom(nextZoom, activeAnchor);
+      imageReaderRef.current?.previewZoom(nextZoom, activeAnchor);
     }
     if (zoomLabelRef.current) {
       const percent = Math.round(nextZoom * 100);
@@ -856,6 +863,7 @@ export function ReaderView() {
   const isCbz = (book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && Boolean(content?.originalFile);
   const isDjvu = book?.sourceFormat === 'djvu' && Boolean(content?.originalFile);
   const isArchive = (book?.sourceFormat === 'zip' || book?.sourceFormat === 'rar') && Boolean(content?.originalFile);
+  const isImage = (book?.sourceFormat === 'png' || book?.sourceFormat === 'jpeg') && Boolean(content?.originalFile);
   const searchProvider = useCallback<ReaderSearchProvider>((query) => {
     if (isEpub) return epubReaderRef.current?.search(query) ?? Promise.resolve([]);
     if (isPdf) return pdfReaderRef.current?.search(query) ?? Promise.resolve([]);
@@ -1081,6 +1089,18 @@ export function ReaderView() {
               onProgressUpdate={handlePaginatedProgress}
               onToggleControls={handleToggleControls}
             />
+          ) : isImage ? (
+            <ImageReader
+              ref={imageReaderRef}
+              fileData={content.originalFile!}
+              format={book?.sourceFormat}
+              book={book}
+              fitMode={readerSettings.comicFitMode ?? 'contain'}
+              readerZoom={readerZoom}
+              zoomAnchor={zoomAnchor}
+              onProgressUpdate={handlePaginatedProgress}
+              onToggleControls={handleToggleControls}
+            />
           ) : isCbz ? (
             <CbzReader
               ref={cbzReaderRef}
@@ -1155,6 +1175,10 @@ export function ReaderView() {
         progress={currentOverallProgress}
         chapterTitle={currentChapterTitle}
         onSeek={(fraction) => {
+          if (isImage) {
+            imageReaderRef.current?.goToProgress(fraction);
+            return;
+          }
           if (isDjvu) {
             djvuReaderRef.current?.goToProgress(fraction);
             return;

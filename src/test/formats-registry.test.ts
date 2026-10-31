@@ -53,13 +53,19 @@ describe('Format Registry & System', () => {
     expect(detectFormatFromFilename('ARCHIVE.MHTML')?.id).toBe('mht');
     expect(detectFormatFromFilename('archive.zip')?.id).toBe('zip');
     expect(detectFormatFromFilename('ARCHIVE.ZIP')?.id).toBe('zip');
+    expect(detectFormatFromFilename('photo.png')?.id).toBe('png');
+    expect(detectFormatFromFilename('PHOTO.PNG')?.id).toBe('png');
+    expect(detectFormatFromFilename('photo.jpg')?.id).toBe('jpeg');
+    expect(detectFormatFromFilename('PHOTO.JPG')?.id).toBe('jpeg');
+    expect(detectFormatFromFilename('photo.jpeg')?.id).toBe('jpeg');
+    expect(detectFormatFromFilename('PHOTO.JPEG')?.id).toBe('jpeg');
     expect(detectFormatFromFilename('unknown.xyz')).toBeNull();
     expect(detectFormatFromFilename('no-extension')).toBeNull();
   });
 
   it('provides format definitions for all supported formats', () => {
     const formats = getAllFormats();
-    expect(formats.length).toBe(18);
+    expect(formats.length).toBe(20);
 
     const ids = formats.map((f) => f.id);
     expect(ids).toContain('epub');
@@ -80,6 +86,8 @@ describe('Format Registry & System', () => {
     expect(ids).toContain('mht');
     expect(ids).toContain('zip');
     expect(ids).toContain('rar');
+    expect(ids).toContain('png');
+    expect(ids).toContain('jpeg');
 
     const cbzDef = getRequiredFormat('cbz');
     expect(cbzDef.label).toBe('Comic Book Zip (CBZ)');
@@ -141,6 +149,16 @@ describe('Format Registry & System', () => {
     expect(rarDef.label).toBe('RAR Archive');
     expect(rarDef.category).toBe('fixed-layout');
     expect(rarDef.capabilities.continuousScroll).toBe(true);
+
+    const pngDef = getRequiredFormat('png');
+    expect(pngDef.label).toBe('PNG Image');
+    expect(pngDef.category).toBe('fixed-layout');
+    expect(pngDef.capabilities.zoom).toBe(true);
+
+    const jpegDef = getRequiredFormat('jpeg');
+    expect(jpegDef.label).toBe('JPEG Image');
+    expect(jpegDef.category).toBe('fixed-layout');
+    expect(jpegDef.capabilities.zoom).toBe(true);
   });
 
   it('accurately identifies fixed layout formats', () => {
@@ -151,6 +169,8 @@ describe('Format Registry & System', () => {
     expect(isFixedLayout('pdf')).toBe(true);
     expect(isFixedLayout('zip')).toBe(true);
     expect(isFixedLayout('rar')).toBe(true);
+    expect(isFixedLayout('png')).toBe(true);
+    expect(isFixedLayout('jpeg')).toBe(true);
     expect(isFixedLayout('epub')).toBe(false);
     expect(isFixedLayout('txt')).toBe(false);
     expect(isFixedLayout('markdown')).toBe(false);
@@ -216,6 +236,9 @@ describe('Format Registry & System', () => {
     expect(accept).toContain('.doc');
     expect(accept).toContain('.djvu');
     expect(accept).toContain('.djv');
+    expect(accept).toContain('.png');
+    expect(accept).toContain('.jpg');
+    expect(accept).toContain('.jpeg');
 
     expect(getFormatMimeType('cbz')).toBe('application/vnd.comicbook+zip');
     expect(getFormatMimeType('cbr')).toBe('application/vnd.comicbook-rar');
@@ -232,6 +255,8 @@ describe('Format Registry & System', () => {
     expect(getFormatMimeType('docx')).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     expect(getFormatMimeType('doc')).toBe('application/msword');
     expect(getFormatMimeType('djvu')).toBe('image/vnd.djvu');
+    expect(getFormatMimeType('png')).toBe('image/png');
+    expect(getFormatMimeType('jpeg')).toBe('image/jpeg');
   });
 
   it('handles unknown formats gracefully', () => {

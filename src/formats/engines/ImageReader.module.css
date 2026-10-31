@@ -1,0 +1,214 @@
+.container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  background-color: var(--color-bg-reader, #121214);
+}
+
+.viewport {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.viewport::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Checkerboard pattern for transparent PNG images */
+.checkerboard {
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}
+
+.stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+  position: relative;
+  transition: transform 0.05s ease-out;
+  transform-origin: center center;
+}
+
+.imageElement {
+  display: block;
+  image-orientation: from-image;
+  pointer-events: none;
+  transition: filter 0.2s ease;
+}
+
+/* Panning cursor states */
+.cursorDefault {
+  cursor: default;
+}
+
+.cursorGrab {
+  cursor: grab;
+}
+
+.cursorGrabbing {
+  cursor: grabbing;
+}
+
+/* Loading & Error States */
+.centerBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  height: 100%;
+  color: var(--color-text-secondary, #a1a1aa);
+  font-size: 15px;
+}
+
+.spinner {
+  width: 38px;
+  height: 38px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--color-primary, #6366f1);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Floating HUD Bar */
+.floatingToolbar {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(24, 24, 27, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  color: var(--color-text, #f4f4f5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  z-index: 10;
+  opacity: 0.9;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.floatingToolbar:hover {
+  opacity: 1;
+}
+
+.toolBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #d4d4d8);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.toolBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.toolBtnActive {
+  background: var(--color-primary, #6366f1);
+  color: #ffffff;
+}
+
+.toolBtnActive:hover {
+  background: var(--color-primary-hover, #4f46e5);
+}
+
+.divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 4px;
+}
+
+.infoBadge {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #d4d4d8);
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+/* Floating Navigation Arrows for Image Collections */
+.navArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(24, 24, 27, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  color: #ffffff;
+  cursor: pointer;
+  z-index: 8;
+  opacity: 0.4;
+  transition: opacity 0.2s, background 0.2s, transform 0.15s;
+}
+
+.navArrow:hover {
+  opacity: 1;
+  background: rgba(24, 24, 27, 0.95);
+  transform: translateY(-50%) scale(1.05);
+}
+
+.navArrow:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.navArrowLeft {
+  left: 20px;
+}
+
+.navArrowRight {
+  right: 20px;
+}

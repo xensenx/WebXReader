@@ -54,3 +54,5 @@ export { parseZip, detectZipEntryKind, sanitizeZipEntryPath } from './zip-parser
 export type { ZipParseResult, ZipEntryItem, ZipItemKind } from './zip-parser';
 export { parseRar, openRarArchiveSession } from './rar-parser';
 export type { RarArchiveSession } from './rar-parser';
+export { parseImage, parsePngHeader, parseJpegHeader, validateAndDetectImageFormat } from './image-parser';
+export type { ImageMetadata, ImageParseResult } from './image-parser';

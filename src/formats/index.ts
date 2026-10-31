@@ -46,6 +46,9 @@ export { djvuFormat } from './definitions/djvu';
 export { mhtFormat } from './definitions/mht';
 export { zipFormat } from './definitions/zip';
 export { rarFormat } from './definitions/rar';
+export { pngFormat } from './definitions/png';
+export { jpegFormat } from './definitions/jpeg';
+export type { ImageReaderProps, ImageReaderHandle, ImageZoomAnchor } from './engines/ImageReader';
 export type { ZipReaderProps, ArchiveReaderProps } from './engines/ZipReader';
 
 // Dedicated reader engine types (engines themselves are lazy loaded on demand)

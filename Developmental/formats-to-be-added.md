@@ -33,9 +33,8 @@ PNG
 JPEG
 
 Total planned formats: 20
-implemented so far : 18
-left to implement : 2
+implemented so far : 20
+left to implement : 0
 
 formats yet to be implemented:
-PNG
-JPEG
+None (All 20 formats successfully implemented)
