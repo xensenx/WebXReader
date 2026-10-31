@@ -1,11 +1,11 @@
 /**
  * Dedicated Standalone Image Reader (PNG, JPEG / JPG) for WebXReader.
  *
- * Provides a high-fidelity image reading surface supporting:
- * 1. Aspect-ratio preserving display scaling across Contain, Fit Width, and Fit Height modes
- * 2. Actual-size (1:1) pixel inspection and smooth interactive zooming
- * 3. Fluid click-and-drag panning when zoomed in
- * 4. Checkerboard pattern backdrop toggle for transparent PNGs
+ * Implements the rock-solid PdfReader and CbzReader architectural mechanics:
+ * 1. Explicit pixel-based display scaling and aspect-ratio preservation
+ * 2. Stable centering in flex pageStack with zero negative-margin push or lateral jumping
+ * 3. Smooth matrix preview zooming around pointer anchor with exact layout-effect scroll restoration
+ * 4. Checkerboard pattern toggle for transparent PNG inspection (disabled by default)
  * 5. In-place rotation (90° increments)
  * 6. Sequential image collection navigation with natural filename ordering
  * 7. Seamless integration with WebXReader zoom controls and shortcut gestures
@@ -36,6 +36,9 @@ import styles from './ImageReader.module.css';
 
 export interface ImageZoomAnchor {
   id: number;
+  pageNumber?: number;
+  pageX?: number;
+  pageY?: number;
   viewportX: number;
   viewportY: number;
   scrollRatioX: number;
@@ -68,6 +71,47 @@ interface PointerDragState {
   hasMoved: boolean;
 }
 
+interface ImageZoomPreviewTransform {
+  baseLeft: number;
+  baseTop: number;
+  scale: number;
+  translateX: number;
+  translateY: number;
+}
+
+/**
+ * Computes explicit pixel display scale matching PdfReader and CbzReader mechanics.
+ * Guarantees zero circular layout calculations and stable centering.
+ */
+function getImageDisplayScale(
+  baseWidth: number,
+  baseHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  readerZoom: number,
+  fitMode: ComicFitMode = 'contain'
+): number {
+  const paddingX = 32;
+  const paddingY = 48;
+  const availableWidth = Math.max(240, viewportWidth - paddingX);
+  const availableHeight = Math.max(240, viewportHeight - paddingY);
+
+  let fitScale: number;
+  if (fitMode === 'width') {
+    fitScale = availableWidth / Math.max(1, baseWidth);
+  } else if (fitMode === 'height') {
+    fitScale = availableHeight / Math.max(1, baseHeight);
+  } else {
+    // 'contain': comfortably fit within viewport bounds preserving natural proportions
+    fitScale = Math.min(
+      availableWidth / Math.max(1, baseWidth),
+      availableHeight / Math.max(1, baseHeight)
+    );
+  }
+
+  return Math.min(8.0, Math.max(0.15, fitScale)) * readerZoom;
+}
+
 export const ImageReader = memo(
   forwardRef<ImageReaderHandle, ImageReaderProps>(function ImageReader(
     {
@@ -91,7 +135,8 @@ export const ImageReader = memo(
 
     // Viewport & Layout
     const viewportRef = useRef<HTMLDivElement>(null);
-    const stageRef = useRef<HTMLDivElement>(null);
+    const pageStackRef = useRef<HTMLDivElement>(null);
+    const shellRef = useRef<HTMLDivElement>(null);
     const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
       width: 0,
       height: 0,
@@ -104,6 +149,11 @@ export const ImageReader = memo(
     // Sibling collection state
     const [siblingImages, setSiblingImages] = useState<Book[]>([]);
     const [currentIndex, setCurrentIndex] = useState<number>(-1);
+
+    // Zoom preview and anchor tracking (mirrors PdfReader & CbzReader)
+    const previewTransformRef = useRef<ImageZoomPreviewTransform | null>(null);
+    const lastZoomAnchorRef = useRef<ImageZoomAnchor | undefined>(undefined);
+    const previousReaderZoomRef = useRef(readerZoom);
 
     // Pointer Drag Panning state
     const dragStateRef = useRef<PointerDragState | null>(null);
@@ -126,20 +176,15 @@ export const ImageReader = memo(
       const url = URL.createObjectURL(blob);
       setObjectUrl(url);
 
-      // Auto-enable checkerboard for PNGs with alpha
-      if (format === 'png' && book?.identifiers?.hasAlpha === 'true') {
-        setCheckerboard(true);
-      }
-
       return () => {
         URL.revokeObjectURL(url);
       };
-    }, [fileData, format, book]);
+    }, [fileData, format]);
 
     // Track viewport size via ResizeObserver
     useEffect(() => {
       const viewport = viewportRef.current;
-      if (!viewport) return;
+      if (!viewport || typeof ResizeObserver === 'undefined') return;
 
       const observer = new ResizeObserver((entries) => {
         const entry = entries[0];
@@ -166,13 +211,18 @@ export const ImageReader = memo(
           const images = allBooks.filter(
             (b) => b.sourceFormat === 'png' || b.sourceFormat === 'jpeg'
           );
-          images.sort((a, b) => naturalCompare(a.originalFilename || a.title, b.originalFilename || b.title));
+
+          images.sort((a, b) =>
+            naturalCompare(a.originalFilename || a.title, b.originalFilename || b.title)
+          );
 
           setSiblingImages(images);
-          const idx = images.findIndex((b) => b.id === book?.id);
-          setCurrentIndex(idx);
+          if (book) {
+            const idx = images.findIndex((b) => b.id === book.id);
+            setCurrentIndex(idx);
+          }
         } catch {
-          // ignore
+          // Ignore library lookup errors
         }
       }
 
@@ -180,9 +230,15 @@ export const ImageReader = memo(
       return () => {
         isMounted = false;
       };
-    }, [book?.id]);
+    }, [book]);
 
-    // Handle image loaded event to capture natural dimensions
+    // Report initial progress
+    useEffect(() => {
+      if (onProgressUpdate) {
+        onProgressUpdate('image-1', 1.0, 0);
+      }
+    }, [onProgressUpdate]);
+
     const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
       const img = e.currentTarget;
       setNaturalSize({
@@ -190,86 +246,166 @@ export const ImageReader = memo(
         height: img.naturalHeight || 600,
       });
       setLoading(false);
-      onProgressUpdate?.('image-1', 1, 1);
     };
 
     const handleImageError = () => {
+      setError('Failed to render image.');
       setLoading(false);
-      setError('Failed to decode image. File may be corrupted or unsupported.');
     };
 
-    // Sibling collection navigation
     const navigateToSibling = useCallback(
-      (delta: number) => {
-        if (siblingImages.length <= 1 || currentIndex < 0) return;
-        const targetIdx = currentIndex + delta;
-        if (targetIdx >= 0 && targetIdx < siblingImages.length) {
-          const target = siblingImages[targetIdx];
-          navigate(`/read/${target.id}`);
+      (offset: number) => {
+        if (currentIndex < 0 || siblingImages.length <= 1) return;
+        const targetIndex = currentIndex + offset;
+        if (targetIndex >= 0 && targetIndex < siblingImages.length) {
+          const target = siblingImages[targetIndex];
+          navigate(`/reader/${target.id}`);
         }
       },
-      [siblingImages, currentIndex, navigate]
+      [currentIndex, siblingImages, navigate]
     );
 
-    // Keyboard arrow navigation for collection sequences
+    // Keyboard navigation (ArrowLeft/ArrowRight)
     useEffect(() => {
-      function handleKeyDown(e: KeyboardEvent) {
-        if (siblingImages.length <= 1) return;
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+          return;
+        }
+
         if (e.key === 'ArrowLeft') {
           e.preventDefault();
           navigateToSibling(-1);
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
           navigateToSibling(1);
+        } else if (e.key.toLowerCase() === 'r') {
+          setRotation((r) => (r + 90) % 360);
         }
-      }
+      };
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [siblingImages.length, navigateToSibling]);
+    }, [navigateToSibling]);
 
-    // Compute display dimensions preserving natural aspect ratio
-    const naturalWidth = naturalSize?.width || 800;
-    const naturalHeight = naturalSize?.height || 600;
-
-    // Account for 90° or 270° rotation swapping aspect ratio
+    // Calculate dimensions
     const isRotatedQuarter = rotation === 90 || rotation === 270;
-    const effectiveNatW = isRotatedQuarter ? naturalHeight : naturalWidth;
-    const effectiveNatH = isRotatedQuarter ? naturalWidth : naturalHeight;
+    const rawNatW = naturalSize?.width || 800;
+    const rawNatH = naturalSize?.height || 600;
+    const baseWidth = isRotatedQuarter ? rawNatH : rawNatW;
+    const baseHeight = isRotatedQuarter ? rawNatW : rawNatH;
 
-    const vpW = Math.max(320, viewportSize.width);
-    const vpH = Math.max(240, viewportSize.height);
+    const vpW = Math.max(240, viewportSize.width || window.innerWidth || 800);
+    const vpH = Math.max(240, viewportSize.height || window.innerHeight || 600);
 
-    let fitScale = 1;
-    if (fitMode === 'width') {
-      fitScale = (vpW - 32) / effectiveNatW;
-    } else if (fitMode === 'height') {
-      fitScale = (vpH - 32) / effectiveNatH;
-    } else {
-      // contain
-      fitScale = Math.min((vpW - 32) / effectiveNatW, (vpH - 32) / effectiveNatH, 1);
-    }
+    const displayScale = getImageDisplayScale(baseWidth, baseHeight, vpW, vpH, readerZoom, fitMode);
+    const displayWidth = Math.max(1, Math.round(baseWidth * displayScale));
+    const displayHeight = Math.max(1, Math.round(baseHeight * displayScale));
 
-    const totalScale = fitScale * readerZoom;
-    const displayWidth = Math.round(effectiveNatW * totalScale);
-    const displayHeight = Math.round(effectiveNatH * totalScale);
+    const isZoomed = displayWidth > vpW || displayHeight > vpH;
 
-    const isZoomed = displayWidth > vpW || displayHeight > vpH || readerZoom > 1.05;
+    // Preview zoom matrix transform around pointer anchor (mirrors PdfReader/CbzReader)
+    const previewZoom = useCallback(
+      (nextZoom: number, anchor?: ImageZoomAnchor) => {
+        const viewport = viewportRef.current;
+        const pageStack = pageStackRef.current;
+        if (!viewport || !pageStack) return;
+
+        const activeAnchor = anchor ?? lastZoomAnchorRef.current;
+        if (!activeAnchor) {
+          const ratio = nextZoom / readerZoom;
+          pageStack.style.transformOrigin = '50% 50%';
+          pageStack.style.transform = `scale(${ratio})`;
+          return;
+        }
+
+        const viewportRect = viewport.getBoundingClientRect();
+        const pointerX = viewportRect.left + activeAnchor.viewportX;
+        const pointerY = viewportRect.top + activeAnchor.viewportY;
+        const previous = previewTransformRef.current ?? {
+          baseLeft: pageStack.getBoundingClientRect().left,
+          baseTop: pageStack.getBoundingClientRect().top,
+          scale: 1,
+          translateX: 0,
+          translateY: 0,
+        };
+        const scale = nextZoom / readerZoom;
+
+        const documentX = (pointerX - previous.baseLeft - previous.translateX) / previous.scale;
+        const documentY = (pointerY - previous.baseTop - previous.translateY) / previous.scale;
+        const translateX = pointerX - previous.baseLeft - scale * documentX;
+        const translateY = pointerY - previous.baseTop - scale * documentY;
+
+        lastZoomAnchorRef.current = activeAnchor;
+        pageStack.style.transformOrigin = '0 0';
+        pageStack.style.transform = `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`;
+        previewTransformRef.current = {
+          baseLeft: previous.baseLeft,
+          baseTop: previous.baseTop,
+          scale,
+          translateX,
+          translateY,
+        };
+      },
+      [readerZoom]
+    );
+
+    // Exact anchor restoration upon zoom commit (mirrors PdfReader/CbzReader)
+    useLayoutEffect(() => {
+      if (previousReaderZoomRef.current === readerZoom) return;
+      previousReaderZoomRef.current = readerZoom;
+
+      const pageStack = pageStackRef.current;
+      if (pageStack) {
+        pageStack.style.transform = '';
+        pageStack.style.transformOrigin = '';
+      }
+      previewTransformRef.current = null;
+
+      const viewport = viewportRef.current;
+      const activeAnchor = zoomAnchor ?? lastZoomAnchorRef.current;
+      lastZoomAnchorRef.current = undefined;
+      if (!viewport || !activeAnchor) return;
+
+      const page = pageStackRef.current?.querySelector<HTMLElement>('[data-image-page]');
+
+      if (page) {
+        const viewportRect = viewport.getBoundingClientRect();
+        const pageRect = page.getBoundingClientRect();
+        const left =
+          viewport.scrollLeft +
+          pageRect.left -
+          viewportRect.left +
+          pageRect.width * (activeAnchor.pageX ?? 0.5) -
+          activeAnchor.viewportX;
+        const top =
+          viewport.scrollTop +
+          pageRect.top -
+          viewportRect.top +
+          pageRect.height * (activeAnchor.pageY ?? 0.5) -
+          activeAnchor.viewportY;
+        viewport.scrollTo({ left: Math.max(0, left), top: Math.max(0, top), behavior: 'auto' });
+        return;
+      }
+
+      viewport.scrollTo({
+        left: Math.max(0, activeAnchor.scrollRatioX * viewport.scrollWidth - activeAnchor.viewportX),
+        top: Math.max(0, activeAnchor.scrollRatioY * viewport.scrollHeight - activeAnchor.viewportY),
+        behavior: 'auto',
+      });
+    }, [readerZoom, zoomAnchor]);
 
     // Imperative handle for parent zoom & seeking
     useImperativeHandle(
       ref,
       () => ({
-        previewZoom: (zoom: number, _anchor?: ImageZoomAnchor) => {
-          const stage = stageRef.current;
-          if (!stage) return;
-          const ratio = zoom / readerZoom;
-          stage.style.transform = `scale(${ratio})`;
-        },
+        previewZoom,
         resetView: () => {
           setRotation(0);
-          const stage = stageRef.current;
-          if (stage) stage.style.transform = '';
+          const pageStack = pageStackRef.current;
+          if (pageStack) {
+            pageStack.style.transform = '';
+            pageStack.style.transformOrigin = '';
+          }
           const viewport = viewportRef.current;
           if (viewport) {
             viewport.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
@@ -284,36 +420,17 @@ export const ImageReader = memo(
           }
         },
       }),
-      [readerZoom]
+      [previewZoom]
     );
 
-    // Clear preview scale once zoom is committed
-    useLayoutEffect(() => {
-      const stage = stageRef.current;
-      if (stage) {
-        stage.style.transform = '';
-      }
-    }, [readerZoom]);
-
-    // Restore anchor pivot scroll position
-    useLayoutEffect(() => {
-      const viewport = viewportRef.current;
-      if (!viewport || !zoomAnchor) return;
-
-      viewport.scrollTo({
-        left: Math.max(0, zoomAnchor.scrollRatioX * viewport.scrollWidth - zoomAnchor.viewportX),
-        top: Math.max(0, zoomAnchor.scrollRatioY * viewport.scrollHeight - zoomAnchor.viewportY),
-        behavior: 'auto',
-      });
-    }, [readerZoom, zoomAnchor]);
-
-    // Pointer Drag Panning
+    // Pointer drag / pan handling when zoomed in
     const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return; // Only primary mouse button
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement).closest(`.${styles.floatingToolbar}, button, a`)) return;
+
       const viewport = viewportRef.current;
       if (!viewport) return;
 
-      e.currentTarget.setPointerCapture(e.pointerId);
       dragStateRef.current = {
         pointerId: e.pointerId,
         startX: e.clientX,
@@ -322,8 +439,11 @@ export const ImageReader = memo(
         startScrollTop: viewport.scrollTop,
         hasMoved: false,
       };
-      if (isZoomed) {
-        setIsDragging(true);
+
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore
       }
     };
 
@@ -336,8 +456,9 @@ export const ImageReader = memo(
       const dx = e.clientX - state.startX;
       const dy = e.clientY - state.startY;
 
-      if (!state.hasMoved && Math.hypot(dx, dy) > 5) {
+      if (!state.hasMoved && Math.hypot(dx, dy) > 4) {
         state.hasMoved = true;
+        setIsDragging(true);
       }
 
       if (state.hasMoved) {
@@ -356,11 +477,11 @@ export const ImageReader = memo(
         // ignore
       }
 
+      const hasMoved = state.hasMoved;
       setIsDragging(false);
       dragStateRef.current = null;
 
-      // If user clicked without dragging, toggle reader controls
-      if (!state.hasMoved) {
+      if (!hasMoved) {
         onToggleControls?.();
       }
     };
@@ -375,7 +496,7 @@ export const ImageReader = memo(
     }
 
     return (
-      <div className={`${styles.container} ${checkerboard ? styles.checkerboard : ''}`}>
+      <div className={styles.container}>
         {/* Sibling navigation arrows */}
         {siblingImages.length > 1 && currentIndex > 0 && (
           <button
@@ -407,11 +528,11 @@ export const ImageReader = memo(
           </button>
         )}
 
-        {/* Viewport reading surface */}
+        {/* Viewport scroll surface */}
         <div
           ref={viewportRef}
           className={`${styles.viewport} ${
-            isZoomed ? (isDragging ? styles.cursorGrabbing : styles.cursorGrab) : styles.cursorDefault
+            isDragging ? styles.cursorGrabbing : isZoomed ? styles.cursorGrab : styles.cursorDefault
           }`}
           data-reader-viewport="image-viewport"
           tabIndex={0}
@@ -428,28 +549,30 @@ export const ImageReader = memo(
           )}
 
           {objectUrl && (
-            <div
-              ref={stageRef}
-              className={styles.stage}
-              data-image-page="1"
-              style={{
-                width: displayWidth || undefined,
-                height: displayHeight || undefined,
-                transform: rotation ? `rotate(${rotation}deg)` : undefined,
-              }}
-            >
-              <img
-                src={objectUrl}
-                alt={book?.title || 'Image view'}
-                className={styles.imageElement}
+            <div ref={pageStackRef} className={styles.pageStack}>
+              <div
+                ref={shellRef}
+                className={`${styles.pageShell} ${checkerboard ? styles.checkerboard : ''}`}
+                data-image-page="1"
                 style={{
-                  width: isRotatedQuarter ? displayHeight : displayWidth,
-                  height: isRotatedQuarter ? displayWidth : displayHeight,
+                  width: displayWidth || undefined,
+                  height: displayHeight || undefined,
                 }}
-                onLoad={handleImageLoad}
-                onError={handleImageError}
-                draggable={false}
-              />
+              >
+                <img
+                  src={objectUrl}
+                  alt={book?.title || 'Image view'}
+                  className={styles.imageElement}
+                  style={{
+                    width: isRotatedQuarter ? displayHeight : displayWidth,
+                    height: isRotatedQuarter ? displayWidth : displayHeight,
+                    transform: rotation ? `rotate(${rotation}deg)` : undefined,
+                  }}
+                  onLoad={handleImageLoad}
+                  onError={handleImageError}
+                  draggable={false}
+                />
+              </div>
             </div>
           )}
         </div>

@@ -256,7 +256,7 @@ export function ReaderView() {
 
     return {
       id: ++zoomAnchorIdRef.current,
-      pageNumber: page ? Number(page.dataset.pdfPage || page.dataset.cbzPage || page.dataset.djvuPage) : undefined,
+      pageNumber: page ? Number(page.dataset.pdfPage || page.dataset.cbzPage || page.dataset.djvuPage || page.dataset.imagePage) : undefined,
       pageX: pageRect?.width ? Math.max(0, Math.min(1, (x - pageRect.left) / pageRect.width)) : undefined,
       pageY: pageRect?.height ? Math.max(0, Math.min(1, (y - pageRect.top) / pageRect.height)) : undefined,
       viewportX,

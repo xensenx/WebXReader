@@ -1,24 +1,51 @@
+/**
+ * Styles for Standalone Image Reader (PNG, JPEG / JPG).
+ * Follows the rock-solid PdfReader and CbzReader architecture for pixel-perfect zoom,
+ * centering, anchor preservation, and pan.
+ */
+
 .container {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
-  user-select: none;
-  background-color: var(--color-bg-reader, #121214);
-}
-
-.viewport {
-  position: relative;
-  flex: 1;
   width: 100%;
   height: 100%;
-  overflow: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  background-color: var(--color-reader-bg, #1a1a1c);
+  color: var(--color-reader-text, #f1f1f1);
+  overflow: hidden;
+  min-height: 0;
+  user-select: none;
   outline: none;
+}
+
+[data-theme='light'] .container {
+  background-color: #e5e7eb;
+  color: #1f2937;
+}
+
+[data-theme='sepia'] .container {
+  background-color: #eeddbb;
+  color: #4a3f35;
+}
+
+[data-theme='dark'] .container {
+  background-color: #121214;
+  color: #e4e4e7;
+}
+
+/* The viewport is the scroll surface */
+.viewport {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 24px 16px 80px;
+  position: relative;
+  outline: none;
+  scroll-behavior: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
@@ -37,32 +64,59 @@
   background: transparent;
 }
 
-/* Checkerboard pattern for transparent PNG images */
+/* Matrix transform staging stack */
+.pageStack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Page shell with explicit width/height matching PdfReader/CbzReader */
+.pageShell {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: transparent;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+  user-select: none;
+  scroll-margin-block: 16px;
+  transition: box-shadow 0.2s ease;
+}
+
+/* Optional checkerboard pattern for transparency inspection */
 .checkerboard {
   background-image:
-    linear-gradient(45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%);
+    linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%);
   background-size: 20px 20px;
   background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
 }
 
-.stage {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: auto;
-  position: relative;
-  transition: transform 0.05s ease-out;
-  transform-origin: center center;
-}
-
+/* High-res image element */
 .imageElement {
   display: block;
-  image-orientation: from-image;
+  max-width: none !important;
+  max-height: none !important;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
   pointer-events: none;
-  transition: filter 0.2s ease;
+  image-orientation: from-image;
 }
 
 /* Panning cursor states */
@@ -116,7 +170,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(24, 24, 27, 0.85);
+  background: rgba(24, 24, 27, 0.88);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 24px;
