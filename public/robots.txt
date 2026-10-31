@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://webxreader.web.app/sitemap.xml

@@ -2,12 +2,80 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="WebXReader — A private, local-first web novel reader with personal bookshelf, continuous scroll, pagination, vertical writing mode, and customizable typography." />
+    
+    <!-- Primary Page Metadata & SEO -->
+    <title>WebXReader — Free &amp; Open Source Web Novel &amp; Ebook Reader (20 Formats, Ad-Free)</title>
+    <meta name="title" content="WebXReader — Free &amp; Open Source Web Novel &amp; Ebook Reader (20 Formats, Ad-Free)" />
+    <meta name="description" content="WebXReader is a free, open-source, ad-free, local-first web novel and ebook reader. Read EPUB, PDF, MOBI, AZW3, FB2, CBZ, CBR, CB7, DJVU, DOCX, DOC, RTF, TXT, Markdown, HTML, MHT, ZIP, RAR, PNG, and JPEG offline in your browser with zero tracking." />
+    <meta name="keywords" content="web novel reader, novel reader, free novel reader, open source novel reader, ad free novel reader, ad-free ebook reader, free ebook reader, open source ebook reader, offline ebook reader, local-first reader, private book reader, light novel reader, webfiction reader, manga reader, comic reader, EPUB reader, PDF reader, MOBI reader, AZW3 reader, AZW reader, KF8 reader, FB2 reader, CBZ reader, CBR reader, CB7 reader, DJVU reader, DOCX reader, DOC reader, RTF reader, TXT reader, Markdown reader, HTML reader, MHT reader, MHTML reader, ZIP archive reader, RAR archive reader, PNG reader, JPEG reader" />
+    <meta name="author" content="WebXReader Contributors" />
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+    <link rel="canonical" href="https://webxreader.web.app/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://webxreader.web.app/" />
+    <meta property="og:site_name" content="WebXReader" />
+    <meta property="og:title" content="WebXReader — Free &amp; Open Source Web Novel &amp; Ebook Reader (20 Formats, Ad-Free)" />
+    <meta property="og:description" content="Free, open-source, ad-free, local-first web novel and ebook reader. Read 20 formats (EPUB, PDF, MOBI, AZW3, FB2, CBZ, CBR, CB7, DJVU, DOCX, DOC, RTF, TXT, Markdown, HTML, MHT, ZIP, RAR, PNG, JPEG) privately offline in your browser." />
+    <meta property="og:image" content="https://webxreader.web.app/webxreader.svg" />
+    <meta property="og:image:alt" content="WebXReader Logo" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:url" content="https://webxreader.web.app/" />
+    <meta name="twitter:title" content="WebXReader — Free &amp; Open Source Web Novel &amp; Ebook Reader (20 Formats, Ad-Free)" />
+    <meta name="twitter:description" content="Free, open-source, ad-free, local-first web novel and ebook reader. 20 supported formats, offline reading, zero ads, zero tracking." />
+    <meta name="twitter:image" content="https://webxreader.web.app/webxreader.svg" />
+    <meta name="twitter:image:alt" content="WebXReader Logo" />
+
+    <!-- Mobile & PWA Capabilities -->
     <meta name="theme-color" content="#2563eb" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="application-name" content="WebXReader" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="WebXReader" />
+
+    <!-- Icons & Manifest -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/svg+xml" href="/webxreader.svg" />
+    <link rel="apple-touch-icon" href="/webxreader.svg" />
     <link rel="manifest" href="/manifest.json" />
-    <title>WebXReader</title>
+
+    <!-- Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "WebXReader",
+      "alternateName": ["WebX Reader", "WebXReader Novel Reader"],
+      "url": "https://webxreader.web.app/",
+      "applicationCategory": "BooksApplication",
+      "operatingSystem": "All",
+      "browserRequirements": "Requires JavaScript. Requires HTML5.",
+      "description": "Free, open-source, ad-free, local-first web novel and ebook reader supporting 20 formats including EPUB, PDF, MOBI, AZW3, FB2, CBZ, CBR, CB7, DJVU, DOCX, DOC, RTF, TXT, Markdown, HTML, MHT, ZIP, RAR, PNG, and JPEG.",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "20 supported ebook, comic, document, and image formats",
+        "100% Free and Open Source (AGPL-3.0)",
+        "Zero advertisements, zero telemetry, and zero tracking",
+        "Local-first client-side storage (IndexedDB)",
+        "Offline Progressive Web App (PWA) support",
+        "Continuous scroll, paginated, and vertical reading modes",
+        "In-book search, bookmarks, annotations, and reading progress",
+        "Customizable typography, font sizes, line heights, and themes"
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

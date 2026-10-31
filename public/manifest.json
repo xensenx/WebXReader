@@ -1,16 +1,29 @@
 {
-  "name": "WebXReader — Local-First Web Novel Reader",
+  "name": "WebXReader — Free & Open Source Web Novel & Ebook Reader",
   "short_name": "WebXReader",
-  "description": "Desktop-class, private, local-first web novel reader with personal bookshelf and customizable reading environment.",
+  "description": "Free, open-source, ad-free, local-first web novel and ebook reader supporting 20 formats (EPUB, PDF, MOBI, AZW3, FB2, CBZ, CBR, CB7, DJVU, DOCX, DOC, RTF, TXT, Markdown, HTML, MHT, ZIP, RAR, PNG, JPEG) with offline reading.",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#fafafa",
   "theme_color": "#2563eb",
+  "categories": [
+    "books",
+    "entertainment",
+    "productivity",
+    "utilities"
+  ],
   "icons": [
     {
       "src": "./favicon.ico",
       "sizes": "any",
       "type": "image/x-icon"
+    },
+    {
+      "src": "./webxreader.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }
