@@ -61,7 +61,7 @@ export function useBooks(): UseBooksResult {
           } catch {
             // ignore
           }
-          if (book.sourceFormat === 'txt') {
+          if (book.sourceFormat === 'txt' && !withProgress.coverImage) {
             return { ...withProgress, coverImage: DEFAULT_TXT_COVER };
           }
           return withProgress;

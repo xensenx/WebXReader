@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, renderHook, waitFor } from '@testing-library/react';
 import { txtFormat } from '../formats/definitions/txt';
 import {
   DEFAULT_TXT_COVER,
@@ -10,6 +10,8 @@ import {
 import { BookCard } from '../components/library/BookCard';
 import { BookList } from '../components/library/BookList';
 import { BookDetailsDialog } from '../components/library/BookDetailsDialog';
+import { useBooks } from '../hooks/useBooks';
+import { addBook, clearDatabase } from '../core/storage/database';
 import type { Book } from '../types/book';
 
 describe('TXT Default Cover Thumbnail', () => {
@@ -79,6 +81,21 @@ describe('TXT Default Cover Thumbnail', () => {
       sourceFormat: 'epub',
     };
     expect(getBookCoverUrl(epubBook)).toBeUndefined();
+  });
+
+  it('preserves an existing remote cover URL for a TXT book in useBooks', async () => {
+    await clearDatabase();
+    await addBook({
+      ...dummyTxtBook,
+      id: 'txt-with-remote-cover',
+      coverImage: 'https://example.com/remote-cover.png',
+    });
+
+    const { result } = renderHook(() => useBooks());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const loaded = result.current.books.find((b) => b.id === 'txt-with-remote-cover');
+    expect(loaded?.coverImage).toBe('https://example.com/remote-cover.png');
   });
 
   it('renders default TXT thumbnail in BookCard component', () => {

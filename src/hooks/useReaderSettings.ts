@@ -282,6 +282,23 @@ export function useReaderSettings(bookId: string, format?: BookFormat): UseReade
   );
 
   const resetBookSettings = useCallback(async () => {
+    if (format && !isCustomBook) {
+      const nextFormatSettings = { ...(globalSettings.formatSettings || {}) };
+      delete nextFormatSettings[format];
+      const updatedGlobal: UserSettings = {
+        ...globalSettings,
+        formatSettings: nextFormatSettings,
+        updatedAt: Date.now(),
+      };
+      setGlobalSettings(updatedGlobal);
+      try {
+        await saveSettings(updatedGlobal);
+      } catch (err) {
+        console.error('Failed to reset format settings:', err);
+      }
+      return;
+    }
+
     const empty: BookSettings = {
       bookId,
       isCustomOverride: false,
@@ -295,7 +312,7 @@ export function useReaderSettings(bookId: string, format?: BookFormat): UseReade
     } catch (err) {
       console.error('Failed to reset book settings:', err);
     }
-  }, [bookId]);
+  }, [bookId, format, isCustomBook, globalSettings]);
 
   return {
     settings,

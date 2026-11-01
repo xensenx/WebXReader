@@ -489,5 +489,29 @@ describe('Reader Settings Enhancements', () => {
       expect(book1.current.settings.fontSize).toBe(22);
       expect(book1.current.settings.readerSheetColor).toBe('archive');
     });
+
+    it('resets format settings when resetBookSettings is called in universal mode', async () => {
+      const { result: book1 } = renderHook(() => useReaderSettings(book1Id, 'txt'));
+      await waitFor(() => expect(book1.current.loading).toBe(false));
+
+      // Update universal format settings
+      await act(async () => {
+        await book1.current.updateReaderSettings({
+          fontSize: 26,
+          readerSheetColor: 'dark',
+        });
+      });
+      expect(book1.current.settings.fontSize).toBe(26);
+
+      // Reset settings while in universal mode
+      await act(async () => {
+        await book1.current.resetBookSettings();
+      });
+
+      // Should be back to global default
+      expect(book1.current.settings.fontSize).toBe(18);
+      const saved = await getSettings();
+      expect(saved?.formatSettings?.txt).toBeUndefined();
+    });
   });
 });
