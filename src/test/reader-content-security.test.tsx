@@ -100,6 +100,8 @@ describe('Reader chapter HTML security', () => {
       contentMargin: 24,
       readingMode: 'scroll' as const,
       theme: 'light' as const,
+      readerSheetColor: 'paper' as const,
+      expandContent: false,
     };
 
     const scroll = render(

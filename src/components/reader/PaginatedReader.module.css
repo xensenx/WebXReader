@@ -3,12 +3,24 @@
   height: 100%;
   position: relative;
   overflow: hidden;
-  background-color: var(--reader-bg);
+  background-color: var(--reader-backdrop, #111215);
   color: var(--reader-text);
   display: flex;
   flex-direction: column;
   min-height: 0;
   user-select: text;
+}
+
+:global([data-theme='light']) .container {
+  --reader-backdrop: #e5e7eb;
+}
+
+:global([data-theme='sepia']) .container {
+  --reader-backdrop: #e8dfc8;
+}
+
+:global([data-theme='dark']) .container {
+  --reader-backdrop: #111215;
 }
 
 .viewport {
@@ -24,6 +36,42 @@
   box-sizing: border-box;
   padding-top: var(--space-8);
   padding-bottom: var(--space-12);
+  transition: max-width var(--transition-base), background-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.boundedSheet {
+  margin: var(--space-4) auto;
+  border-radius: var(--radius-lg);
+}
+
+.expandedContent {
+  margin: 0 auto;
+  width: 100%;
+  max-width: 100% !important;
+  border-radius: 0;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.sheetPaper {
+  background-color: #ffffff;
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.sheetArchive {
+  background-color: #f7f1e1;
+  color: #382e21;
+  border: 1px solid rgba(139, 105, 20, 0.15);
+  box-shadow: 0 4px 24px rgba(61, 50, 38, 0.12), 0 1px 3px rgba(61, 50, 38, 0.06);
+}
+
+.sheetDark {
+  background-color: #27282d;
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .viewport::-webkit-scrollbar {

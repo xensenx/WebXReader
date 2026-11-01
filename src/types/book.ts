@@ -15,6 +15,9 @@ export type ReadingMode = 'scroll' | 'paginated' | 'vertical';
 /** Theme preference */
 export type ThemeName = 'light' | 'dark' | 'sepia';
 
+/** Sheet background color options */
+export type ReaderSheetColor = 'paper' | 'archive' | 'dark';
+
 /** Text alignment options */
 export type TextAlignment = 'left' | 'center' | 'right' | 'justify';
 
@@ -38,6 +41,27 @@ export type ComicReadingDirection = 'ltr' | 'rtl';
 
 /** Comic fit mode */
 export type ComicFitMode = 'contain' | 'width' | 'height';
+
+/**
+ * Format-specific reader settings overrides.
+ */
+export interface FormatSettings {
+  fontFamily?: string;
+  fontSize?: number;
+  lineHeight?: number;
+  paragraphSpacing?: number;
+  letterSpacing?: number;
+  textAlign?: TextAlignment;
+  textIndent?: number;
+  maxContentWidth?: number;
+  contentMargin?: number;
+  readingMode?: ReadingMode;
+  comicReadingDirection?: ComicReadingDirection;
+  comicFitMode?: ComicFitMode;
+  rtfPreserveAlignment?: boolean;
+  readerSheetColor?: ReaderSheetColor;
+  expandContent?: boolean;
+}
 
 /**
  * A chapter/section within a book.
@@ -279,6 +303,12 @@ export interface UserSettings {
   maxContentWidth: number;
   /** Content margin in pixels */
   contentMargin: number;
+  /** Sheet background color */
+  readerSheetColor: ReaderSheetColor;
+  /** Whether content expands to fill full viewport width */
+  expandContent: boolean;
+  /** Format-specific reader settings overrides */
+  formatSettings?: Partial<Record<BookFormat, FormatSettings>>;
   /** Library layout preference */
   libraryLayout: LibraryLayout;
   /** Library sort field preference */
@@ -311,6 +341,8 @@ export interface UserSettings {
  * Per-book settings overrides.
  */
 export interface BookSettings {
+  /** Whether custom book-specific overrides are active (isolates this book from universal format settings) */
+  isCustomOverride?: boolean;
   /** Book ID */
   bookId: string;
   /** Override reading mode */
@@ -333,6 +365,10 @@ export interface BookSettings {
   maxContentWidth?: number;
   /** Override content margin */
   contentMargin?: number;
+  /** Override sheet background color */
+  readerSheetColor?: ReaderSheetColor;
+  /** Override whether content expands to fill full viewport width */
+  expandContent?: boolean;
   /** Override comic reading direction (ltr or rtl) */
   comicReadingDirection?: ComicReadingDirection;
   /** Override comic page fit mode */
@@ -384,6 +420,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   textIndent: 0,
   maxContentWidth: 720,
   contentMargin: 24,
+  readerSheetColor: 'paper',
+  expandContent: false,
+  formatSettings: {},
   libraryLayout: 'grid',
   librarySortField: 'importedAt',
   librarySortDirection: 'desc',

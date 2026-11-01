@@ -22,7 +22,7 @@ import { splitHtmlIntoChapters } from '../../core/parsing/mht-parser';
 import { useReadingProgress } from '../../hooks/useReadingProgress';
 import { useBookmarks } from '../../hooks/useBookmarks';
 import { useReaderSettings } from '../../hooks/useReaderSettings';
-import { useSettingsContext } from '../../app/providers/SettingsContext';
+
 
 import type { Book, BookContent, Chapter, Bookmark } from '../../types/book';
 
@@ -173,8 +173,10 @@ export function ReaderView() {
     loading: readerSettingsLoading,
     updateReaderSettings,
     resetBookSettings,
-  } = useReaderSettings(bookId || '');
-  const { updateSettings: updateGlobalSettings } = useSettingsContext();
+    isCustomBook,
+    setIsCustomBook,
+  } = useReaderSettings(bookId || '', book?.sourceFormat);
+
 
   const epubReaderRef = useRef<EpubReaderHandle>(null);
   const pdfReaderRef = useRef<PdfReaderHandle>(null);
@@ -586,7 +588,8 @@ export function ReaderView() {
     return found ? found.title : '';
   }, [book, activeChapterId]);
 
-  const effectiveReadingMode = isPdf && readerSettings.readingMode === 'vertical'
+  const isTxt = book?.sourceFormat === 'txt';
+  const effectiveReadingMode = isTxt ? 'scroll' : (isPdf && readerSettings.readingMode === 'vertical')
       ? 'paginated'
       : readerSettings.readingMode;
   const effectiveReaderSettings = readerSettings.readingMode === effectiveReadingMode
@@ -881,6 +884,7 @@ export function ReaderView() {
             onProgressUpdate={handleScrollProgress}
             onToggleControls={handleToggleControls}
             zoom={readerZoom}
+            zoomAnchor={zoomAnchor}
           />
           )}
         </Suspense>
@@ -962,8 +966,10 @@ export function ReaderView() {
         doubleSidedSupported={formatSupportsFeature(book?.sourceFormat, 'doubleSided')}
         fixedLayout={isFixedLayout(book?.sourceFormat)}
         format={book?.sourceFormat}
+        isCustomBook={isCustomBook}
+        onToggleCustomBook={setIsCustomBook}
         onUpdate={updateReaderSettings}
-        onUpdateTheme={(theme) => updateGlobalSettings({ theme })}
+
         onReset={resetBookSettings}
       />
     </div>

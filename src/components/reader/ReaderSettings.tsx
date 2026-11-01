@@ -15,10 +15,11 @@ import {
   ArrowRight,
   ArrowLeft,
   Maximize2,
+  Minimize2,
   MoveHorizontal,
   MoveVertical,
 } from 'lucide-react';
-import type { ThemeName, BookFormat } from '../../types/book';
+import type { BookFormat } from '../../types/book';
 import { isFixedLayout, formatSupportsFeature } from '../../formats';
 import type {
   EffectiveReaderSettings,
@@ -33,7 +34,7 @@ interface ReaderSettingsProps {
   onClose: () => void;
   settings: EffectiveReaderSettings;
   onUpdate: (partial: ReaderSettingsUpdate) => void;
-  onUpdateTheme: (theme: ThemeName) => void;
+
   onReset: () => void;
   /** Whether the current format can render a double-sided spread. */
   doubleSidedSupported?: boolean;
@@ -41,6 +42,10 @@ interface ReaderSettingsProps {
   fixedLayout?: boolean;
   /** Format of the active book */
   format?: BookFormat;
+  /** Whether reader settings are isolated for this specific book only */
+  isCustomBook?: boolean;
+  /** Callback to toggle between universal format settings and per-book isolation */
+  onToggleCustomBook?: (custom: boolean) => void;
 }
 
 const FONT_OPTIONS = [
@@ -64,11 +69,13 @@ export function ReaderSettings({
   onClose,
   settings,
   onUpdate,
-  onUpdateTheme,
+
   onReset,
   doubleSidedSupported = true,
   fixedLayout = false,
   format,
+  isCustomBook = false,
+  onToggleCustomBook,
 }: ReaderSettingsProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const isFixed = fixedLayout || isFixedLayout(format);
@@ -114,36 +121,73 @@ export function ReaderSettings({
         </div>
 
         <div className={styles.content}>
-          {/* Theme */}
+          <div className={styles.categoryHeader}>
+            <span>Canvas & Layout</span>
+          </div>
+
+          {/* Scope / Per-Book Isolation Toggle */}
           <div className={styles.section}>
-            <span className={styles.sectionTitle}>Theme</span>
-            <div className={styles.themeRow}>
+            <div className={styles.toggleRow}>
+              <div className={styles.toggleInfo}>
+                <label
+                  htmlFor="custom-book-toggle"
+                  className={styles.toggleLabel}
+                  onClick={() => onToggleCustomBook?.(!isCustomBook)}
+                >
+                  This Book Only
+                </label>
+                <span className={styles.toggleHint}>
+                  {isCustomBook
+                    ? 'Settings apply only to this book.'
+                    : `Settings apply to all ${format ? format.toUpperCase() : 'TXT'} books.`}
+                </span>
+              </div>
               <button
-                className={`${styles.themeBtn} ${styles.themeLight} ${
-                  settings.theme === 'light' ? styles.themeBtnActive : ''
-                }`}
-                onClick={() => onUpdateTheme('light')}
+                id="custom-book-toggle"
                 type="button"
+                role="switch"
+                aria-checked={Boolean(isCustomBook)}
+                aria-label="This Book Only"
+                className={`${styles.toggleSwitch} ${isCustomBook ? styles.toggleSwitchActive : ''}`}
+                onClick={() => onToggleCustomBook?.(!isCustomBook)}
               >
-                Light
+                <span className={styles.toggleThumb} />
+              </button>
+            </div>
+          </div>
+          {/* Page Canvas / Sheet Background */}
+          <div className={styles.section}>
+            <span className={styles.sectionTitle}>Page Canvas</span>
+            <div className={styles.sheetRow}>
+              <button
+                className={`${styles.sheetBtn} ${styles.sheetPaper} ${
+                  settings.readerSheetColor === 'paper' ? styles.sheetBtnActive : ''
+                }`}
+                onClick={() => onUpdate({ readerSheetColor: 'paper' })}
+                type="button"
+                aria-label="Paper White"
+              >
+                Paper White
               </button>
               <button
-                className={`${styles.themeBtn} ${styles.themeDark} ${
-                  settings.theme === 'dark' ? styles.themeBtnActive : ''
+                className={`${styles.sheetBtn} ${styles.sheetArchive} ${
+                  settings.readerSheetColor === 'archive' ? styles.sheetBtnActive : ''
                 }`}
-                onClick={() => onUpdateTheme('dark')}
+                onClick={() => onUpdate({ readerSheetColor: 'archive' })}
                 type="button"
+                aria-label="Archive Gold"
+              >
+                Archive Gold
+              </button>
+              <button
+                className={`${styles.sheetBtn} ${styles.sheetDark} ${
+                  settings.readerSheetColor === 'dark' ? styles.sheetBtnActive : ''
+                }`}
+                onClick={() => onUpdate({ readerSheetColor: 'dark' })}
+                type="button"
+                aria-label="Dark"
               >
                 Dark
-              </button>
-              <button
-                className={`${styles.themeBtn} ${styles.themeSepia} ${
-                  settings.theme === 'sepia' ? styles.themeBtnActive : ''
-                }`}
-                onClick={() => onUpdateTheme('sepia')}
-                type="button"
-              >
-                Sepia
               </button>
             </div>
           </div>
@@ -156,40 +200,65 @@ export function ReaderSettings({
                 This document preserves its original visual layout. Adjust your reading mode and background theme below.
               </p>
             )}
-            <div className={styles.modeRow} aria-label={isFixed ? 'Fixed-layout document' : 'Reading modes'}>
-              <button
-                className={`${styles.modeBtn} ${
-                  settings.readingMode === 'scroll' ? styles.modeBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ readingMode: 'scroll' })}
-                type="button"
-              >
-                <Scroll size={18} />
-                <span>Vertical Scroll</span>
-              </button>
-              <button
-                className={`${styles.modeBtn} ${
-                  settings.readingMode === 'paginated' ? styles.modeBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ readingMode: 'paginated' })}
-                type="button"
-              >
-                <BookOpen size={18} />
-                <span>Pages</span>
-              </button>
-              <button
-                className={`${styles.modeBtn} ${
-                  settings.readingMode === 'vertical' ? styles.modeBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ readingMode: 'vertical' })}
-                disabled={!canDoubleSided}
-                title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
-                type="button"
-              >
-                <Pilcrow size={18} />
-                <span>Double Sided</span>
-              </button>
-            </div>
+            {format === 'txt' ? (
+              <div className={`${styles.modeRow} ${styles.modeRowTxt}`} aria-label="Reading modes">
+                <button
+                  className={`${styles.modeBtn} ${
+                    !settings.expandContent ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ expandContent: false, readingMode: 'scroll' })}
+                  type="button"
+                >
+                  <Minimize2 size={18} />
+                  <span>Contracted Mode</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    Boolean(settings.expandContent) ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ expandContent: true, readingMode: 'scroll' })}
+                  type="button"
+                >
+                  <Maximize2 size={18} />
+                  <span>Expanded Mode</span>
+                </button>
+              </div>
+            ) : (
+              <div className={styles.modeRow} aria-label={isFixed ? 'Fixed-layout document' : 'Reading modes'}>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.readingMode === 'scroll' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readingMode: 'scroll' })}
+                  type="button"
+                >
+                  <Scroll size={18} />
+                  <span>Vertical Scroll</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.readingMode === 'paginated' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readingMode: 'paginated' })}
+                  type="button"
+                >
+                  <BookOpen size={18} />
+                  <span>Pages</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.readingMode === 'vertical' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readingMode: 'vertical' })}
+                  disabled={!canDoubleSided}
+                  title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
+                  type="button"
+                >
+                  <Pilcrow size={18} />
+                  <span>Double Sided</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Comic Reading Direction */}
@@ -314,9 +383,14 @@ export function ReaderSettings({
             </div>
           )}
 
-          {/* Font Family */}
+          {/* Typography */}
           {canTypography && (
             <>
+              <div className={styles.categoryDivider} />
+              <div className={styles.categoryHeader}>
+                <span>Typography</span>
+              </div>
+
               <div className={styles.section}>
                 <span className={styles.sectionTitle}>Font Family</span>
                 <DropdownSelect
@@ -331,26 +405,38 @@ export function ReaderSettings({
               {/* Font Size */}
               <div className={styles.section}>
                 <span className={styles.sectionTitle}>Font Size</span>
-                <div className={styles.stepperRow}>
-                  <button
-                    className={styles.stepperBtn}
-                    onClick={() => onUpdate({ fontSize: Math.max(12, settings.fontSize - 1) })}
-                    type="button"
-                    aria-label="Decrease font size"
-                  >
-                    -
-                  </button>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
-                    {settings.fontSize}px
-                  </span>
-                  <button
-                    className={styles.stepperBtn}
-                    onClick={() => onUpdate({ fontSize: Math.min(36, settings.fontSize + 1) })}
-                    type="button"
-                    aria-label="Increase font size"
-                  >
-                    +
-                  </button>
+                <div className={styles.fontSizeRow}>
+                  <div className={styles.stepperRow}>
+                    <button
+                      className={styles.stepperBtn}
+                      onClick={() => onUpdate({ fontSize: Math.max(12, settings.fontSize - 1) })}
+                      type="button"
+                      aria-label="Decrease font size"
+                    >
+                      -
+                    </button>
+                    <span className={styles.fontSizeValue}>
+                      {settings.fontSize}px
+                    </span>
+                    <button
+                      className={styles.stepperBtn}
+                      onClick={() => onUpdate({ fontSize: Math.min(36, settings.fontSize + 1) })}
+                      type="button"
+                      aria-label="Increase font size"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    className={styles.slider}
+                    min={12}
+                    max={36}
+                    step={1}
+                    value={settings.fontSize}
+                    onChange={(e) => onUpdate({ fontSize: parseInt(e.target.value, 10) })}
+                    aria-label="Font size slider"
+                  />
                 </div>
               </div>
 
@@ -471,9 +557,40 @@ export function ReaderSettings({
                 </div>
               </div>
 
+              {/* Expand to Full Width */}
+              {format !== 'txt' && !isFixed && (
+                <div className={styles.section}>
+                  <div className={styles.toggleRow}>
+                    <label
+                      htmlFor="expand-to-full-width-toggle"
+                      className={styles.toggleLabel}
+                      onClick={() => onUpdate({ expandContent: !settings.expandContent })}
+                    >
+                      Expand to Full Width
+                    </label>
+                    <button
+                      id="expand-to-full-width-toggle"
+                      type="button"
+                      role="switch"
+                      aria-checked={settings.expandContent}
+                      aria-label="Expand to Full Width"
+                      className={`${styles.toggleSwitch} ${settings.expandContent ? styles.toggleSwitchActive : ''}`}
+                      onClick={() => onUpdate({ expandContent: !settings.expandContent })}
+                    >
+                      <span className={styles.toggleThumb} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Content Max Width */}
               <div className={styles.section}>
-                <span className={styles.sectionTitle}>Page Width</span>
+                <span className={styles.sectionTitle}>
+                  Page Width
+                  {format === 'txt' && settings.expandContent && (
+                    <span className={styles.badgeHint}>(Contracted Mode)</span>
+                  )}
+                </span>
                 <div className={styles.sliderRow}>
                   <input
                     type="range"

@@ -147,6 +147,8 @@ describe('IndexedDB Storage Operations', () => {
       textIndent: 1.5,
       maxContentWidth: 800,
       contentMargin: 32,
+      readerSheetColor: 'paper',
+      expandContent: false,
       libraryLayout: 'list',
       librarySortField: 'importedAt',
       librarySortDirection: 'desc',

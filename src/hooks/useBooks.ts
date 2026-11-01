@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Book, ReadingStatus } from '../types/book';
 import { listBooks, listProgress, deleteBook, deleteBooks, updateBook, getCover } from '../core/storage/database';
+import { DEFAULT_TXT_COVER } from '../assets/covers/txt-default-cover';
 
 export type LibraryBook = Book & {
   /** Derived from the progress store; never used as the persisted book value. */
@@ -59,6 +60,9 @@ export function useBooks(): UseBooksResult {
             }
           } catch {
             // ignore
+          }
+          if (book.sourceFormat === 'txt' && !withProgress.coverImage) {
+            return { ...withProgress, coverImage: DEFAULT_TXT_COVER };
           }
           return withProgress;
         })

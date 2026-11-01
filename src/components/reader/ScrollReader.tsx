@@ -18,6 +18,7 @@ interface ScrollReaderProps {
   onProgressUpdate: (chapterId: string, progressFraction: number, scrollPos: number) => void;
   onToggleControls?: () => void;
   zoom?: number;
+  zoomAnchor?: { x?: number; y?: number; scrollRatioX?: number; scrollRatioY?: number };
 }
 
 export const ScrollReader = memo(function ScrollReader({
@@ -30,6 +31,7 @@ export const ScrollReader = memo(function ScrollReader({
   onProgressUpdate,
   onToggleControls,
   zoom = 1,
+  zoomAnchor,
 }: ScrollReaderProps) {
   const safeChapterContents = useMemo(
     () => chapters.map((chapter) => sanitizeReaderHtml(chapter.content)),
@@ -43,6 +45,8 @@ export const ScrollReader = memo(function ScrollReader({
   const rafId = useRef<number | null>(null);
   const lastProgressFractionRef = useRef(initialProgressFraction);
   const lastLayoutKeyRef = useRef<string | null>(null);
+  const zoomAnchorRef = useRef(zoomAnchor);
+  zoomAnchorRef.current = zoomAnchor;
 
   const layoutKey = [
     settings.fontFamily,
@@ -53,6 +57,7 @@ export const ScrollReader = memo(function ScrollReader({
     settings.wordSpacing,
     settings.maxContentWidth,
     settings.contentMargin,
+    settings.expandContent,
     zoom,
   ].join('|');
 
@@ -107,9 +112,25 @@ export const ScrollReader = memo(function ScrollReader({
       if (!container) return;
       const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
       container.scrollTop = lastProgressFractionRef.current * maxScroll;
+
+      if (!settings.expandContent) {
+        if (zoom > 1) {
+          const excessWidth = Math.max(0, container.scrollWidth - container.clientWidth);
+          if (excessWidth > 0) {
+            const anchor = zoomAnchorRef.current;
+            if (anchor && typeof anchor.scrollRatioX === 'number') {
+              container.scrollLeft = anchor.scrollRatioX * excessWidth;
+            } else if (container.scrollLeft === 0) {
+              container.scrollLeft = excessWidth / 2;
+            }
+          }
+        } else {
+          container.scrollLeft = 0;
+        }
+      }
     });
     return () => cancelAnimationFrame(frame);
-  }, [layoutKey]);
+  }, [layoutKey, settings.expandContent, zoom]);
 
   // Clean up RAF on unmount
   useEffect(() => {
@@ -156,6 +177,19 @@ export const ScrollReader = memo(function ScrollReader({
     [chapters]
   );
 
+  const isExpanded = Boolean(settings.expandContent);
+  const sheetColor = settings.readerSheetColor ?? 'paper';
+
+  const sheetClass =
+    sheetColor === 'archive'
+      ? styles.sheetArchive
+      : sheetColor === 'dark'
+      ? styles.sheetDark
+      : styles.sheetPaper;
+
+  const modeClass = isExpanded ? styles.expandedContent : styles.boundedSheet;
+  const canvasWidth = Math.round(settings.maxContentWidth * zoom);
+
   return (
     <div
       ref={containerRef}
@@ -173,16 +207,25 @@ export const ScrollReader = memo(function ScrollReader({
       aria-label="Vertical Scroll reader content"
     >
       <div
-        className={styles.contentWrapper}
+        className={`${styles.contentWrapper} ${modeClass} ${sheetClass}`}
         style={{
-          maxWidth: `${settings.maxContentWidth}px`,
-          paddingLeft: `${settings.contentMargin}px`,
-          paddingRight: `${settings.contentMargin}px`,
+          width: isExpanded
+            ? '100%'
+            : `${canvasWidth}px`,
+          maxWidth: isExpanded ? '100%' : zoom <= 1 ? '100%' : 'none',
+          minWidth: !isExpanded && zoom > 1 ? `${canvasWidth}px` : undefined,
+          minHeight: isExpanded ? '100%' : `${Math.round(600 * Math.min(1, zoom))}px`,
+          borderRadius: isExpanded ? 0 : `${Math.max(4, Math.round(12 * zoom))}px`,
+          boxSizing: 'border-box',
+          paddingLeft: `${Math.round(settings.contentMargin * (isExpanded ? 1 : zoom))}px`,
+          paddingRight: `${Math.round(settings.contentMargin * (isExpanded ? 1 : zoom))}px`,
+          paddingTop: isExpanded ? undefined : `${Math.round(40 * zoom)}px`,
+          paddingBottom: isExpanded ? undefined : `${Math.round(56 * zoom)}px`,
           fontFamily: settings.fontFamily,
           fontSize: `${settings.fontSize * zoom}px`,
           textAlign: settings.textAlign,
-          letterSpacing: `${settings.letterSpacing}px`,
-          wordSpacing: `${settings.wordSpacing}px`,
+          letterSpacing: `${settings.letterSpacing * (isExpanded ? 1 : zoom)}px`,
+          wordSpacing: `${settings.wordSpacing * (isExpanded ? 1 : zoom)}px`,
           ['--reader-line-height' as string]: settings.lineHeight,
           ['--reader-paragraph-spacing' as string]: `${settings.paragraphSpacing}em`,
           ['--reader-text-indent' as string]: `${settings.textIndent}em`,

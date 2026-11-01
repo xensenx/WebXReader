@@ -12,6 +12,7 @@ import {
   prepareCoverFile,
   type CoverImageResult,
 } from '../../utils/cover-image';
+import { DEFAULT_TXT_COVER } from '../../assets/covers/txt-default-cover';
 import styles from './BookDetailsDialog.module.css';
 
 interface BookDetailsDialogProps {
@@ -31,7 +32,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
   const [author, setAuthor] = useState(book?.author || '');
   const [description, setDescription] = useState(book?.description || '');
   const [tagsInput, setTagsInput] = useState((book?.userTags || []).join(', '));
-  const [coverImage, setCoverImage] = useState(book?.coverImage || '');
+  const [coverImage, setCoverImage] = useState(book?.coverImage || (book?.sourceFormat === 'txt' ? DEFAULT_TXT_COVER : ''));
   const [coverUrl, setCoverUrl] = useState('');
   const [coverDimensions, setCoverDimensions] = useState<{ width: number; height: number } | null>(null);
   const [coverNotice, setCoverNotice] = useState('');
@@ -46,7 +47,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setAuthor(book.author || '');
     setDescription(book.description || '');
     setTagsInput((book.userTags || []).join(', '));
-    setCoverImage(book.coverImage || '');
+    setCoverImage(book.coverImage || (book.sourceFormat === 'txt' ? DEFAULT_TXT_COVER : ''));
     setCoverUrl(/^https?:\/\//i.test(book.coverImage || '') ? book.coverImage || '' : '');
     setCoverDimensions(null);
     setCoverNotice('');
@@ -76,9 +77,9 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
 
   if (!book) return null;
 
-  const originalCoverImage = book.originalCoverImage === undefined
-    ? book.coverImage ?? null
-    : book.originalCoverImage;
+  const originalCoverImage = book.originalCoverImage !== undefined
+    ? book.originalCoverImage
+    : (book.sourceFormat === 'txt' ? DEFAULT_TXT_COVER : (book.coverImage ?? null));
   const canResetCover = coverImage !== (originalCoverImage || '');
   const resetLabel = originalCoverImage ? 'Reset to original' : 'Reset to default';
 
