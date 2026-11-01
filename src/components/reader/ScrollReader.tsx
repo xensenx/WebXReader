@@ -53,6 +53,7 @@ export const ScrollReader = memo(function ScrollReader({
     settings.wordSpacing,
     settings.maxContentWidth,
     settings.contentMargin,
+    settings.expandContent,
     zoom,
   ].join('|');
 
@@ -156,6 +157,18 @@ export const ScrollReader = memo(function ScrollReader({
     [chapters]
   );
 
+  const isExpanded = Boolean(settings.expandContent);
+  const sheetColor = settings.readerSheetColor ?? 'paper';
+
+  const sheetClass =
+    sheetColor === 'archive'
+      ? styles.sheetArchive
+      : sheetColor === 'dark'
+      ? styles.sheetDark
+      : styles.sheetPaper;
+
+  const modeClass = isExpanded ? styles.expandedContent : styles.boundedSheet;
+
   return (
     <div
       ref={containerRef}
@@ -173,9 +186,9 @@ export const ScrollReader = memo(function ScrollReader({
       aria-label="Vertical Scroll reader content"
     >
       <div
-        className={styles.contentWrapper}
+        className={`${styles.contentWrapper} ${modeClass} ${sheetClass}`}
         style={{
-          maxWidth: `${settings.maxContentWidth}px`,
+          maxWidth: isExpanded ? '100%' : `${settings.maxContentWidth}px`,
           paddingLeft: `${settings.contentMargin}px`,
           paddingRight: `${settings.contentMargin}px`,
           fontFamily: settings.fontFamily,

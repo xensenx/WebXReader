@@ -15,6 +15,9 @@ export type ReadingMode = 'scroll' | 'paginated' | 'vertical';
 /** Theme preference */
 export type ThemeName = 'light' | 'dark' | 'sepia';
 
+/** Sheet background color options */
+export type ReaderSheetColor = 'paper' | 'archive' | 'dark';
+
 /** Text alignment options */
 export type TextAlignment = 'left' | 'center' | 'right' | 'justify';
 
@@ -279,6 +282,10 @@ export interface UserSettings {
   maxContentWidth: number;
   /** Content margin in pixels */
   contentMargin: number;
+  /** Sheet background color */
+  readerSheetColor: ReaderSheetColor;
+  /** Whether content expands to fill full viewport width */
+  expandContent: boolean;
   /** Library layout preference */
   libraryLayout: LibraryLayout;
   /** Library sort field preference */
@@ -333,6 +340,10 @@ export interface BookSettings {
   maxContentWidth?: number;
   /** Override content margin */
   contentMargin?: number;
+  /** Override sheet background color */
+  readerSheetColor?: ReaderSheetColor;
+  /** Override whether content expands to fill full viewport width */
+  expandContent?: boolean;
   /** Override comic reading direction (ltr or rtl) */
   comicReadingDirection?: ComicReadingDirection;
   /** Override comic page fit mode */
@@ -384,6 +395,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   textIndent: 0,
   maxContentWidth: 720,
   contentMargin: 24,
+  readerSheetColor: 'paper',
+  expandContent: false,
   libraryLayout: 'grid',
   librarySortField: 'importedAt',
   librarySortDirection: 'desc',

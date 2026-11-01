@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { UserSettings, BookSettings, ReadingMode, TextAlignment, ComicReadingDirection, ComicFitMode } from '../types/book';
+import type { UserSettings, BookSettings, ReadingMode, TextAlignment, ComicReadingDirection, ComicFitMode, ReaderSheetColor } from '../types/book';
 import { DEFAULT_SETTINGS } from '../types/book';
 import {
   getSettings,
@@ -28,6 +28,8 @@ export interface EffectiveReaderSettings {
   comicReadingDirection?: ComicReadingDirection;
   comicFitMode?: ComicFitMode;
   rtfPreserveAlignment?: boolean;
+  readerSheetColor: ReaderSheetColor;
+  expandContent: boolean;
 }
 
 /** Fields that can be overridden per-book */
@@ -62,6 +64,8 @@ function mergeSettings(
     comicReadingDirection: bookOverrides?.comicReadingDirection,
     comicFitMode: bookOverrides?.comicFitMode,
     rtfPreserveAlignment: bookOverrides?.rtfPreserveAlignment ?? true,
+    readerSheetColor: bookOverrides?.readerSheetColor ?? global.readerSheetColor ?? 'paper',
+    expandContent: bookOverrides?.expandContent ?? global.expandContent ?? false,
   };
 }
 

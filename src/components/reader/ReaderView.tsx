@@ -22,7 +22,7 @@ import { splitHtmlIntoChapters } from '../../core/parsing/mht-parser';
 import { useReadingProgress } from '../../hooks/useReadingProgress';
 import { useBookmarks } from '../../hooks/useBookmarks';
 import { useReaderSettings } from '../../hooks/useReaderSettings';
-import { useSettingsContext } from '../../app/providers/SettingsContext';
+
 
 import type { Book, BookContent, Chapter, Bookmark } from '../../types/book';
 
@@ -174,7 +174,7 @@ export function ReaderView() {
     updateReaderSettings,
     resetBookSettings,
   } = useReaderSettings(bookId || '');
-  const { updateSettings: updateGlobalSettings } = useSettingsContext();
+
 
   const epubReaderRef = useRef<EpubReaderHandle>(null);
   const pdfReaderRef = useRef<PdfReaderHandle>(null);
@@ -963,7 +963,7 @@ export function ReaderView() {
         fixedLayout={isFixedLayout(book?.sourceFormat)}
         format={book?.sourceFormat}
         onUpdate={updateReaderSettings}
-        onUpdateTheme={(theme) => updateGlobalSettings({ theme })}
+
         onReset={resetBookSettings}
       />
     </div>

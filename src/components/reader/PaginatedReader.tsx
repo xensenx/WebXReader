@@ -273,6 +273,18 @@ export const PaginatedReader = memo(function PaginatedReader({
     touchStartX.current = null;
   };
 
+  const isExpanded = Boolean(settings.expandContent);
+  const sheetColor = settings.readerSheetColor ?? 'paper';
+
+  const sheetClass =
+    sheetColor === 'archive'
+      ? styles.sheetArchive
+      : sheetColor === 'dark'
+      ? styles.sheetDark
+      : styles.sheetPaper;
+
+  const modeClass = isExpanded ? styles.expandedContent : styles.boundedSheet;
+
   return (
     <div
       className={styles.container}
@@ -302,7 +314,7 @@ export const PaginatedReader = memo(function PaginatedReader({
       aria-label={pagesPerSpread === 2 ? 'Double-sided reader content' : 'Paginated reader content'}
     >
       <div
-        className={styles.viewport}
+        className={`${styles.viewport} ${modeClass} ${sheetClass}`}
         ref={viewportRef}
         data-reader-viewport="paginated"
         onScroll={handleScroll}
@@ -315,7 +327,7 @@ export const PaginatedReader = memo(function PaginatedReader({
           else goToPrevPage();
         }}
         style={{
-          maxWidth: `${settings.maxContentWidth}px`,
+          maxWidth: isExpanded ? '100%' : `${settings.maxContentWidth}px`,
           paddingLeft: `${settings.contentMargin}px`,
           paddingRight: `${settings.contentMargin}px`,
         }}

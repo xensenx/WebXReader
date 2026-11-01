@@ -18,7 +18,7 @@ import {
   MoveHorizontal,
   MoveVertical,
 } from 'lucide-react';
-import type { ThemeName, BookFormat } from '../../types/book';
+import type { BookFormat } from '../../types/book';
 import { isFixedLayout, formatSupportsFeature } from '../../formats';
 import type {
   EffectiveReaderSettings,
@@ -33,7 +33,7 @@ interface ReaderSettingsProps {
   onClose: () => void;
   settings: EffectiveReaderSettings;
   onUpdate: (partial: ReaderSettingsUpdate) => void;
-  onUpdateTheme: (theme: ThemeName) => void;
+
   onReset: () => void;
   /** Whether the current format can render a double-sided spread. */
   doubleSidedSupported?: boolean;
@@ -64,7 +64,7 @@ export function ReaderSettings({
   onClose,
   settings,
   onUpdate,
-  onUpdateTheme,
+
   onReset,
   doubleSidedSupported = true,
   fixedLayout = false,
@@ -114,36 +114,39 @@ export function ReaderSettings({
         </div>
 
         <div className={styles.content}>
-          {/* Theme */}
+          {/* Page Canvas / Sheet Background */}
           <div className={styles.section}>
-            <span className={styles.sectionTitle}>Theme</span>
-            <div className={styles.themeRow}>
+            <span className={styles.sectionTitle}>Page Canvas</span>
+            <div className={styles.sheetRow}>
               <button
-                className={`${styles.themeBtn} ${styles.themeLight} ${
-                  settings.theme === 'light' ? styles.themeBtnActive : ''
+                className={`${styles.sheetBtn} ${styles.sheetPaper} ${
+                  settings.readerSheetColor === 'paper' ? styles.sheetBtnActive : ''
                 }`}
-                onClick={() => onUpdateTheme('light')}
+                onClick={() => onUpdate({ readerSheetColor: 'paper' })}
                 type="button"
+                aria-label="Paper White"
               >
-                Light
+                Paper White
               </button>
               <button
-                className={`${styles.themeBtn} ${styles.themeDark} ${
-                  settings.theme === 'dark' ? styles.themeBtnActive : ''
+                className={`${styles.sheetBtn} ${styles.sheetArchive} ${
+                  settings.readerSheetColor === 'archive' ? styles.sheetBtnActive : ''
                 }`}
-                onClick={() => onUpdateTheme('dark')}
+                onClick={() => onUpdate({ readerSheetColor: 'archive' })}
                 type="button"
+                aria-label="Archive Gold"
+              >
+                Archive Gold
+              </button>
+              <button
+                className={`${styles.sheetBtn} ${styles.sheetDark} ${
+                  settings.readerSheetColor === 'dark' ? styles.sheetBtnActive : ''
+                }`}
+                onClick={() => onUpdate({ readerSheetColor: 'dark' })}
+                type="button"
+                aria-label="Dark"
               >
                 Dark
-              </button>
-              <button
-                className={`${styles.themeBtn} ${styles.themeSepia} ${
-                  settings.theme === 'sepia' ? styles.themeBtnActive : ''
-                }`}
-                onClick={() => onUpdateTheme('sepia')}
-                type="button"
-              >
-                Sepia
               </button>
             </div>
           </div>
@@ -468,6 +471,30 @@ export function ReaderSettings({
                     aria-label="First line indent"
                   />
                   <span className={styles.sliderValue}>{settings.textIndent}em</span>
+                </div>
+              </div>
+
+              {/* Expand to Full Width */}
+              <div className={styles.section}>
+                <div className={styles.toggleRow}>
+                  <label
+                    htmlFor="expand-to-full-width-toggle"
+                    className={styles.toggleLabel}
+                    onClick={() => onUpdate({ expandContent: !settings.expandContent })}
+                  >
+                    Expand to Full Width
+                  </label>
+                  <button
+                    id="expand-to-full-width-toggle"
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.expandContent}
+                    aria-label="Expand to Full Width"
+                    className={`${styles.toggleSwitch} ${settings.expandContent ? styles.toggleSwitchActive : ''}`}
+                    onClick={() => onUpdate({ expandContent: !settings.expandContent })}
+                  >
+                    <span className={styles.toggleThumb} />
+                  </button>
                 </div>
               </div>
 

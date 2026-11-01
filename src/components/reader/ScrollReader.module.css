@@ -5,18 +5,70 @@
   overflow-y: auto;
   overflow-x: hidden;
   overflow-anchor: auto;
-  background-color: var(--reader-bg);
+  background-color: var(--reader-backdrop, #111215);
   color: var(--reader-text);
   scroll-behavior: auto;
 }
 
+:global([data-theme='light']) .container {
+  --reader-backdrop: #e5e7eb;
+}
+
+:global([data-theme='sepia']) .container {
+  --reader-backdrop: #e8dfc8;
+}
+
+:global([data-theme='dark']) .container {
+  --reader-backdrop: #111215;
+}
+
 .contentWrapper {
+  box-sizing: border-box;
+  transition: max-width var(--transition-base), background-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+/* Bounded Sheet Mode */
+.boundedSheet {
+  margin: var(--space-8) auto var(--space-16) auto;
+  width: 100%;
+  min-height: calc(100% - var(--space-20));
+  border-radius: var(--radius-lg);
+  padding-top: var(--space-10);
+  padding-bottom: var(--space-14);
+}
+
+/* Expanded Full-Width Mode */
+.expandedContent {
   margin: 0 auto;
   width: 100%;
   min-height: 100%;
-  box-sizing: border-box;
-  padding-top: var(--space-12);
+  border-radius: 0;
+  border: none !important;
+  box-shadow: none !important;
+  padding-top: var(--space-8);
   padding-bottom: var(--space-16);
+}
+
+/* 3 Canvas Sheet Colors */
+.sheetPaper {
+  background-color: #ffffff;
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.sheetArchive {
+  background-color: #f7f1e1;
+  color: #382e21;
+  border: 1px solid rgba(139, 105, 20, 0.15);
+  box-shadow: 0 4px 24px rgba(61, 50, 38, 0.12), 0 1px 3px rgba(61, 50, 38, 0.06);
+}
+
+.sheetDark {
+  background-color: #27282d;
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .chapterSection {
