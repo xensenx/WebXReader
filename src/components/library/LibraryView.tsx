@@ -798,13 +798,13 @@ export function LibraryView() {
   };
 
   const finishBookPointerDrag = (e: ReactPointerEvent<HTMLDivElement>, canceled = false) => {
+    const drag = pointerDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+
     clearLongPressTimer();
     stopAutoScroll();
     document.body.style.touchAction = '';
     document.body.style.userSelect = '';
-
-    const drag = pointerDragRef.current;
-    if (!drag || drag.pointerId !== e.pointerId) return;
 
     if (drag.active) {
       e.preventDefault();
