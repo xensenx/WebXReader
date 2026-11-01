@@ -52,9 +52,12 @@ import styles from './LibraryView.module.css';
 interface BookPointerDrag {
   bookId: string;
   pointerId: number;
+  pointerType: string;
   captureElement: HTMLElement;
   startX: number;
   startY: number;
+  currentX: number;
+  currentY: number;
   width: number;
   height: number;
   active: boolean;
@@ -140,6 +143,8 @@ export function LibraryView() {
   const [dragSortPreview, setDragSortPreview] = useState(false);
   const draggedIdRef = useRef<string | null>(null);
   const pointerDragRef = useRef<BookPointerDrag | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
   const [dragPreview, setDragPreview] = useState<BookDragPreview | null>(null);
   const dragPreviewElementRef = useRef<HTMLDivElement | null>(null);
   const suppressBookClickRef = useRef(false);
@@ -369,6 +374,31 @@ export function LibraryView() {
     };
   }, []);
 
+  // Cleanup drag timers on unmount or blur
+  useEffect(() => {
+    const handleGlobalCancel = () => {
+      clearLongPressTimer();
+      stopAutoScroll();
+      if (pointerDragRef.current?.active) {
+        pendingReorderPositionsRef.current = captureBookPositions();
+        cancelBookReorderAnimations();
+        setCustomOrder(settings.customBookOrder ?? []);
+        setDragSortPreview(false);
+      }
+      pointerDragRef.current = null;
+      draggedIdRef.current = null;
+      setDraggingBookId(null);
+      setDragPreview(null);
+    };
+
+    window.addEventListener('blur', handleGlobalCancel);
+    return () => {
+      clearLongPressTimer();
+      stopAutoScroll();
+      window.removeEventListener('blur', handleGlobalCancel);
+    };
+  }, [settings.customBookOrder]);
+
   // Restore scroll position when books are ready
   useLayoutEffect(() => {
     if (loading) return;
@@ -545,30 +575,135 @@ export function LibraryView() {
     setCustomOrder(reorder.nextOrder);
   };
 
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const stopAutoScroll = () => {
+    if (autoScrollRafRef.current !== null) {
+      window.cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+  };
+
+  const triggerAutoScroll = (clientY: number) => {
+    const edgeThreshold = 80;
+    const maxScrollStep = 12;
+    const viewportHeight = window.innerHeight;
+    let scrollSpeed = 0;
+
+    if (clientY < edgeThreshold) {
+      const intensity = (edgeThreshold - Math.max(0, clientY)) / edgeThreshold;
+      scrollSpeed = -Math.round(intensity * maxScrollStep);
+    } else if (clientY > viewportHeight - edgeThreshold) {
+      const intensity = (Math.min(viewportHeight, clientY) - (viewportHeight - edgeThreshold)) / edgeThreshold;
+      scrollSpeed = Math.round(intensity * maxScrollStep);
+    }
+
+    if (scrollSpeed === 0) {
+      stopAutoScroll();
+      return;
+    }
+
+    if (autoScrollRafRef.current === null) {
+      const step = () => {
+        const currentDrag = pointerDragRef.current;
+        if (!currentDrag?.active) {
+          stopAutoScroll();
+          return;
+        }
+
+        window.scrollBy(0, scrollSpeed);
+        updateBookDropPreview(currentDrag.currentX, currentDrag.currentY);
+        autoScrollRafRef.current = window.requestAnimationFrame(step);
+      };
+      autoScrollRafRef.current = window.requestAnimationFrame(step);
+    }
+  };
+
   const handleBookPointerDown = (id: string, e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || pointerDragRef.current) return;
     if ((e.target as HTMLElement).closest('button, a, input, [role="menu"]')) return;
 
+    clearLongPressTimer();
+    stopAutoScroll();
+
     const previewSource = e.currentTarget.querySelector<HTMLElement>('[data-drag-preview]');
     const previewBounds = previewSource?.getBoundingClientRect() ?? e.currentTarget.getBoundingClientRect();
     const currentOrder = filteredBooks.map((book) => book.id);
-    pointerDragRef.current = {
+    const targetElement = e.currentTarget;
+
+    const drag: BookPointerDrag = {
       bookId: id,
       pointerId: e.pointerId,
-      captureElement: e.currentTarget,
+      pointerType: e.pointerType,
+      captureElement: targetElement,
       startX: e.clientX,
       startY: e.clientY,
+      currentX: e.clientX,
+      currentY: e.clientY,
       width: Math.max(1, previewBounds.width),
       height: Math.max(1, previewBounds.height),
       active: false,
       order: currentOrder,
       startOrder: currentOrder,
     };
+    pointerDragRef.current = drag;
 
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      pointerDragRef.current = null;
+    if (e.pointerType === 'touch') {
+      // Touch devices: wait for press-and-hold (260ms) without moving to distinguish from scrolling
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = null;
+        const currentDrag = pointerDragRef.current;
+        if (!currentDrag || currentDrag.pointerId !== e.pointerId || currentDrag.active) return;
+
+        currentDrag.active = true;
+        draggedIdRef.current = currentDrag.bookId;
+        pendingReorderPositionsRef.current = null;
+        setDraggingBookId(currentDrag.bookId);
+
+        if (sortField !== 'custom') {
+          setCustomOrder(currentDrag.order);
+          setDragSortPreview(true);
+        }
+
+        const draggedBook = books.find((b) => b.id === currentDrag.bookId);
+        if (draggedBook) {
+          setDragPreview({
+            book: draggedBook,
+            width: currentDrag.width,
+            height: currentDrag.height,
+            left: currentDrag.currentX - currentDrag.width / 2,
+            top: currentDrag.currentY - currentDrag.height / 2,
+          });
+        }
+
+        try {
+          currentDrag.captureElement.setPointerCapture(currentDrag.pointerId);
+        } catch {
+          // ignore if already captured or failed
+        }
+
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try {
+            navigator.vibrate(35);
+          } catch {
+            // vibration not supported or allowed
+          }
+        }
+
+        suppressBookClickRef.current = true;
+      }, 260);
+    } else {
+      // Mouse/pen: capture pointer immediately
+      try {
+        targetElement.setPointerCapture(e.pointerId);
+      } catch {
+        pointerDragRef.current = null;
+      }
     }
   };
 
@@ -576,8 +711,23 @@ export function LibraryView() {
     const drag = pointerDragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
 
+    drag.currentX = e.clientX;
+    drag.currentY = e.clientY;
+
     if (!drag.active) {
-      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 6) return;
+      const distance = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY);
+
+      if (drag.pointerType === 'touch') {
+        // If finger moved > 8px before long press completed, user is scrolling
+        if (distance > 8) {
+          clearLongPressTimer();
+          pointerDragRef.current = null;
+        }
+        return;
+      }
+
+      if (distance < 6) return;
+
       drag.active = true;
       draggedIdRef.current = drag.bookId;
       pendingReorderPositionsRef.current = null;
@@ -605,6 +755,7 @@ export function LibraryView() {
     const previewElement = dragPreviewElementRef.current;
     if (previewElement) previewElement.style.transform = `translate3d(${left}px, ${top}px, 0)`;
     updateBookDropPreview(e.clientX, e.clientY);
+    triggerAutoScroll(e.clientY);
   };
 
   const shouldSuppressBookClick = () => {
@@ -618,6 +769,9 @@ export function LibraryView() {
   };
 
   const finishBookPointerDrag = (e: ReactPointerEvent<HTMLDivElement>, canceled = false) => {
+    clearLongPressTimer();
+    stopAutoScroll();
+
     const drag = pointerDragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
 
@@ -650,7 +804,7 @@ export function LibraryView() {
       suppressBookClickTimerRef.current = window.setTimeout(() => {
         suppressBookClickRef.current = false;
         suppressBookClickTimerRef.current = null;
-      }, 0);
+      }, 250);
     }
 
     try {
@@ -752,6 +906,9 @@ export function LibraryView() {
       onPointerMove={handleLibraryPointerMove}
       onPointerUp={(e) => finishBookPointerDrag(e)}
       onPointerCancel={(e) => finishBookPointerDrag(e, true)}
+      onContextMenu={(e) => {
+        if (pointerDragRef.current) e.preventDefault();
+      }}
     >
       {/* App Header */}
       <header className={styles.header}>

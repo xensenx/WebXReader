@@ -232,9 +232,9 @@
   left: 0;
   z-index: 10000;
   pointer-events: none;
-  opacity: 1;
-  filter: none;
-  box-shadow: none;
+  opacity: 0.96;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.2);
+  transform-origin: center center;
   border-radius: var(--radius-md);
   overflow: hidden;
   background-color: var(--color-bg-secondary);
@@ -247,9 +247,9 @@
   height: 100%;
   object-fit: cover;
   border-radius: inherit;
-  opacity: 1;
-  filter: none;
-  box-shadow: none;
+  opacity: 0.96;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.2);
+  transform-origin: center center;
 }
 
 .bookDragPreviewFallback {
@@ -292,3 +292,4 @@
   font-weight: 600;
   box-shadow: var(--shadow-xl);
 }
+

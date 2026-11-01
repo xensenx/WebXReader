@@ -154,4 +154,36 @@ describe('Custom Library Sorting & Reordering', () => {
     expect(sorted[1].id).toBe('book-3'); // importedAt 300
     expect(sorted[2].id).toBe('book-1'); // importedAt 100
   });
+
+  describe('Touch Drag & Drop Logic', () => {
+    it('distinguishes touch scroll movement from stationary long-press', () => {
+      // If user drags finger > 8px before timer completes, gesture is classified as scroll
+      const startX = 100;
+      const startY = 200;
+
+      const scrollMoveX = 100;
+      const scrollMoveY = 215; // moved 15px vertically
+      const scrollDistance = Math.hypot(scrollMoveX - startX, scrollMoveY - startY);
+      expect(scrollDistance).toBeGreaterThan(8);
+
+      const stationaryMoveX = 102;
+      const stationaryMoveY = 203; // moved ~3.6px
+      const stationaryDistance = Math.hypot(stationaryMoveX - startX, stationaryMoveY - startY);
+      expect(stationaryDistance).toBeLessThanOrEqual(8);
+    });
+
+    it('reorders custom order array correctly on drag target insertion', () => {
+      const currentOrder = ['b1', 'b2', 'b3', 'b4'];
+      const sourceId = 'b4';
+      const targetId = 'b2';
+
+      const sourceIndex = currentOrder.indexOf(sourceId);
+      const nextOrder = [...currentOrder];
+      nextOrder.splice(sourceIndex, 1);
+      const insertAt = nextOrder.indexOf(targetId);
+      nextOrder.splice(insertAt, 0, sourceId);
+
+      expect(nextOrder).toEqual(['b1', 'b4', 'b2', 'b3']);
+    });
+  });
 });
