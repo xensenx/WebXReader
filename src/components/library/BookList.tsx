@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { Book, ReadingStatus } from '../../types/book';
 import { formatDate } from '../../utils';
+import { getBookCoverUrl } from '../../assets/covers/txt-default-cover';
 import styles from './BookList.module.css';
 
 interface BookListProps {
@@ -56,6 +57,7 @@ export function BookList({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const coverUrl = getBookCoverUrl(book);
 
   useEffect(() => {
     function handleClickOutside(e: globalThis.MouseEvent) {
@@ -139,9 +141,9 @@ export function BookList({
         </span>
       )}
       <div className={styles.thumbnailContainer} data-drag-preview>
-        {book.coverImage ? (
+        {coverUrl ? (
           <img
-            src={book.coverImage}
+            src={coverUrl}
             alt=""
             className={styles.thumbnail}
             loading="lazy"

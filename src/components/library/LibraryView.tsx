@@ -47,6 +47,7 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState } from '../common/EmptyState';
 import { Button } from '../common/Button';
 
+import { getBookCoverUrl } from '../../assets/covers/txt-default-cover';
 import styles from './LibraryView.module.css';
 
 interface BookPointerDrag {
@@ -981,9 +982,9 @@ export function LibraryView() {
             aria-label={`Continue reading ${continueBook.title}`}
           >
             <div className={styles.continueLeft}>
-              {continueBook.coverImage ? (
+              {getBookCoverUrl(continueBook) ? (
                 <img
-                  src={continueBook.coverImage}
+                  src={getBookCoverUrl(continueBook)}
                   alt=""
                   className={styles.continueCover}
                 />
@@ -1199,8 +1200,8 @@ export function LibraryView() {
           }}
           aria-hidden="true"
         >
-          {dragPreview.book.coverImage ? (
-            <img src={dragPreview.book.coverImage} alt="" className={styles.bookDragPreviewImage} draggable={false} />
+          {getBookCoverUrl(dragPreview.book) ? (
+            <img src={getBookCoverUrl(dragPreview.book)} alt="" className={styles.bookDragPreviewImage} draggable={false} />
           ) : (
             <div className={styles.bookDragPreviewFallback}>
               <span>{dragPreview.book.title.trim().charAt(0).toUpperCase()}</span>

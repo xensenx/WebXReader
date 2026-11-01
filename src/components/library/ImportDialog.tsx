@@ -12,6 +12,7 @@ import { importFile, type ImportResult } from '../../features/import/import-serv
 import { getAcceptAttribute } from '../../formats';
 import type { Book } from '../../types/book';
 import { useSettingsContext } from '../../app/providers/SettingsContext';
+import { getBookCoverUrl } from '../../assets/covers/txt-default-cover';
 import styles from './ImportDialog.module.css';
 
 interface ImportDialogProps {
@@ -304,9 +305,9 @@ export function ImportDialog({
         {!loading && !error && !batchResults && importedBook && (
           <>
             <div className={styles.successBox}>
-              {importedBook.coverImage ? (
+              {getBookCoverUrl(importedBook) ? (
                 <img
-                  src={importedBook.coverImage}
+                  src={getBookCoverUrl(importedBook)}
                   alt=""
                   className={styles.successCover}
                 />
