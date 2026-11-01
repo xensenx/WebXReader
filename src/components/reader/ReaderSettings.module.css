@@ -348,3 +348,32 @@
 .toggleSwitchActive .toggleThumb {
   transform: translateX(20px);
 }
+
+/* Category Headers & Group Organization */
+.categoryHeader {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+  margin-top: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.categoryDivider {
+  height: 1px;
+  background-color: var(--color-border);
+  margin: var(--space-1) 0;
+  opacity: 0.6;
+}
+
+.badgeHint {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--color-text-tertiary);
+  margin-left: var(--space-1);
+}

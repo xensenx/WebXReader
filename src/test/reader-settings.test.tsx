@@ -65,7 +65,7 @@ describe('Reader Settings Enhancements', () => {
       expect(handleUpdate).toHaveBeenCalledWith({ readerSheetColor: 'paper' });
     });
 
-    it('renders only Page Mode and Expanded Mode buttons for txt format, and neither Pages nor Double-Sided', () => {
+    it('renders only Contracted Mode and Expanded Mode buttons for txt format, and neither Pages nor Double-Sided', () => {
       render(
         <ReaderSettings
           isOpen
@@ -77,7 +77,7 @@ describe('Reader Settings Enhancements', () => {
         />
       );
 
-      expect(screen.getByRole('button', { name: /page mode/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /contracted mode/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /expanded mode/i })).toBeInTheDocument();
 
       expect(screen.queryByRole('button', { name: /^pages$/i })).not.toBeInTheDocument();
@@ -85,7 +85,7 @@ describe('Reader Settings Enhancements', () => {
       expect(screen.queryByRole('button', { name: /vertical scroll/i })).not.toBeInTheDocument();
     });
 
-    it('handles clicking Page Mode and Expanded Mode for txt format', () => {
+    it('handles clicking Contracted Mode and Expanded Mode for txt format', () => {
       const handleUpdate = vi.fn();
       const { rerender } = render(
         <ReaderSettings
@@ -98,11 +98,11 @@ describe('Reader Settings Enhancements', () => {
         />
       );
 
-      const pageModeBtn = screen.getByRole('button', { name: /page mode/i });
+      const contractedModeBtn = screen.getByRole('button', { name: /contracted mode/i });
       const expandedModeBtn = screen.getByRole('button', { name: /expanded mode/i });
 
-      // When expandContent is false, Page Mode is active
-      expect(pageModeBtn.className).toMatch(/modeBtnActive/);
+      // When expandContent is false, Contracted Mode is active
+      expect(contractedModeBtn.className).toMatch(/modeBtnActive/);
       expect(expandedModeBtn.className).not.toMatch(/modeBtnActive/);
 
       // Click Expanded Mode
@@ -122,10 +122,10 @@ describe('Reader Settings Enhancements', () => {
       );
 
       expect(expandedModeBtn.className).toMatch(/modeBtnActive/);
-      expect(pageModeBtn.className).not.toMatch(/modeBtnActive/);
+      expect(contractedModeBtn.className).not.toMatch(/modeBtnActive/);
 
-      // Click Page Mode
-      fireEvent.click(pageModeBtn);
+      // Click Contracted Mode
+      fireEvent.click(contractedModeBtn);
       expect(handleUpdate).toHaveBeenCalledWith({ expandContent: false, readingMode: 'scroll' });
     });
 

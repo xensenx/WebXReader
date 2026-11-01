@@ -113,15 +113,19 @@ export const ScrollReader = memo(function ScrollReader({
       const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
       container.scrollTop = lastProgressFractionRef.current * maxScroll;
 
-      if (!settings.expandContent && zoom > 1) {
-        const excessWidth = Math.max(0, container.scrollWidth - container.clientWidth);
-        if (excessWidth > 0) {
-          const anchor = zoomAnchorRef.current;
-          if (anchor && typeof anchor.scrollRatioX === 'number') {
-            container.scrollLeft = anchor.scrollRatioX * excessWidth;
-          } else if (container.scrollLeft === 0) {
-            container.scrollLeft = excessWidth / 2;
+      if (!settings.expandContent) {
+        if (zoom > 1) {
+          const excessWidth = Math.max(0, container.scrollWidth - container.clientWidth);
+          if (excessWidth > 0) {
+            const anchor = zoomAnchorRef.current;
+            if (anchor && typeof anchor.scrollRatioX === 'number') {
+              container.scrollLeft = anchor.scrollRatioX * excessWidth;
+            } else if (container.scrollLeft === 0) {
+              container.scrollLeft = excessWidth / 2;
+            }
           }
+        } else {
+          container.scrollLeft = 0;
         }
       }
     });
@@ -207,11 +211,11 @@ export const ScrollReader = memo(function ScrollReader({
         style={{
           width: isExpanded
             ? '100%'
-            : zoom > 1
-            ? `${canvasWidth}px`
-            : `${settings.maxContentWidth}px`,
+            : `${canvasWidth}px`,
           maxWidth: isExpanded ? '100%' : zoom <= 1 ? '100%' : 'none',
           minWidth: !isExpanded && zoom > 1 ? `${canvasWidth}px` : undefined,
+          minHeight: isExpanded ? '100%' : `${Math.round(600 * Math.min(1, zoom))}px`,
+          borderRadius: isExpanded ? 0 : `${Math.max(4, Math.round(12 * zoom))}px`,
           boxSizing: 'border-box',
           paddingLeft: `${Math.round(settings.contentMargin * (isExpanded ? 1 : zoom))}px`,
           paddingRight: `${Math.round(settings.contentMargin * (isExpanded ? 1 : zoom))}px`,

@@ -15,6 +15,7 @@ import {
   ArrowRight,
   ArrowLeft,
   Maximize2,
+  Minimize2,
   MoveHorizontal,
   MoveVertical,
 } from 'lucide-react';
@@ -114,6 +115,9 @@ export function ReaderSettings({
         </div>
 
         <div className={styles.content}>
+          <div className={styles.categoryHeader}>
+            <span>Canvas & Layout</span>
+          </div>
           {/* Page Canvas / Sheet Background */}
           <div className={styles.section}>
             <span className={styles.sectionTitle}>Page Canvas</span>
@@ -168,8 +172,8 @@ export function ReaderSettings({
                   onClick={() => onUpdate({ expandContent: false, readingMode: 'scroll' })}
                   type="button"
                 >
-                  <BookOpen size={18} />
-                  <span>Page Mode</span>
+                  <Minimize2 size={18} />
+                  <span>Contracted Mode</span>
                 </button>
                 <button
                   className={`${styles.modeBtn} ${
@@ -342,9 +346,14 @@ export function ReaderSettings({
             </div>
           )}
 
-          {/* Font Family */}
+          {/* Typography */}
           {canTypography && (
             <>
+              <div className={styles.categoryDivider} />
+              <div className={styles.categoryHeader}>
+                <span>Typography</span>
+              </div>
+
               <div className={styles.section}>
                 <span className={styles.sectionTitle}>Font Family</span>
                 <DropdownSelect
@@ -539,7 +548,12 @@ export function ReaderSettings({
 
               {/* Content Max Width */}
               <div className={styles.section}>
-                <span className={styles.sectionTitle}>Page Width</span>
+                <span className={styles.sectionTitle}>
+                  Page Width
+                  {format === 'txt' && settings.expandContent && (
+                    <span className={styles.badgeHint}>(Contracted Mode)</span>
+                  )}
+                </span>
                 <div className={styles.sliderRow}>
                   <input
                     type="range"
