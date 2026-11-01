@@ -159,40 +159,65 @@ export function ReaderSettings({
                 This document preserves its original visual layout. Adjust your reading mode and background theme below.
               </p>
             )}
-            <div className={styles.modeRow} aria-label={isFixed ? 'Fixed-layout document' : 'Reading modes'}>
-              <button
-                className={`${styles.modeBtn} ${
-                  settings.readingMode === 'scroll' ? styles.modeBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ readingMode: 'scroll' })}
-                type="button"
-              >
-                <Scroll size={18} />
-                <span>Vertical Scroll</span>
-              </button>
-              <button
-                className={`${styles.modeBtn} ${
-                  settings.readingMode === 'paginated' ? styles.modeBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ readingMode: 'paginated' })}
-                type="button"
-              >
-                <BookOpen size={18} />
-                <span>Pages</span>
-              </button>
-              <button
-                className={`${styles.modeBtn} ${
-                  settings.readingMode === 'vertical' ? styles.modeBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ readingMode: 'vertical' })}
-                disabled={!canDoubleSided}
-                title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
-                type="button"
-              >
-                <Pilcrow size={18} />
-                <span>Double Sided</span>
-              </button>
-            </div>
+            {format === 'txt' ? (
+              <div className={`${styles.modeRow} ${styles.modeRowTxt}`} aria-label="Reading modes">
+                <button
+                  className={`${styles.modeBtn} ${
+                    !settings.expandContent ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ expandContent: false, readingMode: 'scroll' })}
+                  type="button"
+                >
+                  <BookOpen size={18} />
+                  <span>Page Mode</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    Boolean(settings.expandContent) ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ expandContent: true, readingMode: 'scroll' })}
+                  type="button"
+                >
+                  <Maximize2 size={18} />
+                  <span>Expanded Mode</span>
+                </button>
+              </div>
+            ) : (
+              <div className={styles.modeRow} aria-label={isFixed ? 'Fixed-layout document' : 'Reading modes'}>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.readingMode === 'scroll' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readingMode: 'scroll' })}
+                  type="button"
+                >
+                  <Scroll size={18} />
+                  <span>Vertical Scroll</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.readingMode === 'paginated' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readingMode: 'paginated' })}
+                  type="button"
+                >
+                  <BookOpen size={18} />
+                  <span>Pages</span>
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.readingMode === 'vertical' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readingMode: 'vertical' })}
+                  disabled={!canDoubleSided}
+                  title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
+                  type="button"
+                >
+                  <Pilcrow size={18} />
+                  <span>Double Sided</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Comic Reading Direction */}
@@ -334,26 +359,38 @@ export function ReaderSettings({
               {/* Font Size */}
               <div className={styles.section}>
                 <span className={styles.sectionTitle}>Font Size</span>
-                <div className={styles.stepperRow}>
-                  <button
-                    className={styles.stepperBtn}
-                    onClick={() => onUpdate({ fontSize: Math.max(12, settings.fontSize - 1) })}
-                    type="button"
-                    aria-label="Decrease font size"
-                  >
-                    -
-                  </button>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
-                    {settings.fontSize}px
-                  </span>
-                  <button
-                    className={styles.stepperBtn}
-                    onClick={() => onUpdate({ fontSize: Math.min(36, settings.fontSize + 1) })}
-                    type="button"
-                    aria-label="Increase font size"
-                  >
-                    +
-                  </button>
+                <div className={styles.fontSizeRow}>
+                  <div className={styles.stepperRow}>
+                    <button
+                      className={styles.stepperBtn}
+                      onClick={() => onUpdate({ fontSize: Math.max(12, settings.fontSize - 1) })}
+                      type="button"
+                      aria-label="Decrease font size"
+                    >
+                      -
+                    </button>
+                    <span className={styles.fontSizeValue}>
+                      {settings.fontSize}px
+                    </span>
+                    <button
+                      className={styles.stepperBtn}
+                      onClick={() => onUpdate({ fontSize: Math.min(36, settings.fontSize + 1) })}
+                      type="button"
+                      aria-label="Increase font size"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    className={styles.slider}
+                    min={12}
+                    max={36}
+                    step={1}
+                    value={settings.fontSize}
+                    onChange={(e) => onUpdate({ fontSize: parseInt(e.target.value, 10) })}
+                    aria-label="Font size slider"
+                  />
                 </div>
               </div>
 
@@ -475,28 +512,30 @@ export function ReaderSettings({
               </div>
 
               {/* Expand to Full Width */}
-              <div className={styles.section}>
-                <div className={styles.toggleRow}>
-                  <label
-                    htmlFor="expand-to-full-width-toggle"
-                    className={styles.toggleLabel}
-                    onClick={() => onUpdate({ expandContent: !settings.expandContent })}
-                  >
-                    Expand to Full Width
-                  </label>
-                  <button
-                    id="expand-to-full-width-toggle"
-                    type="button"
-                    role="switch"
-                    aria-checked={settings.expandContent}
-                    aria-label="Expand to Full Width"
-                    className={`${styles.toggleSwitch} ${settings.expandContent ? styles.toggleSwitchActive : ''}`}
-                    onClick={() => onUpdate({ expandContent: !settings.expandContent })}
-                  >
-                    <span className={styles.toggleThumb} />
-                  </button>
+              {format !== 'txt' && !isFixed && (
+                <div className={styles.section}>
+                  <div className={styles.toggleRow}>
+                    <label
+                      htmlFor="expand-to-full-width-toggle"
+                      className={styles.toggleLabel}
+                      onClick={() => onUpdate({ expandContent: !settings.expandContent })}
+                    >
+                      Expand to Full Width
+                    </label>
+                    <button
+                      id="expand-to-full-width-toggle"
+                      type="button"
+                      role="switch"
+                      aria-checked={settings.expandContent}
+                      aria-label="Expand to Full Width"
+                      className={`${styles.toggleSwitch} ${settings.expandContent ? styles.toggleSwitchActive : ''}`}
+                      onClick={() => onUpdate({ expandContent: !settings.expandContent })}
+                    >
+                      <span className={styles.toggleThumb} />
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Content Max Width */}
               <div className={styles.section}>

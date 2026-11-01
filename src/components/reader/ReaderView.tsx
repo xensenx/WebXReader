@@ -586,7 +586,8 @@ export function ReaderView() {
     return found ? found.title : '';
   }, [book, activeChapterId]);
 
-  const effectiveReadingMode = isPdf && readerSettings.readingMode === 'vertical'
+  const isTxt = book?.sourceFormat === 'txt';
+  const effectiveReadingMode = isTxt ? 'scroll' : (isPdf && readerSettings.readingMode === 'vertical')
       ? 'paginated'
       : readerSettings.readingMode;
   const effectiveReaderSettings = readerSettings.readingMode === effectiveReadingMode
@@ -881,6 +882,7 @@ export function ReaderView() {
             onProgressUpdate={handleScrollProgress}
             onToggleControls={handleToggleControls}
             zoom={readerZoom}
+            zoomAnchor={zoomAnchor}
           />
           )}
         </Suspense>

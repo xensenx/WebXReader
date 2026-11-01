@@ -146,6 +146,10 @@
   gap: var(--space-2);
 }
 
+.modeRowTxt {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .modeBtn {
   padding: var(--space-2);
   border-radius: var(--radius-md);
@@ -213,6 +217,20 @@
   text-align: right;
 }
 
+.fontSizeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.fontSizeValue {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  min-width: 42px;
+  text-align: center;
+  user-select: none;
+}
+
 .stepperRow {
   display: flex;
   align-items: center;
@@ -221,6 +239,7 @@
   background-color: var(--color-surface-hover);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .stepperBtn {

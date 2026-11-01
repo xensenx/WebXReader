@@ -65,7 +65,136 @@ describe('Reader Settings Enhancements', () => {
       expect(handleUpdate).toHaveBeenCalledWith({ readerSheetColor: 'paper' });
     });
 
-    it('renders Expand to Full Width toggle for reflowable txt format and toggles state', () => {
+    it('renders only Page Mode and Expanded Mode buttons for txt format, and neither Pages nor Double-Sided', () => {
+      render(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={dummySettings}
+          onUpdate={vi.fn()}
+          onReset={vi.fn()}
+          format="txt"
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /page mode/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /expanded mode/i })).toBeInTheDocument();
+
+      expect(screen.queryByRole('button', { name: /^pages$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /double sided/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /vertical scroll/i })).not.toBeInTheDocument();
+    });
+
+    it('handles clicking Page Mode and Expanded Mode for txt format', () => {
+      const handleUpdate = vi.fn();
+      const { rerender } = render(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={dummySettings}
+          onUpdate={handleUpdate}
+          onReset={vi.fn()}
+          format="txt"
+        />
+      );
+
+      const pageModeBtn = screen.getByRole('button', { name: /page mode/i });
+      const expandedModeBtn = screen.getByRole('button', { name: /expanded mode/i });
+
+      // When expandContent is false, Page Mode is active
+      expect(pageModeBtn.className).toMatch(/modeBtnActive/);
+      expect(expandedModeBtn.className).not.toMatch(/modeBtnActive/);
+
+      // Click Expanded Mode
+      fireEvent.click(expandedModeBtn);
+      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: true, readingMode: 'scroll' });
+
+      // Rerender with expandContent: true
+      rerender(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={{ ...dummySettings, expandContent: true }}
+          onUpdate={handleUpdate}
+          onReset={vi.fn()}
+          format="txt"
+        />
+      );
+
+      expect(expandedModeBtn.className).toMatch(/modeBtnActive/);
+      expect(pageModeBtn.className).not.toMatch(/modeBtnActive/);
+
+      // Click Page Mode
+      fireEvent.click(pageModeBtn);
+      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: false, readingMode: 'scroll' });
+    });
+
+    it('does not render separate Expand to Full Width toggle switch when format is txt', () => {
+      render(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={dummySettings}
+          onUpdate={vi.fn()}
+          onReset={vi.fn()}
+          format="txt"
+        />
+      );
+
+      expect(screen.queryByRole('switch', { name: /expand to full width/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/^expand to full width$/i)).not.toBeInTheDocument();
+    });
+
+    it('renders original Reading Mode options and Expand to Full Width toggle for non-txt formats (e.g. epub)', () => {
+      const handleUpdate = vi.fn();
+      render(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={dummySettings}
+          onUpdate={handleUpdate}
+          onReset={vi.fn()}
+          format="epub"
+        />
+      );
+
+      // Reading Mode options
+      expect(screen.getByRole('button', { name: /vertical scroll/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^pages$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /double sided/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /page mode/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /expanded mode/i })).not.toBeInTheDocument();
+
+      // Separate toggle switch
+      const expandToggle = screen.getByRole('switch', { name: /expand to full width/i });
+      expect(expandToggle).toBeInTheDocument();
+      expect(expandToggle).toHaveAttribute('aria-checked', 'false');
+
+      fireEvent.click(expandToggle);
+      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: true });
+    });
+
+    it('toggles expand off when already active for non-txt reflowable format', () => {
+      const handleUpdate = vi.fn();
+      render(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={{ ...dummySettings, expandContent: true }}
+          onUpdate={handleUpdate}
+          onReset={vi.fn()}
+          format="epub"
+        />
+      );
+
+      const expandToggle = screen.getByRole('switch', { name: /expand to full width/i });
+      expect(expandToggle).toHaveAttribute('aria-checked', 'true');
+
+      fireEvent.click(expandToggle);
+      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: false });
+    });
+
+    it('handles Font Size stepper and slider updates', () => {
       const handleUpdate = vi.fn();
       render(
         <ReaderSettings
@@ -78,32 +207,26 @@ describe('Reader Settings Enhancements', () => {
         />
       );
 
-      const expandToggle = screen.getByRole('switch', { name: /expand to full width/i });
-      expect(expandToggle).toBeInTheDocument();
-      expect(expandToggle).toHaveAttribute('aria-checked', 'false');
+      // Stepper decrease button
+      const decreaseBtn = screen.getByRole('button', { name: /decrease font size/i });
+      fireEvent.click(decreaseBtn);
+      expect(handleUpdate).toHaveBeenCalledWith({ fontSize: 17 });
 
-      fireEvent.click(expandToggle);
-      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: true });
-    });
+      // Stepper increase button
+      const increaseBtn = screen.getByRole('button', { name: /increase font size/i });
+      fireEvent.click(increaseBtn);
+      expect(handleUpdate).toHaveBeenCalledWith({ fontSize: 19 });
 
-    it('toggles expand off when already active', () => {
-      const handleUpdate = vi.fn();
-      render(
-        <ReaderSettings
-          isOpen
-          onClose={vi.fn()}
-          settings={{ ...dummySettings, expandContent: true }}
-          onUpdate={handleUpdate}
-          onReset={vi.fn()}
-          format="txt"
-        />
-      );
+      // Range slider
+      const slider = screen.getByRole('slider', { name: /font size slider/i });
+      expect(slider).toBeInTheDocument();
+      expect(slider).toHaveAttribute('min', '12');
+      expect(slider).toHaveAttribute('max', '36');
+      expect(slider).toHaveAttribute('step', '1');
+      expect(slider).toHaveValue('18');
 
-      const expandToggle = screen.getByRole('switch', { name: /expand to full width/i });
-      expect(expandToggle).toHaveAttribute('aria-checked', 'true');
-
-      fireEvent.click(expandToggle);
-      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: false });
+      fireEvent.change(slider, { target: { value: '26' } });
+      expect(handleUpdate).toHaveBeenCalledWith({ fontSize: 26 });
     });
 
     it('does not render Theme selection section', () => {
@@ -118,8 +241,6 @@ describe('Reader Settings Enhancements', () => {
         />
       );
 
-      // Previous themes were "Light", "Dark", "Sepia" under "Theme" header
-      // Now "Theme" header is gone, and "Sepia" is replaced with "Archive Gold"
       expect(screen.queryByText(/^Theme$/i)).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^sepia$/i })).not.toBeInTheDocument();
     });

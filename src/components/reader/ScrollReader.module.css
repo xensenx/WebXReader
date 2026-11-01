@@ -3,7 +3,7 @@
   height: 100%;
   min-height: 0;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-anchor: auto;
   background-color: var(--reader-backdrop, #111215);
   color: var(--reader-text);
@@ -30,7 +30,6 @@
 /* Bounded Sheet Mode */
 .boundedSheet {
   margin: var(--space-8) auto var(--space-16) auto;
-  width: 100%;
   min-height: calc(100% - var(--space-20));
   border-radius: var(--radius-lg);
   padding-top: var(--space-10);
