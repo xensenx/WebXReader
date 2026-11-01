@@ -173,7 +173,9 @@ export function ReaderView() {
     loading: readerSettingsLoading,
     updateReaderSettings,
     resetBookSettings,
-  } = useReaderSettings(bookId || '');
+    isCustomBook,
+    setIsCustomBook,
+  } = useReaderSettings(bookId || '', book?.sourceFormat);
 
 
   const epubReaderRef = useRef<EpubReaderHandle>(null);
@@ -964,6 +966,8 @@ export function ReaderView() {
         doubleSidedSupported={formatSupportsFeature(book?.sourceFormat, 'doubleSided')}
         fixedLayout={isFixedLayout(book?.sourceFormat)}
         format={book?.sourceFormat}
+        isCustomBook={isCustomBook}
+        onToggleCustomBook={setIsCustomBook}
         onUpdate={updateReaderSettings}
 
         onReset={resetBookSettings}

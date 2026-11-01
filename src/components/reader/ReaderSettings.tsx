@@ -42,6 +42,10 @@ interface ReaderSettingsProps {
   fixedLayout?: boolean;
   /** Format of the active book */
   format?: BookFormat;
+  /** Whether reader settings are isolated for this specific book only */
+  isCustomBook?: boolean;
+  /** Callback to toggle between universal format settings and per-book isolation */
+  onToggleCustomBook?: (custom: boolean) => void;
 }
 
 const FONT_OPTIONS = [
@@ -70,6 +74,8 @@ export function ReaderSettings({
   doubleSidedSupported = true,
   fixedLayout = false,
   format,
+  isCustomBook = false,
+  onToggleCustomBook,
 }: ReaderSettingsProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const isFixed = fixedLayout || isFixedLayout(format);
@@ -117,6 +123,37 @@ export function ReaderSettings({
         <div className={styles.content}>
           <div className={styles.categoryHeader}>
             <span>Canvas & Layout</span>
+          </div>
+
+          {/* Scope / Per-Book Isolation Toggle */}
+          <div className={styles.section}>
+            <div className={styles.toggleRow}>
+              <div className={styles.toggleInfo}>
+                <label
+                  htmlFor="custom-book-toggle"
+                  className={styles.toggleLabel}
+                  onClick={() => onToggleCustomBook?.(!isCustomBook)}
+                >
+                  This Book Only
+                </label>
+                <span className={styles.toggleHint}>
+                  {isCustomBook
+                    ? 'Settings apply only to this book.'
+                    : `Settings apply to all ${format ? format.toUpperCase() : 'TXT'} books.`}
+                </span>
+              </div>
+              <button
+                id="custom-book-toggle"
+                type="button"
+                role="switch"
+                aria-checked={Boolean(isCustomBook)}
+                aria-label="This Book Only"
+                className={`${styles.toggleSwitch} ${isCustomBook ? styles.toggleSwitchActive : ''}`}
+                onClick={() => onToggleCustomBook?.(!isCustomBook)}
+              >
+                <span className={styles.toggleThumb} />
+              </button>
+            </div>
           </div>
           {/* Page Canvas / Sheet Background */}
           <div className={styles.section}>

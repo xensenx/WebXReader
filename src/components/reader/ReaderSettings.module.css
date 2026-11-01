@@ -311,6 +311,19 @@
   user-select: none;
 }
 
+.toggleInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggleHint {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-weight: 400;
+  line-height: 1.3;
+}
+
 .toggleSwitch {
   position: relative;
   width: 44px;

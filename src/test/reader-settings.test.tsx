@@ -6,6 +6,8 @@ import { useReaderSettings } from '../hooks/useReaderSettings';
 import type { EffectiveReaderSettings } from '../hooks/useReaderSettings';
 import {
   clearDatabase,
+  clearSettings,
+  getSettings,
   saveSettings,
   saveBookSettings,
 } from '../core/storage/database';
@@ -244,6 +246,50 @@ describe('Reader Settings Enhancements', () => {
       expect(screen.queryByText(/^Theme$/i)).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^sepia$/i })).not.toBeInTheDocument();
     });
+
+    it('renders "This Book Only" switch with proper hint and triggers toggle callback', () => {
+      const handleToggle = vi.fn();
+      const { rerender } = render(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={dummySettings}
+          onUpdate={vi.fn()}
+          onReset={vi.fn()}
+          format="txt"
+          isCustomBook={false}
+          onToggleCustomBook={handleToggle}
+        />
+      );
+
+      expect(screen.getByText('This Book Only')).toBeInTheDocument();
+      expect(screen.getByText('Settings apply to all TXT books.')).toBeInTheDocument();
+      const switchBtn = screen.getByRole('switch', { name: /this book only/i });
+      expect(switchBtn).toHaveAttribute('aria-checked', 'false');
+
+      fireEvent.click(switchBtn);
+      expect(handleToggle).toHaveBeenCalledWith(true);
+
+      // Re-render as custom book
+      rerender(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={dummySettings}
+          onUpdate={vi.fn()}
+          onReset={vi.fn()}
+          format="txt"
+          isCustomBook={true}
+          onToggleCustomBook={handleToggle}
+        />
+      );
+
+      expect(screen.getByText('Settings apply only to this book.')).toBeInTheDocument();
+      expect(switchBtn).toHaveAttribute('aria-checked', 'true');
+
+      fireEvent.click(switchBtn);
+      expect(handleToggle).toHaveBeenCalledWith(false);
+    });
   });
 
   describe('useReaderSettings hook with sheet color & expand', () => {
@@ -251,10 +297,12 @@ describe('Reader Settings Enhancements', () => {
 
     beforeEach(async () => {
       await clearDatabase();
+      await clearSettings();
     });
 
     afterEach(async () => {
       await clearDatabase();
+      await clearSettings();
     });
 
     it('defaults readerSheetColor to paper and expandContent to false from global settings', async () => {
@@ -319,6 +367,127 @@ describe('Reader Settings Enhancements', () => {
 
       expect(result.current.settings.readerSheetColor).toBe('archive');
       expect(result.current.settings.expandContent).toBe(true);
+    });
+  });
+
+  describe('Universal format settings and per-book isolation', () => {
+    const book1Id = 'book-txt-1';
+    const book2Id = 'book-txt-2';
+
+    beforeEach(async () => {
+      await clearDatabase();
+      await clearSettings();
+    });
+
+    afterEach(async () => {
+      await clearDatabase();
+      await clearSettings();
+    });
+
+    it('propagates settings changed in one TXT book to other TXT books universally', async () => {
+      // 1. Open Book 1 as TXT
+      const { result: book1 } = renderHook(() => useReaderSettings(book1Id, 'txt'));
+      await waitFor(() => expect(book1.current.loading).toBe(false));
+
+      expect(book1.current.isCustomBook).toBe(false);
+      expect(book1.current.settings.fontSize).toBe(18);
+      expect(book1.current.settings.readerSheetColor).toBe('paper');
+
+      // 2. Update settings in Book 1 (fontSize: 24, readerSheetColor: 'archive')
+      await act(async () => {
+        await book1.current.updateReaderSettings({
+          fontSize: 24,
+          readerSheetColor: 'archive',
+        });
+      });
+
+      expect(book1.current.settings.fontSize).toBe(24);
+      expect(book1.current.settings.readerSheetColor).toBe('archive');
+
+      // Verify formatSettings was persisted in UserSettings
+      const savedSettings = await getSettings();
+      expect(savedSettings?.formatSettings?.txt?.fontSize).toBe(24);
+      expect(savedSettings?.formatSettings?.txt?.readerSheetColor).toBe('archive');
+
+      // 3. Open Book 2 (another TXT book) - should immediately inherit these format settings!
+      const { result: book2 } = renderHook(() => useReaderSettings(book2Id, 'txt'));
+      await waitFor(() => expect(book2.current.loading).toBe(false));
+
+      expect(book2.current.isCustomBook).toBe(false);
+      expect(book2.current.settings.fontSize).toBe(24);
+      expect(book2.current.settings.readerSheetColor).toBe('archive');
+    });
+
+    it('isolates settings when isCustomBook is enabled, preventing universal propagation', async () => {
+      // 1. Open Book 1 as TXT
+      const { result: book1 } = renderHook(() => useReaderSettings(book1Id, 'txt'));
+      await waitFor(() => expect(book1.current.loading).toBe(false));
+
+      // 2. Enable "This Book Only" toggle on Book 1
+      await act(async () => {
+        await book1.current.setIsCustomBook(true);
+      });
+
+      expect(book1.current.isCustomBook).toBe(true);
+
+      // 3. Change Book 1 settings to custom values
+      await act(async () => {
+        await book1.current.updateReaderSettings({
+          fontSize: 32,
+          readerSheetColor: 'dark',
+        });
+      });
+
+      expect(book1.current.settings.fontSize).toBe(32);
+      expect(book1.current.settings.readerSheetColor).toBe('dark');
+
+      // 4. Open Book 2 as TXT - it should NOT receive Book 1's custom settings!
+      const { result: book2 } = renderHook(() => useReaderSettings(book2Id, 'txt'));
+      await waitFor(() => expect(book2.current.loading).toBe(false));
+
+      expect(book2.current.isCustomBook).toBe(false);
+      expect(book2.current.settings.fontSize).toBe(18); // Default, unaffected by Book 1
+      expect(book2.current.settings.readerSheetColor).toBe('paper');
+    });
+
+    it('reverts back to universal format settings when isCustomBook is toggled off', async () => {
+      // 1. Establish universal format settings for TXT (fontSize: 22, readerSheetColor: 'archive')
+      const { result: bookFormatSetter } = renderHook(() => useReaderSettings('arbitrary-book', 'txt'));
+      await waitFor(() => expect(bookFormatSetter.current.loading).toBe(false));
+      await act(async () => {
+        await bookFormatSetter.current.updateReaderSettings({
+          fontSize: 22,
+          readerSheetColor: 'archive',
+        });
+      });
+
+      // 2. Open Book 1 as custom book with custom overrides
+      const { result: book1 } = renderHook(() => useReaderSettings(book1Id, 'txt'));
+      await waitFor(() => expect(book1.current.loading).toBe(false));
+
+      // Inherits universal initially
+      expect(book1.current.settings.fontSize).toBe(22);
+
+      // Turn on custom book
+      await act(async () => {
+        await book1.current.setIsCustomBook(true);
+      });
+      await act(async () => {
+        await book1.current.updateReaderSettings({
+          fontSize: 30,
+          readerSheetColor: 'dark',
+        });
+      });
+      expect(book1.current.settings.fontSize).toBe(30);
+      expect(book1.current.settings.readerSheetColor).toBe('dark');
+
+      // 3. Turn off custom book -> should revert to universal format settings (fontSize: 22, archive)
+      await act(async () => {
+        await book1.current.setIsCustomBook(false);
+      });
+      expect(book1.current.isCustomBook).toBe(false);
+      expect(book1.current.settings.fontSize).toBe(22);
+      expect(book1.current.settings.readerSheetColor).toBe('archive');
     });
   });
 });

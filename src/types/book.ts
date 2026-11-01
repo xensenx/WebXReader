@@ -43,6 +43,27 @@ export type ComicReadingDirection = 'ltr' | 'rtl';
 export type ComicFitMode = 'contain' | 'width' | 'height';
 
 /**
+ * Format-specific reader settings overrides.
+ */
+export interface FormatSettings {
+  fontFamily?: string;
+  fontSize?: number;
+  lineHeight?: number;
+  paragraphSpacing?: number;
+  letterSpacing?: number;
+  textAlign?: TextAlignment;
+  textIndent?: number;
+  maxContentWidth?: number;
+  contentMargin?: number;
+  readingMode?: ReadingMode;
+  comicReadingDirection?: ComicReadingDirection;
+  comicFitMode?: ComicFitMode;
+  rtfPreserveAlignment?: boolean;
+  readerSheetColor?: ReaderSheetColor;
+  expandContent?: boolean;
+}
+
+/**
  * A chapter/section within a book.
  */
 export interface Chapter {
@@ -286,6 +307,8 @@ export interface UserSettings {
   readerSheetColor: ReaderSheetColor;
   /** Whether content expands to fill full viewport width */
   expandContent: boolean;
+  /** Format-specific reader settings overrides */
+  formatSettings?: Partial<Record<BookFormat, FormatSettings>>;
   /** Library layout preference */
   libraryLayout: LibraryLayout;
   /** Library sort field preference */
@@ -318,6 +341,8 @@ export interface UserSettings {
  * Per-book settings overrides.
  */
 export interface BookSettings {
+  /** Whether custom book-specific overrides are active (isolates this book from universal format settings) */
+  isCustomOverride?: boolean;
   /** Book ID */
   bookId: string;
   /** Override reading mode */
@@ -397,6 +422,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   contentMargin: 24,
   readerSheetColor: 'paper',
   expandContent: false,
+  formatSettings: {},
   libraryLayout: 'grid',
   librarySortField: 'importedAt',
   librarySortDirection: 'desc',
