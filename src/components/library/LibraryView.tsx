@@ -654,7 +654,7 @@ export function LibraryView() {
     pointerDragRef.current = drag;
 
     if (e.pointerType === 'touch') {
-      // Touch devices: wait for press-and-hold (260ms) without moving to distinguish from scrolling
+      // Touch devices: wait for press-and-hold (180ms) without moving to distinguish from scrolling
       longPressTimerRef.current = window.setTimeout(() => {
         longPressTimerRef.current = null;
         const currentDrag = pointerDragRef.current;
@@ -696,7 +696,7 @@ export function LibraryView() {
         }
 
         suppressBookClickRef.current = true;
-      }, 260);
+      }, 180);
     } else {
       // Mouse/pen: capture pointer immediately
       try {
@@ -1237,3 +1237,4 @@ export function LibraryView() {
     </div>
   );
 }
+
