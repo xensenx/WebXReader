@@ -112,6 +112,7 @@ export function BookCard({
       data-book-id={book.id}
       onPointerDown={onPointerDown}
       onClick={handleCardClick}
+      onContextMenu={(e) => e.preventDefault()}
       role={selectionMode ? 'checkbox' : 'button'}
       tabIndex={0}
       onKeyDown={(e) => {
@@ -299,3 +300,4 @@ export function BookCard({
     </div>
   );
 }
+

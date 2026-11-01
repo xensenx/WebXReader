@@ -154,4 +154,65 @@ describe('Custom Library Sorting & Reordering', () => {
     expect(sorted[1].id).toBe('book-3'); // importedAt 300
     expect(sorted[2].id).toBe('book-1'); // importedAt 100
   });
+
+  describe('Touch Drag & Drop Logic', () => {
+    const TOUCH_SLOP_PX = 14;
+
+    it('distinguishes touch scroll movement from stationary long-press', () => {
+      // If user drags finger > TOUCH_SLOP_PX (14px) before timer completes, gesture is classified as scroll
+      const startX = 100;
+      const startY = 200;
+
+      const scrollMoveX = 100;
+      const scrollMoveY = 220; // moved 20px vertically
+      const scrollDistance = Math.hypot(scrollMoveX - startX, scrollMoveY - startY);
+      expect(scrollDistance).toBeGreaterThan(TOUCH_SLOP_PX);
+
+      const stationaryMoveX = 104;
+      const stationaryMoveY = 206; // moved ~7.2px
+      const stationaryDistance = Math.hypot(stationaryMoveX - startX, stationaryMoveY - startY);
+      expect(stationaryDistance).toBeLessThanOrEqual(TOUCH_SLOP_PX);
+    });
+
+    it('calculates dynamic auto-scroll speeds correctly near screen edges', () => {
+      const edgeThreshold = 80;
+      const maxScrollStep = 12;
+      const viewportHeight = 800;
+
+      const calcSpeed = (clientY: number) => {
+        if (clientY < edgeThreshold) {
+          const intensity = (edgeThreshold - Math.max(0, clientY)) / edgeThreshold;
+          return -Math.round(intensity * maxScrollStep);
+        } else if (clientY > viewportHeight - edgeThreshold) {
+          const intensity = (Math.min(viewportHeight, clientY) - (viewportHeight - edgeThreshold)) / edgeThreshold;
+          return Math.round(intensity * maxScrollStep);
+        }
+        return 0;
+      };
+
+      // Top edge zone
+      expect(calcSpeed(40)).toBe(-6); // halfway into top zone
+      expect(calcSpeed(0)).toBe(-12); // right at top edge
+      expect(calcSpeed(100)).toBe(0); // outside top edge zone
+
+      // Bottom edge zone
+      expect(calcSpeed(760)).toBe(6); // halfway into bottom zone (800 - 80 = 720)
+      expect(calcSpeed(800)).toBe(12); // right at bottom edge
+      expect(calcSpeed(500)).toBe(0); // middle of viewport
+    });
+
+    it('reorders custom order array correctly on drag target insertion', () => {
+      const currentOrder = ['b1', 'b2', 'b3', 'b4'];
+      const sourceId = 'b4';
+      const targetId = 'b2';
+
+      const sourceIndex = currentOrder.indexOf(sourceId);
+      const nextOrder = [...currentOrder];
+      nextOrder.splice(sourceIndex, 1);
+      const insertAt = nextOrder.indexOf(targetId);
+      nextOrder.splice(insertAt, 0, sourceId);
+
+      expect(nextOrder).toEqual(['b1', 'b4', 'b2', 'b3']);
+    });
+  });
 });

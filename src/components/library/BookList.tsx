@@ -120,6 +120,7 @@ export function BookList({
       data-book-id={book.id}
       onPointerDown={onPointerDown}
       onClick={handleRowClick}
+      onContextMenu={(e) => e.preventDefault()}
       role={selectionMode ? 'checkbox' : 'button'}
       tabIndex={0}
       onKeyDown={(e) => {
@@ -287,3 +288,4 @@ export function BookList({
     </div>
   );
 }
+

@@ -7,8 +7,12 @@
   border-radius: var(--radius-lg);
   overflow: hidden;
   transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
-  cursor: pointer;
+  cursor: grab;
   text-align: left;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: pan-y pinch-zoom;
 }
 
 .card:hover {
@@ -22,12 +26,10 @@
   box-shadow: 0 0 0 2px var(--color-accent-light);
 }
 
-.card {
-  cursor: grab;
-}
 
 .card:active {
   cursor: grabbing;
+  transform: scale(0.98);
 }
 
 .cardDragging {
@@ -50,6 +52,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 
 .coverImage {
@@ -57,6 +61,10 @@
   height: 100%;
   object-fit: cover;
   transition: transform var(--transition-base);
+  pointer-events: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .card:hover .coverImage {
@@ -284,3 +292,4 @@
   background-color: var(--color-border-light);
   margin: var(--space-1) 0;
 }
+
