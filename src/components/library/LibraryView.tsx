@@ -428,8 +428,13 @@ export function LibraryView() {
     const targetY = initialSavedStateRef.current.scrollY;
     const targetBookId = initialSavedStateRef.current.lastOpenedBookId;
 
-    if (targetY <= 0 && !targetBookId) {
+    // If target position is at the top (scrollY <= 0), stay at the top and do not scroll down
+    if (targetY <= 0) {
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
       isRestoredRef.current = true;
+      if (targetBookId) {
+        saveLibraryViewState({ lastOpenedBookId: null });
+      }
       return;
     }
 
@@ -446,27 +451,33 @@ export function LibraryView() {
         ? document.querySelector<HTMLElement>(`[data-book-id="${targetBookId}"]`)
         : null;
 
-      if (targetY > 0 && maxScroll >= targetY) {
+      if (maxScroll >= targetY) {
         window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
         isRestoredRef.current = true;
+        if (targetBookId) {
+          saveLibraryViewState({ lastOpenedBookId: null });
+        }
         return;
       }
 
-      if (maxScroll > 0 && targetY > 0) {
+      if (maxScroll > 0) {
         window.scrollTo({ top: Math.min(targetY, maxScroll), behavior: 'instant' as ScrollBehavior });
       }
 
       if (attempts < maxAttempts) {
         frameId = requestAnimationFrame(attemptRestore);
       } else {
-        if (targetY > 0 && maxScroll >= targetY) {
+        if (maxScroll >= targetY) {
           window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
         } else if (targetCard) {
           targetCard.scrollIntoView({ block: 'center', behavior: 'instant' });
-        } else if (targetY > 0) {
-          window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
+        } else {
+          window.scrollTo({ top: Math.min(targetY, maxScroll), behavior: 'instant' as ScrollBehavior });
         }
         isRestoredRef.current = true;
+        if (targetBookId) {
+          saveLibraryViewState({ lastOpenedBookId: null });
+        }
       }
     };
 
