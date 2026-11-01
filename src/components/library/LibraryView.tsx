@@ -73,6 +73,9 @@ interface BookDragPreview {
   top: number;
 }
 
+const TOUCH_SLOP_PX = 14;
+const TOUCH_HOLD_DELAY_MS = 180;
+
 interface BookLayoutRect {
   left: number;
   top: number;
@@ -145,6 +148,7 @@ export function LibraryView() {
   const pointerDragRef = useRef<BookPointerDrag | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const autoScrollRafRef = useRef<number | null>(null);
+  const autoScrollSpeedRef = useRef<number>(0);
   const [dragPreview, setDragPreview] = useState<BookDragPreview | null>(null);
   const dragPreviewElementRef = useRef<HTMLDivElement | null>(null);
   const suppressBookClickRef = useRef(false);
@@ -374,11 +378,13 @@ export function LibraryView() {
     };
   }, []);
 
-  // Cleanup drag timers on unmount or blur
+  // Cleanup drag timers on unmount or blur, and intercept active touch moves
   useEffect(() => {
     const handleGlobalCancel = () => {
       clearLongPressTimer();
       stopAutoScroll();
+      document.body.style.touchAction = '';
+      document.body.style.userSelect = '';
       if (pointerDragRef.current?.active) {
         pendingReorderPositionsRef.current = captureBookPositions();
         cancelBookReorderAnimations();
@@ -391,10 +397,24 @@ export function LibraryView() {
       setDragPreview(null);
     };
 
+    const handleWindowTouchMove = (e: TouchEvent) => {
+      // When a touch drag is active, cancel native viewport scrolling so the drag stays
+      // fully under application control and the browser does not abort via pointercancel.
+      if (pointerDragRef.current?.active) {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+      }
+    };
+
+    window.addEventListener('touchmove', handleWindowTouchMove, { passive: false });
     window.addEventListener('blur', handleGlobalCancel);
     return () => {
       clearLongPressTimer();
       stopAutoScroll();
+      document.body.style.touchAction = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('touchmove', handleWindowTouchMove);
       window.removeEventListener('blur', handleGlobalCancel);
     };
   }, [settings.customBookOrder]);
@@ -583,6 +603,7 @@ export function LibraryView() {
   };
 
   const stopAutoScroll = () => {
+    autoScrollSpeedRef.current = 0;
     if (autoScrollRafRef.current !== null) {
       window.cancelAnimationFrame(autoScrollRafRef.current);
       autoScrollRafRef.current = null;
@@ -603,6 +624,8 @@ export function LibraryView() {
       scrollSpeed = Math.round(intensity * maxScrollStep);
     }
 
+    autoScrollSpeedRef.current = scrollSpeed;
+
     if (scrollSpeed === 0) {
       stopAutoScroll();
       return;
@@ -611,12 +634,13 @@ export function LibraryView() {
     if (autoScrollRafRef.current === null) {
       const step = () => {
         const currentDrag = pointerDragRef.current;
-        if (!currentDrag?.active) {
+        const currentSpeed = autoScrollSpeedRef.current;
+        if (!currentDrag?.active || currentSpeed === 0) {
           stopAutoScroll();
           return;
         }
 
-        window.scrollBy(0, scrollSpeed);
+        window.scrollBy(0, currentSpeed);
         updateBookDropPreview(currentDrag.currentX, currentDrag.currentY);
         autoScrollRafRef.current = window.requestAnimationFrame(step);
       };
@@ -635,10 +659,11 @@ export function LibraryView() {
     const previewBounds = previewSource?.getBoundingClientRect() ?? e.currentTarget.getBoundingClientRect();
     const currentOrder = filteredBooks.map((book) => book.id);
     const targetElement = e.currentTarget;
+    const targetPointerId = e.pointerId;
 
     const drag: BookPointerDrag = {
       bookId: id,
-      pointerId: e.pointerId,
+      pointerId: targetPointerId,
       pointerType: e.pointerType,
       captureElement: targetElement,
       startX: e.clientX,
@@ -654,16 +679,20 @@ export function LibraryView() {
     pointerDragRef.current = drag;
 
     if (e.pointerType === 'touch') {
-      // Touch devices: wait for press-and-hold (180ms) without moving to distinguish from scrolling
+      // Touch devices: wait for press-and-hold without moving to distinguish from scrolling
       longPressTimerRef.current = window.setTimeout(() => {
         longPressTimerRef.current = null;
         const currentDrag = pointerDragRef.current;
-        if (!currentDrag || currentDrag.pointerId !== e.pointerId || currentDrag.active) return;
+        if (!currentDrag || currentDrag.pointerId !== targetPointerId || currentDrag.active) return;
 
         currentDrag.active = true;
         draggedIdRef.current = currentDrag.bookId;
         pendingReorderPositionsRef.current = null;
         setDraggingBookId(currentDrag.bookId);
+
+        // Lock document-level panning during active touch drag
+        document.body.style.touchAction = 'none';
+        document.body.style.userSelect = 'none';
 
         if (sortField !== 'custom') {
           setCustomOrder(currentDrag.order);
@@ -682,7 +711,7 @@ export function LibraryView() {
         }
 
         try {
-          currentDrag.captureElement.setPointerCapture(currentDrag.pointerId);
+          targetElement.setPointerCapture(targetPointerId);
         } catch {
           // ignore if already captured or failed
         }
@@ -696,7 +725,7 @@ export function LibraryView() {
         }
 
         suppressBookClickRef.current = true;
-      }, 180);
+      }, TOUCH_HOLD_DELAY_MS);
     } else {
       // Mouse/pen: capture pointer immediately
       try {
@@ -718,8 +747,8 @@ export function LibraryView() {
       const distance = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY);
 
       if (drag.pointerType === 'touch') {
-        // If finger moved > 8px before long press completed, user is scrolling
-        if (distance > 8) {
+        // If finger moved > TOUCH_SLOP_PX before long press completed, user is scrolling
+        if (distance > TOUCH_SLOP_PX) {
           clearLongPressTimer();
           pointerDragRef.current = null;
         }
@@ -771,6 +800,8 @@ export function LibraryView() {
   const finishBookPointerDrag = (e: ReactPointerEvent<HTMLDivElement>, canceled = false) => {
     clearLongPressTimer();
     stopAutoScroll();
+    document.body.style.touchAction = '';
+    document.body.style.userSelect = '';
 
     const drag = pointerDragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;

@@ -156,20 +156,49 @@ describe('Custom Library Sorting & Reordering', () => {
   });
 
   describe('Touch Drag & Drop Logic', () => {
+    const TOUCH_SLOP_PX = 14;
+
     it('distinguishes touch scroll movement from stationary long-press', () => {
-      // If user drags finger > 8px before timer completes, gesture is classified as scroll
+      // If user drags finger > TOUCH_SLOP_PX (14px) before timer completes, gesture is classified as scroll
       const startX = 100;
       const startY = 200;
 
       const scrollMoveX = 100;
-      const scrollMoveY = 215; // moved 15px vertically
+      const scrollMoveY = 220; // moved 20px vertically
       const scrollDistance = Math.hypot(scrollMoveX - startX, scrollMoveY - startY);
-      expect(scrollDistance).toBeGreaterThan(8);
+      expect(scrollDistance).toBeGreaterThan(TOUCH_SLOP_PX);
 
-      const stationaryMoveX = 102;
-      const stationaryMoveY = 203; // moved ~3.6px
+      const stationaryMoveX = 104;
+      const stationaryMoveY = 206; // moved ~7.2px
       const stationaryDistance = Math.hypot(stationaryMoveX - startX, stationaryMoveY - startY);
-      expect(stationaryDistance).toBeLessThanOrEqual(8);
+      expect(stationaryDistance).toBeLessThanOrEqual(TOUCH_SLOP_PX);
+    });
+
+    it('calculates dynamic auto-scroll speeds correctly near screen edges', () => {
+      const edgeThreshold = 80;
+      const maxScrollStep = 12;
+      const viewportHeight = 800;
+
+      const calcSpeed = (clientY: number) => {
+        if (clientY < edgeThreshold) {
+          const intensity = (edgeThreshold - Math.max(0, clientY)) / edgeThreshold;
+          return -Math.round(intensity * maxScrollStep);
+        } else if (clientY > viewportHeight - edgeThreshold) {
+          const intensity = (Math.min(viewportHeight, clientY) - (viewportHeight - edgeThreshold)) / edgeThreshold;
+          return Math.round(intensity * maxScrollStep);
+        }
+        return 0;
+      };
+
+      // Top edge zone
+      expect(calcSpeed(40)).toBe(-6); // halfway into top zone
+      expect(calcSpeed(0)).toBe(-12); // right at top edge
+      expect(calcSpeed(100)).toBe(0); // outside top edge zone
+
+      // Bottom edge zone
+      expect(calcSpeed(760)).toBe(6); // halfway into bottom zone (800 - 80 = 720)
+      expect(calcSpeed(800)).toBe(12); // right at bottom edge
+      expect(calcSpeed(500)).toBe(0); // middle of viewport
     });
 
     it('reorders custom order array correctly on drag target insertion', () => {
