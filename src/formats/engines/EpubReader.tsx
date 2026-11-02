@@ -36,6 +36,10 @@ type EpubContent = {
   document?: Document;
   sectionIndex?: number;
   cfiFromRange?: (range: Range) => string;
+  section?: {
+    href?: string;
+    index?: number;
+  };
 };
 
 type EpubResourceBook = ReturnType<typeof ePub>;
@@ -267,6 +271,9 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     const isPaginated = settings.readingMode === 'paginated' || isDoubleSided;
     const isScrolled = settings.readingMode === 'scroll';
     const isExpanded = Boolean(settings.expandContent);
+    const [isCurrentImagePage, setIsCurrentImagePage] = useState(false);
+    const [currentImageOrientation, setCurrentImageOrientation] = useState<'landscape' | 'portrait' | 'square' | null>(null);
+    const imageSectionMapRef = useRef<Map<string, { isImageOnly: boolean; orientation: 'landscape' | 'portrait' | 'square' }>>(new Map());
 
     const sheetColor = settings.readerSheetColor ?? 'paper';
     let sheetBg = '#ffffff';
@@ -378,6 +385,55 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           'h1, h2, h3, h4, h5, h6': {
             color: `${sheetFg} !important`,
           },
+          'body.epub-image-only-section': {
+            background: 'transparent !important',
+            padding: '0 !important',
+            margin: '0 auto !important',
+            display: 'flex !important',
+            'flex-direction': 'column !important',
+            'align-items': 'center !important',
+            'justify-content': 'center !important',
+            'min-height': 'fit-content !important',
+            width: '100% !important',
+          },
+          'body.epub-image-only-section img, body.epub-image-only-section svg': {
+            display: 'block !important',
+            margin: 'auto !important',
+            'object-fit': 'contain !important',
+            background: 'transparent !important',
+            border: 'none !important',
+            'box-shadow': 'none !important',
+          },
+          'body.epub-image-only-section[data-image-orientation="landscape"] img, body.epub-image-only-section[data-image-orientation="landscape"] svg': {
+            width: 'auto !important',
+            'max-width': '100% !important',
+            'max-height': '85vh !important',
+            height: 'auto !important',
+          },
+          'body.epub-image-only-section[data-image-orientation="portrait"] img, body.epub-image-only-section[data-image-orientation="portrait"] svg': {
+            height: 'auto !important',
+            'max-height': '90vh !important',
+            width: 'auto !important',
+            'max-width': '100% !important',
+          },
+          'body.epub-image-only-section[data-image-orientation="square"] img, body.epub-image-only-section[data-image-orientation="square"] svg': {
+            'max-width': '100% !important',
+            'max-height': '85vh !important',
+            width: 'auto !important',
+            height: 'auto !important',
+          },
+          'body.epub-image-only-section figcaption, body.epub-image-only-section p': {
+            'font-size': '0.9em !important',
+            color: 'var(--color-text-secondary, #9ca3af) !important',
+            'text-align': 'center !important',
+            'text-indent': '0 !important',
+            margin: '8px auto 0 !important',
+            'max-width': '600px !important',
+          },
+          'p:has(img), p:has(svg), figure, div:has(> img)': {
+            'text-indent': '0 !important',
+            'text-align': 'center !important',
+          },
           'img, svg, video, canvas, figure, table': {
             'break-inside': 'avoid !important',
             'page-break-inside': 'avoid !important',
@@ -386,14 +442,22 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             display: 'block !important',
             width: 'auto !important',
             'max-width': '100% !important',
-            'max-height': 'none !important',
+            'max-height': '85vh !important',
             height: 'auto !important',
-            'object-fit': 'initial !important',
-            margin: '1em auto !important',
+            'object-fit': 'contain !important',
+            margin: '1.25em auto !important',
           },
           figure: {
             'max-width': '100% !important',
-            margin: '1em auto !important',
+            margin: '1.5em auto !important',
+            'text-align': 'center !important',
+          },
+          figcaption: {
+            'font-size': '0.85em !important',
+            opacity: '0.85 !important',
+            'text-align': 'center !important',
+            'text-indent': '0 !important',
+            'margin-top': '0.5em !important',
           },
           a: {
             color: `${sheetLink} !important`,
@@ -676,16 +740,135 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           await waitForImageLayout(image);
         }));
 
+        const body = document.body;
+        const bodyText = extractDomText(body || document).trim();
+        const imgs = Array.from(document.querySelectorAll('img'));
+        const svgs = Array.from(document.querySelectorAll('svg'));
+        const hasVisualMedia = imgs.length > 0 || svgs.length > 0;
+
+        // Substantive reading text: check if there are paragraphs with meaningful sentences (> 60 chars)
+        const substantiveParagraphs = Array.from(document.querySelectorAll('p, blockquote, article, section > p'))
+          .filter((el) => (el.textContent || '').trim().length > 60);
+
+        // Standalone image page / image-first section (covers, plates, full-page illustrations, comics, maps)
+        const isImageOnly = hasVisualMedia && (bodyText.length < 150 || substantiveParagraphs.length === 0);
+
+        let orientation: 'landscape' | 'portrait' | 'square' = 'portrait';
+        let primaryWidth = 0;
+        let primaryHeight = 0;
+
+        for (const img of imgs) {
+          const w = img.naturalWidth || img.clientWidth || 0;
+          const h = img.naturalHeight || img.clientHeight || 0;
+          if (w * h > primaryWidth * primaryHeight) {
+            primaryWidth = w;
+            primaryHeight = h;
+          }
+        }
+
+        for (const svg of svgs) {
+          const viewBox = svg.getAttribute('viewBox');
+          if (viewBox) {
+            const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+            if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+              const sw = parts[2];
+              const sh = parts[3];
+              if (sw * sh > primaryWidth * primaryHeight) {
+                primaryWidth = sw;
+                primaryHeight = sh;
+              }
+            }
+          }
+        }
+
+        if (primaryWidth > 0 && primaryHeight > 0) {
+          if (primaryWidth > primaryHeight * 1.15) {
+            orientation = 'landscape';
+          } else if (primaryHeight > primaryWidth * 1.05) {
+            orientation = 'portrait';
+          } else {
+            orientation = 'square';
+          }
+        }
+
+        const sectionHref = (contents.section as unknown as { href?: string })?.href || '';
+        if (sectionHref) {
+          imageSectionMapRef.current.set(sectionHref, { isImageOnly, orientation });
+          if (isPaginated && (latestCfiRef.current?.includes(sectionHref) || !latestCfiRef.current)) {
+            setIsCurrentImagePage(isImageOnly);
+            setCurrentImageOrientation(orientation);
+          }
+        }
+
+        if (isImageOnly && body) {
+          body.classList.add('epub-image-only-section');
+          body.setAttribute('data-image-orientation', orientation);
+          body.style.setProperty('background', 'transparent', 'important');
+          body.style.setProperty('padding', '0', 'important');
+          body.style.setProperty('margin', '0 auto', 'important');
+          body.style.setProperty('display', 'flex', 'important');
+          body.style.setProperty('flex-direction', 'column', 'important');
+          body.style.setProperty('align-items', 'center', 'important');
+          body.style.setProperty('justify-content', 'center', 'important');
+          body.style.setProperty('min-height', 'fit-content', 'important');
+        }
+
+        // In continuous scroll mode, tag the .epub-view container
+        const frame = document.defaultView?.frameElement as HTMLIFrameElement | null;
+        const viewElement = (frame?.closest('.epub-view') || frame?.parentElement) as HTMLElement | null;
+        if (viewElement && viewElement.classList.contains('epub-view')) {
+          if (isImageOnly) {
+            viewElement.setAttribute('data-epub-image-view', 'true');
+            viewElement.setAttribute('data-image-orientation', orientation);
+            viewElement.classList.add('epub-image-view');
+            viewElement.style.setProperty('background', 'transparent', 'important');
+            viewElement.style.setProperty('border', 'none', 'important');
+            viewElement.style.setProperty('box-shadow', 'none', 'important');
+            viewElement.style.setProperty('border-radius', '0', 'important');
+            viewElement.style.setProperty('padding', '0', 'important');
+            if (orientation === 'landscape') {
+              viewElement.style.setProperty('width', 'min(100%, 1400px)', 'important');
+              viewElement.style.setProperty('max-width', '100%', 'important');
+            } else {
+              viewElement.style.setProperty('width', 'fit-content', 'important');
+              viewElement.style.setProperty('max-width', '100%', 'important');
+            }
+          } else {
+            viewElement.removeAttribute('data-epub-image-view');
+            viewElement.removeAttribute('data-image-orientation');
+            viewElement.classList.remove('epub-image-view');
+          }
+        }
+
         document.querySelectorAll('img, svg, svg image, video, canvas').forEach((media) => {
           const element = media as HTMLElement;
           element.style.setProperty('display', 'block', 'important');
           element.style.setProperty('width', 'auto', 'important');
           element.style.setProperty('height', 'auto', 'important');
           element.style.setProperty('max-width', '100%', 'important');
-          element.style.setProperty('max-height', 'none', 'important');
-          element.style.setProperty('object-fit', 'initial', 'important');
+          element.style.setProperty('object-fit', 'contain', 'important');
           element.style.setProperty('break-inside', 'avoid', 'important');
           element.style.setProperty('page-break-inside', 'avoid', 'important');
+
+          if (isImageOnly) {
+            element.style.setProperty('margin', 'auto', 'important');
+            if (orientation === 'landscape') {
+              element.style.setProperty('max-height', '85vh', 'important');
+            } else {
+              element.style.setProperty('max-height', '90vh', 'important');
+            }
+          } else {
+            element.style.setProperty('max-height', '85vh', 'important');
+            element.style.setProperty('margin', '1.25em auto', 'important');
+          }
+        });
+
+        // Ensure parent containers do not indent images with text indentation
+        document.querySelectorAll('p, div, figure').forEach((parent) => {
+          if (parent.querySelector('img, svg')) {
+            (parent as HTMLElement).style.setProperty('text-indent', '0', 'important');
+            (parent as HTMLElement).style.setProperty('text-align', 'center', 'important');
+          }
         });
 
         document.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote').forEach((block) => {
@@ -728,6 +911,12 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       rendition.on('relocated', (location: Location) => {
         if (location && location.start) {
           const cfi = location.start.cfi;
+          const href = location.start.href;
+          if (href) {
+            const meta = imageSectionMapRef.current.get(href);
+            setIsCurrentImagePage(Boolean(meta?.isImageOnly));
+            setCurrentImageOrientation(meta?.orientation || null);
+          }
           const indexedPercentage = locationsReadyRef.current
             ? book.locations.percentageFromCfi(cfi)
             : undefined;
@@ -824,6 +1013,8 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           ref={viewerRef}
           className={`${styles.viewer} ${isScrolled ? styles.scrollViewer : styles.paginatedViewer}`}
           data-reader-viewport={isScrolled ? 'epub-vertical-scroll' : 'epub-paginated'}
+          data-epub-image-page={isPaginated && isCurrentImagePage ? 'true' : undefined}
+          data-image-orientation={isPaginated && isCurrentImagePage ? (currentImageOrientation || undefined) : undefined}
           style={
             {
               '--epub-page-margin': `${Math.max(32, effectiveMargin + 12)}px`,
@@ -833,7 +1024,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
               '--epub-sheet-bg': sheetBg,
               '--epub-sheet-color': sheetFg,
               '--epub-sheet-border': sheetBorder,
-              '--epub-sheet-radius': isExpanded ? '0px' : `${Math.max(4, Math.round(12 * Math.min(1, readerZoom)))}px`,
+              '--epub-sheet-radius': '0px',
               '--epub-sheet-margin': isExpanded ? '0 auto !important' : '16px auto !important',
               '--epub-sheet-shadow': isExpanded ? 'none' : 'var(--shadow-md)',
             } as CSSProperties

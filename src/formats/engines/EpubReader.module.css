@@ -28,9 +28,20 @@
   background: var(--epub-sheet-bg, #ffffff);
   color: var(--epub-sheet-color, #1a1a1a);
   border: 1px solid var(--epub-sheet-border, var(--color-border));
-  border-radius: var(--epub-sheet-radius, 8px);
+  border-radius: var(--epub-sheet-radius, 0px);
   box-shadow: var(--epub-sheet-shadow, var(--shadow-md));
   overflow: hidden;
+  transition: width 0.2s ease, max-width 0.2s ease, background-color 0.2s ease;
+}
+
+/* Standalone image pages in paginated mode break out of the text sheet canvas */
+.paginatedViewer[data-epub-image-page="true"] {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  padding-inline: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 /* epub.js owns the scroll surface in continuous mode */
@@ -56,13 +67,46 @@
   background: var(--epub-sheet-bg, #ffffff) !important;
   color: var(--epub-sheet-color, #1a1a1a) !important;
   border: 1px solid var(--epub-sheet-border, var(--color-border)) !important;
-  border-radius: var(--epub-sheet-radius, 8px) !important;
+  border-radius: var(--epub-sheet-radius, 0px) !important;
   box-shadow: var(--epub-sheet-shadow, var(--shadow-md)) !important;
   scroll-margin-block: 1rem;
   width: var(--epub-sheet-width, 794px) !important;
   max-width: var(--epub-sheet-max-width, 100%) !important;
   min-width: var(--epub-sheet-min-width, unset) !important;
   margin: var(--epub-sheet-margin, 16px auto) !important;
+}
+
+/* Standalone image sections appear by themselves without the text paper canvas */
+.scrollViewer :global(.epub-view[data-epub-image-view="true"]),
+.scrollViewer :global(.epub-view.epub-image-view) {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 24px auto !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  transition: width 0.2s ease, max-width 0.2s ease;
+}
+
+/* Landscape images can expand wide across the screen up to 1400px or full viewport */
+.scrollViewer :global(.epub-view[data-epub-image-view="true"][data-image-orientation="landscape"]),
+.scrollViewer :global(.epub-view.epub-image-view[data-image-orientation="landscape"]) {
+  width: min(100%, 1400px) !important;
+  max-width: 100% !important;
+  min-width: unset !important;
+}
+
+/* Portrait and square images fit their natural width without stretching, contained by viewport height */
+.scrollViewer :global(.epub-view[data-epub-image-view="true"][data-image-orientation="portrait"]),
+.scrollViewer :global(.epub-view.epub-image-view[data-image-orientation="portrait"]),
+.scrollViewer :global(.epub-view[data-epub-image-view="true"][data-image-orientation="square"]),
+.scrollViewer :global(.epub-view.epub-image-view[data-image-orientation="square"]) {
+  width: fit-content !important;
+  max-width: 100% !important;
+  min-width: unset !important;
 }
 
 .paginatedViewer :global(.epub-view) {
