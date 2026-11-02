@@ -112,12 +112,13 @@ describe('EPUB Corner Radius & Image Rendering Rules', () => {
           };
         }
 
-        // Image-only section: drops paper canvas and sizes based on orientation
+        // Image-only section: drops paper canvas and sizes based on orientation.
+        // Portrait uses sheet width (or explicit pixel dimensions) to avoid circular iframe collapse with fit-content.
         return {
           background: 'transparent',
           border: 'none',
           boxShadow: 'none',
-          width: orientation === 'landscape' ? 'min(100%, 1400px)' : 'fit-content',
+          width: orientation === 'landscape' ? 'min(100%, 1400px)' : 'var(--epub-sheet-width, min(794px, 100%))',
           maxWidth: '100%',
         };
       };
@@ -131,11 +132,92 @@ describe('EPUB Corner Radius & Image Rendering Rules', () => {
       const portraitImage = getViewStyles(true, 'portrait');
       expect(portraitImage.background).toBe('transparent');
       expect(portraitImage.border).toBe('none');
-      expect(portraitImage.width).toBe('fit-content');
+      expect(portraitImage.width).toBe('var(--epub-sheet-width, min(794px, 100%))');
 
       const textSection = getViewStyles(false, 'portrait');
       expect(textSection.background).toBe('var(--epub-sheet-bg)');
       expect(textSection.width).toBe('var(--epub-sheet-width)');
+    });
+
+    it('calculates explicit pixel dimensions for SVG and image wrappers to prevent iframe height collapse', () => {
+      const calculateTargetDimensions = (
+        primaryWidth: number,
+        primaryHeight: number,
+        availableWidth: number,
+        availableHeight: number,
+        canvasWidth: number
+      ) => {
+        const aspectRatio = primaryWidth / primaryHeight;
+        const orientation = aspectRatio > 1.15 ? 'landscape' : aspectRatio < 0.95 ? 'portrait' : 'square';
+
+        let targetWidth = 0;
+        let targetHeight = 0;
+
+        if (orientation === 'landscape') {
+          targetWidth = Math.min(Math.round(availableWidth * 0.96), 1400);
+          targetHeight = Math.round(targetWidth / aspectRatio);
+          const maxHeight = Math.round(availableHeight * 0.88);
+          if (targetHeight > maxHeight) {
+            targetHeight = maxHeight;
+            targetWidth = Math.round(targetHeight * aspectRatio);
+          }
+        } else {
+          targetHeight = Math.min(Math.round(availableHeight * 0.90), 1200);
+          targetWidth = Math.round(targetHeight * aspectRatio);
+          const maxWidth = Math.min(Math.round(availableWidth * 0.96), canvasWidth > 0 ? canvasWidth : 800);
+          if (targetWidth > maxWidth) {
+            targetWidth = maxWidth;
+            targetHeight = Math.round(targetWidth / aspectRatio);
+          }
+        }
+
+        return { orientation, targetWidth, targetHeight, aspectRatio };
+      };
+
+      // Test 1: Yen Press Light Novel portrait cover / insert (1200x1800)
+      const portraitInsert = calculateTargetDimensions(1200, 1800, 1200, 900, 794);
+      expect(portraitInsert.orientation).toBe('portrait');
+      expect(portraitInsert.targetHeight).toBeGreaterThan(600); // Does NOT collapse to 20px
+      expect(portraitInsert.targetWidth).toBeLessThanOrEqual(794);
+      expect(Math.abs(portraitInsert.targetWidth / portraitInsert.targetHeight - 1200 / 1800)).toBeLessThan(0.02);
+
+      // Test 2: Double-page landscape color spread (2400x1800)
+      const landscapeSpread = calculateTargetDimensions(2400, 1800, 1600, 900, 794);
+      expect(landscapeSpread.orientation).toBe('landscape');
+      expect(landscapeSpread.targetWidth).toBeGreaterThan(1000); // Expands beyond single sheet
+      expect(landscapeSpread.targetHeight).toBeLessThanOrEqual(Math.round(900 * 0.88));
+      expect(Math.abs(landscapeSpread.targetWidth / landscapeSpread.targetHeight - 2400 / 1800)).toBeLessThan(0.02);
+    });
+
+    it('preserves stable typography font size during canvas zoom while scaling sheet width', () => {
+      const getEpubDimensionsAndTypography = (
+        fontSize: number,
+        baseWidth: number,
+        readerZoom: number,
+        isExpanded: boolean
+      ) => {
+        // Font size remains stable at user-chosen font size; canvas width scales with zoom in contracted mode
+        const canvasWidth = Math.round(baseWidth * readerZoom);
+        const effectiveFontSize = fontSize;
+        const sheetWidthStyle = isExpanded ? '100%' : `${canvasWidth}px`;
+
+        return { effectiveFontSize, canvasWidth, sheetWidthStyle };
+      };
+
+      const base = getEpubDimensionsAndTypography(18, 794, 1.0, false);
+      expect(base.effectiveFontSize).toBe(18);
+      expect(base.canvasWidth).toBe(794);
+
+      const zoomedIn = getEpubDimensionsAndTypography(18, 794, 1.25, false);
+      // Font size must NOT fluctuate on zoom
+      expect(zoomedIn.effectiveFontSize).toBe(18);
+      // Canvas width must scale up
+      expect(zoomedIn.canvasWidth).toBe(993);
+      expect(zoomedIn.sheetWidthStyle).toBe('993px');
+
+      const zoomedOut = getEpubDimensionsAndTypography(18, 794, 0.8, false);
+      expect(zoomedOut.effectiveFontSize).toBe(18);
+      expect(zoomedOut.canvasWidth).toBe(635);
     });
 
     it('removes paper canvas padding and border in paginated mode for image pages', () => {

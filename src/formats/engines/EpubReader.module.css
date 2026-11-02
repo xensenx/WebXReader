@@ -104,7 +104,7 @@
 .scrollViewer :global(.epub-view.epub-image-view[data-image-orientation="portrait"]),
 .scrollViewer :global(.epub-view[data-epub-image-view="true"][data-image-orientation="square"]),
 .scrollViewer :global(.epub-view.epub-image-view[data-image-orientation="square"]) {
-  width: fit-content !important;
+  width: var(--epub-sheet-width, min(794px, 100%)) !important;
   max-width: 100% !important;
   min-width: unset !important;
 }
@@ -124,6 +124,14 @@
   display: block;
   width: 100% !important;
   border: 0 !important;
+  background: transparent !important;
+}
+
+.scrollViewer :global(.epub-view[data-epub-image-view="true"] iframe),
+.scrollViewer :global(.epub-view.epub-image-view iframe) {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .paginatedViewer :global(.epub-container) {

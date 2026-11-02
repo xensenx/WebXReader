@@ -297,10 +297,10 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       ? Math.round((settings.maxContentWidth || 794) * 1.8)
       : (settings.maxContentWidth || 794);
     const canvasWidth = Math.round(baseWidth * readerZoom);
-    const effectiveFontSize = Math.round(settings.fontSize * (isExpanded ? 1 : readerZoom));
-    const effectiveMargin = Math.round(settings.contentMargin * (isExpanded ? 1 : readerZoom));
-    const effectiveLetterSpacing = settings.letterSpacing * (isExpanded ? 1 : readerZoom);
-    const effectiveWordSpacing = settings.wordSpacing * (isExpanded ? 1 : readerZoom);
+    const effectiveFontSize = settings.fontSize;
+    const effectiveMargin = settings.contentMargin;
+    const effectiveLetterSpacing = settings.letterSpacing;
+    const effectiveWordSpacing = settings.wordSpacing;
 
     const bookRef = useRef<ReturnType<typeof ePub> | null>(null);
     const epubSearchIndexRef = useRef<Promise<EpubSearchSectionIndex[]> | null>(null);
@@ -322,7 +322,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     onZoomToRef.current = onZoomTo;
     const readerZoomRef = useRef(readerZoom);
     readerZoomRef.current = readerZoom;
-    const zoomCfiRef = useRef<string | null>(null);
     const zoomWheelDocumentsRef = useRef(new WeakSet<Document>());
 
     const initialCfiRef = useRef(initialCfi);
@@ -393,7 +392,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             'flex-direction': 'column !important',
             'align-items': 'center !important',
             'justify-content': 'center !important',
-            'min-height': 'fit-content !important',
             width: '100% !important',
           },
           'body.epub-image-only-section img, body.epub-image-only-section svg': {
@@ -405,22 +403,16 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             'box-shadow': 'none !important',
           },
           'body.epub-image-only-section[data-image-orientation="landscape"] img, body.epub-image-only-section[data-image-orientation="landscape"] svg': {
-            width: 'auto !important',
             'max-width': '100% !important',
-            'max-height': '85vh !important',
-            height: 'auto !important',
+            'max-height': '88vh !important',
           },
           'body.epub-image-only-section[data-image-orientation="portrait"] img, body.epub-image-only-section[data-image-orientation="portrait"] svg': {
-            height: 'auto !important',
             'max-height': '90vh !important',
-            width: 'auto !important',
             'max-width': '100% !important',
           },
           'body.epub-image-only-section[data-image-orientation="square"] img, body.epub-image-only-section[data-image-orientation="square"] svg': {
             'max-width': '100% !important',
-            'max-height': '85vh !important',
-            width: 'auto !important',
-            height: 'auto !important',
+            'max-height': '88vh !important',
           },
           'body.epub-image-only-section figcaption, body.epub-image-only-section p': {
             'font-size': '0.9em !important',
@@ -438,13 +430,19 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             'break-inside': 'avoid !important',
             'page-break-inside': 'avoid !important',
           },
-          'img, svg, video, canvas': {
+          'img, video, canvas': {
             display: 'block !important',
             width: 'auto !important',
             'max-width': '100% !important',
             'max-height': '85vh !important',
             height: 'auto !important',
             'object-fit': 'contain !important',
+            margin: '1.25em auto !important',
+          },
+          svg: {
+            display: 'block !important',
+            'max-width': '100% !important',
+            'max-height': '85vh !important',
             margin: '1.25em auto !important',
           },
           figure: {
@@ -639,24 +637,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           let pinchZoomFrame: number | null = null;
           let lastPinchZoomAt = 0;
 
-          const captureZoomCfi = (x: number, y: number) => {
-            const position = document.caretPositionFromPoint?.(x, y);
-            const range = position
-              ? document.createRange()
-              : document.caretRangeFromPoint?.(x, y) ?? null;
-            if (position && range) {
-              range.setStart(position.offsetNode, position.offset);
-              range.collapse(true);
-            }
-            zoomCfiRef.current = null;
-            if (!range || !contents.cfiFromRange) return;
-            try {
-              zoomCfiRef.current = contents.cfiFromRange(range);
-            } catch {
-              zoomCfiRef.current = null;
-            }
-          };
-
           const flushPinchZoom = () => {
             const frameWindow = contentWindow;
             if (!frameWindow) return;
@@ -676,8 +656,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             if (!event.ctrlKey && !event.metaKey) return;
             event.preventDefault();
             event.stopImmediatePropagation();
-
-            captureZoomCfi(event.clientX, event.clientY);
 
             const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE
               ? event.deltaY * 16
@@ -709,7 +687,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
 
             const x = (first.clientX + second.clientX) / 2;
             const y = (first.clientY + second.clientY) / 2;
-            captureZoomCfi(x, y);
             const frame = document.defaultView?.frameElement as HTMLElement | null;
             const frameRect = frame?.getBoundingClientRect();
             const point = frameRect
@@ -741,30 +718,29 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         }));
 
         const body = document.body;
-        const bodyText = extractDomText(body || document).trim();
         const imgs = Array.from(document.querySelectorAll('img'));
         const svgs = Array.from(document.querySelectorAll('svg'));
         const hasVisualMedia = imgs.length > 0 || svgs.length > 0;
 
         // Substantive reading text: check if there are paragraphs with meaningful sentences (> 60 chars)
         const substantiveParagraphs = Array.from(document.querySelectorAll('p, blockquote, article, section > p'))
-          .filter((el) => (el.textContent || '').trim().length > 60);
+          .filter((el) => {
+            if (el.querySelector('img, svg')) return false;
+            return (el.textContent || '').trim().length > 60;
+          });
+
+        const nonImageText = Array.from(body?.childNodes || [])
+          .filter((node) => node.nodeName !== 'FIGURE' && node.nodeName !== 'SVG' && node.nodeName !== 'IMG')
+          .map((node) => node.textContent || '')
+          .join(' ')
+          .trim();
 
         // Standalone image page / image-first section (covers, plates, full-page illustrations, comics, maps)
-        const isImageOnly = hasVisualMedia && (bodyText.length < 150 || substantiveParagraphs.length === 0);
+        const isImageOnly = hasVisualMedia && (substantiveParagraphs.length === 0 || nonImageText.length < 200);
 
         let orientation: 'landscape' | 'portrait' | 'square' = 'portrait';
         let primaryWidth = 0;
         let primaryHeight = 0;
-
-        for (const img of imgs) {
-          const w = img.naturalWidth || img.clientWidth || 0;
-          const h = img.naturalHeight || img.clientHeight || 0;
-          if (w * h > primaryWidth * primaryHeight) {
-            primaryWidth = w;
-            primaryHeight = h;
-          }
-        }
 
         for (const svg of svgs) {
           const viewBox = svg.getAttribute('viewBox');
@@ -779,12 +755,31 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
               }
             }
           }
+          const svgImg = svg.querySelector('image');
+          if (svgImg) {
+            const iw = parseFloat(svgImg.getAttribute('width') || '0');
+            const ih = parseFloat(svgImg.getAttribute('height') || '0');
+            if (iw > 0 && ih > 0 && iw * ih > primaryWidth * primaryHeight) {
+              primaryWidth = iw;
+              primaryHeight = ih;
+            }
+          }
+        }
+
+        for (const img of imgs) {
+          const w = img.naturalWidth || parseFloat(img.getAttribute('width') || '0') || img.clientWidth || 0;
+          const h = img.naturalHeight || parseFloat(img.getAttribute('height') || '0') || img.clientHeight || 0;
+          if (w * h > primaryWidth * primaryHeight) {
+            primaryWidth = w;
+            primaryHeight = h;
+          }
         }
 
         if (primaryWidth > 0 && primaryHeight > 0) {
-          if (primaryWidth > primaryHeight * 1.15) {
+          const ratio = primaryWidth / primaryHeight;
+          if (ratio > 1.15) {
             orientation = 'landscape';
-          } else if (primaryHeight > primaryWidth * 1.05) {
+          } else if (ratio < 0.95) {
             orientation = 'portrait';
           } else {
             orientation = 'square';
@@ -800,68 +795,161 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           }
         }
 
+        const viewerEl = viewerRef.current;
+        const availableWidth = viewerEl?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200);
+        const availableHeight = viewerEl?.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 800);
+        const aspectRatio = (primaryWidth > 0 && primaryHeight > 0)
+          ? (primaryWidth / primaryHeight)
+          : (orientation === 'landscape' ? 1.5 : 0.67);
+
+        let targetWidth = 0;
+        let targetHeight = 0;
+
+        if (orientation === 'landscape') {
+          targetWidth = Math.min(Math.round(availableWidth * 0.96), 1400);
+          targetHeight = Math.round(targetWidth / aspectRatio);
+          const maxHeight = Math.round(availableHeight * 0.88);
+          if (targetHeight > maxHeight) {
+            targetHeight = maxHeight;
+            targetWidth = Math.round(targetHeight * aspectRatio);
+          }
+        } else {
+          targetHeight = Math.min(Math.round(availableHeight * 0.90), 1200);
+          targetWidth = Math.round(targetHeight * aspectRatio);
+          const maxWidth = Math.min(Math.round(availableWidth * 0.96), canvasWidth > 0 ? canvasWidth : 800);
+          if (targetWidth > maxWidth) {
+            targetWidth = maxWidth;
+            targetHeight = Math.round(targetWidth / aspectRatio);
+          }
+        }
+
+        const frame = document.defaultView?.frameElement as HTMLIFrameElement | null;
+        const viewElement = (frame?.closest('.epub-view') || frame?.parentElement) as HTMLElement | null;
+
         if (isImageOnly && body) {
+          document.documentElement.style.setProperty('background', 'transparent', 'important');
+          document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+          document.documentElement.style.setProperty('width', '100%', 'important');
+          document.documentElement.style.setProperty('height', '100%', 'important');
+          document.documentElement.style.setProperty('margin', '0', 'important');
+          document.documentElement.style.setProperty('padding', '0', 'important');
+
           body.classList.add('epub-image-only-section');
           body.setAttribute('data-image-orientation', orientation);
           body.style.setProperty('background', 'transparent', 'important');
+          body.style.setProperty('overflow', 'hidden', 'important');
           body.style.setProperty('padding', '0', 'important');
           body.style.setProperty('margin', '0 auto', 'important');
           body.style.setProperty('display', 'flex', 'important');
           body.style.setProperty('flex-direction', 'column', 'important');
           body.style.setProperty('align-items', 'center', 'important');
           body.style.setProperty('justify-content', 'center', 'important');
-          body.style.setProperty('min-height', 'fit-content', 'important');
-        }
+          if (isScrolled) {
+            body.style.setProperty('width', `${targetWidth}px`, 'important');
+            body.style.setProperty('height', `${targetHeight}px`, 'important');
+          }
 
-        // In continuous scroll mode, tag the .epub-view container
-        const frame = document.defaultView?.frameElement as HTMLIFrameElement | null;
-        const viewElement = (frame?.closest('.epub-view') || frame?.parentElement) as HTMLElement | null;
-        if (viewElement && viewElement.classList.contains('epub-view')) {
-          if (isImageOnly) {
+          document.querySelectorAll('div, main, section, article').forEach((el) => {
+            const htmlEl = el as HTMLElement;
+            htmlEl.style.setProperty('background', 'transparent', 'important');
+            htmlEl.style.setProperty('border', 'none', 'important');
+            htmlEl.style.setProperty('box-shadow', 'none', 'important');
+            htmlEl.style.setProperty('margin', '0 auto', 'important');
+            htmlEl.style.setProperty('padding', '0', 'important');
+            htmlEl.style.setProperty('width', '100%', 'important');
+            htmlEl.style.setProperty('height', '100%', 'important');
+            htmlEl.style.setProperty('display', 'flex', 'important');
+            htmlEl.style.setProperty('align-items', 'center', 'important');
+            htmlEl.style.setProperty('justify-content', 'center', 'important');
+          });
+
+          svgs.forEach((svg) => {
+            svg.style.setProperty('display', 'block', 'important');
+            svg.style.setProperty('margin', 'auto', 'important');
+            svg.style.setProperty('width', `${targetWidth}px`, 'important');
+            svg.style.setProperty('height', `${targetHeight}px`, 'important');
+            svg.style.setProperty('max-width', '100%', 'important');
+            svg.style.setProperty('max-height', '100%', 'important');
+            svg.style.setProperty('background', 'transparent', 'important');
+            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+          });
+
+          imgs.forEach((img) => {
+            img.style.setProperty('display', 'block', 'important');
+            img.style.setProperty('margin', 'auto', 'important');
+            img.style.setProperty('width', `${targetWidth}px`, 'important');
+            img.style.setProperty('height', `${targetHeight}px`, 'important');
+            img.style.setProperty('max-width', '100%', 'important');
+            img.style.setProperty('max-height', '100%', 'important');
+            img.style.setProperty('object-fit', 'contain', 'important');
+            img.style.setProperty('background', 'transparent', 'important');
+            img.style.setProperty('box-shadow', 'none', 'important');
+            img.style.setProperty('border', 'none', 'important');
+          });
+
+          if (frame) {
+            frame.setAttribute('allowtransparency', 'true');
+            frame.style.setProperty('background', 'transparent', 'important');
+            frame.style.setProperty('border', 'none', 'important');
+            if (isScrolled) {
+              frame.style.setProperty('width', `${targetWidth}px`, 'important');
+              frame.style.setProperty('height', `${targetHeight}px`, 'important');
+            }
+          }
+
+          if (viewElement && viewElement.classList.contains('epub-view')) {
             viewElement.setAttribute('data-epub-image-view', 'true');
             viewElement.setAttribute('data-image-orientation', orientation);
+            viewElement.setAttribute('data-target-width', String(targetWidth));
+            viewElement.setAttribute('data-target-height', String(targetHeight));
             viewElement.classList.add('epub-image-view');
             viewElement.style.setProperty('background', 'transparent', 'important');
             viewElement.style.setProperty('border', 'none', 'important');
             viewElement.style.setProperty('box-shadow', 'none', 'important');
             viewElement.style.setProperty('border-radius', '0', 'important');
             viewElement.style.setProperty('padding', '0', 'important');
-            if (orientation === 'landscape') {
-              viewElement.style.setProperty('width', 'min(100%, 1400px)', 'important');
-              viewElement.style.setProperty('max-width', '100%', 'important');
-            } else {
-              viewElement.style.setProperty('width', 'fit-content', 'important');
-              viewElement.style.setProperty('max-width', '100%', 'important');
+            if (isScrolled) {
+              viewElement.style.setProperty('width', `${targetWidth}px`, 'important');
+              viewElement.style.setProperty('height', `${targetHeight}px`, 'important');
+              viewElement.style.setProperty('min-height', `${targetHeight}px`, 'important');
             }
-          } else {
+          }
+        } else {
+          // Normal text chapter: style inline SVGs and images without breaking layout
+          if (viewElement && viewElement.classList.contains('epub-view')) {
             viewElement.removeAttribute('data-epub-image-view');
             viewElement.removeAttribute('data-image-orientation');
+            viewElement.removeAttribute('data-target-width');
+            viewElement.removeAttribute('data-target-height');
             viewElement.classList.remove('epub-image-view');
           }
-        }
 
-        document.querySelectorAll('img, svg, svg image, video, canvas').forEach((media) => {
-          const element = media as HTMLElement;
-          element.style.setProperty('display', 'block', 'important');
-          element.style.setProperty('width', 'auto', 'important');
-          element.style.setProperty('height', 'auto', 'important');
-          element.style.setProperty('max-width', '100%', 'important');
-          element.style.setProperty('object-fit', 'contain', 'important');
-          element.style.setProperty('break-inside', 'avoid', 'important');
-          element.style.setProperty('page-break-inside', 'avoid', 'important');
-
-          if (isImageOnly) {
-            element.style.setProperty('margin', 'auto', 'important');
-            if (orientation === 'landscape') {
-              element.style.setProperty('max-height', '85vh', 'important');
-            } else {
-              element.style.setProperty('max-height', '90vh', 'important');
+          svgs.forEach((svg) => {
+            svg.style.setProperty('display', 'block', 'important');
+            svg.style.setProperty('margin', '1.25em auto', 'important');
+            svg.style.setProperty('max-width', '100%', 'important');
+            svg.style.setProperty('max-height', '85vh', 'important');
+            const viewBox = svg.getAttribute('viewBox');
+            if (viewBox) {
+              const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+              if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+                svg.style.setProperty('aspect-ratio', `${parts[2]} / ${parts[3]}`, 'important');
+                svg.style.setProperty('width', '100%', 'important');
+                svg.style.setProperty('height', 'auto', 'important');
+              }
             }
-          } else {
-            element.style.setProperty('max-height', '85vh', 'important');
-            element.style.setProperty('margin', '1.25em auto', 'important');
-          }
-        });
+          });
+
+          imgs.forEach((img) => {
+            img.style.setProperty('display', 'block', 'important');
+            img.style.setProperty('margin', '1.25em auto', 'important');
+            img.style.setProperty('max-width', '100%', 'important');
+            img.style.setProperty('max-height', '85vh', 'important');
+            img.style.setProperty('width', 'auto', 'important');
+            img.style.setProperty('height', 'auto', 'important');
+            img.style.setProperty('object-fit', 'contain', 'important');
+          });
+        }
 
         // Ensure parent containers do not indent images with text indentation
         document.querySelectorAll('p, div, figure').forEach((parent) => {
@@ -876,6 +964,32 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           element.style.setProperty('max-width', '100%', 'important');
           element.style.setProperty('overflow-wrap', 'anywhere', 'important');
         });
+      });
+
+      // Hook into view render completion in continuous scroll mode to reinforce image dimensions
+      rendition.hooks.render.register((view: { element?: HTMLElement; iframe?: HTMLIFrameElement }) => {
+        if (!isScrolled) return;
+        const el = view?.element;
+        const iframe = view?.iframe;
+        if (!el) return;
+        if (el.getAttribute('data-epub-image-view') === 'true') {
+          const w = el.getAttribute('data-target-width');
+          const h = el.getAttribute('data-target-height');
+          if (w && h) {
+            el.style.setProperty('width', `${w}px`, 'important');
+            el.style.setProperty('height', `${h}px`, 'important');
+            el.style.setProperty('min-height', `${h}px`, 'important');
+            el.style.setProperty('background', 'transparent', 'important');
+            el.style.setProperty('border', 'none', 'important');
+            el.style.setProperty('box-shadow', 'none', 'important');
+            if (iframe) {
+              iframe.style.setProperty('width', `${w}px`, 'important');
+              iframe.style.setProperty('height', `${h}px`, 'important');
+              iframe.style.setProperty('min-height', `${h}px`, 'important');
+              iframe.style.setProperty('background', 'transparent', 'important');
+            }
+          }
+        }
       });
 
       // Display as soon as the first section is ready. Generating a location
@@ -962,14 +1076,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           // ignore
         }
       }
-
-      const zoomCfi = zoomCfiRef.current;
-      zoomCfiRef.current = null;
-      if (!zoomCfi) return;
-      const frame = requestAnimationFrame(() => {
-        if (renditionRef.current === rendition) void rendition.display(zoomCfi);
-      });
-      return () => cancelAnimationFrame(frame);
     }, [applyTheme, isPaginated]);
 
     const prevPage = () => {
