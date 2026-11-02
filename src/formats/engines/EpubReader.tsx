@@ -266,6 +266,35 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     const isDoubleSided = settings.readingMode === 'vertical';
     const isPaginated = settings.readingMode === 'paginated' || isDoubleSided;
     const isScrolled = settings.readingMode === 'scroll';
+    const isExpanded = Boolean(settings.expandContent);
+
+    const sheetColor = settings.readerSheetColor ?? 'paper';
+    let sheetBg = '#ffffff';
+    let sheetFg = '#1a1a1a';
+    let sheetBorder = '#e2e8f0';
+    let sheetLink = '#2563eb';
+
+    if (sheetColor === 'archive') {
+      sheetBg = '#f6eedb';
+      sheetFg = '#3d3226';
+      sheetBorder = '#e7dbbe';
+      sheetLink = '#854d0e';
+    } else if (sheetColor === 'dark') {
+      sheetBg = '#252528';
+      sheetFg = '#e4e4e7';
+      sheetBorder = '#38383c';
+      sheetLink = '#60a5fa';
+    }
+
+    const baseWidth = isDoubleSided
+      ? Math.round((settings.maxContentWidth || 794) * 1.8)
+      : (settings.maxContentWidth || 794);
+    const canvasWidth = Math.round(baseWidth * readerZoom);
+    const effectiveFontSize = Math.round(settings.fontSize * (isExpanded ? 1 : readerZoom));
+    const effectiveMargin = Math.round(settings.contentMargin * (isExpanded ? 1 : readerZoom));
+    const effectiveLetterSpacing = settings.letterSpacing * (isExpanded ? 1 : readerZoom);
+    const effectiveWordSpacing = settings.wordSpacing * (isExpanded ? 1 : readerZoom);
+
     const bookRef = useRef<ReturnType<typeof ePub> | null>(null);
     const epubSearchIndexRef = useRef<Promise<EpubSearchSectionIndex[]> | null>(null);
     const latestCfiRef = useRef(initialCfi);
@@ -299,34 +328,24 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     // Apply themes to epubjs rendition
     const applyTheme = useCallback(
       (rendition: Rendition) => {
-        let bg = '#ffffff';
-        let color = '#1a1a1a';
-        if (settings.theme === 'dark') {
-          bg = '#1a1a1a';
-          color = '#e4e4e7';
-        } else if (settings.theme === 'sepia') {
-          bg = '#faf6eb';
-          color = '#3d3226';
-        }
-
         rendition.themes.default({
           html: {
             'box-sizing': 'border-box !important',
             'touch-action': 'pan-x pan-y !important',
           },
           body: {
-            background: `${bg} !important`,
-            color: `${color} !important`,
+            background: `${sheetBg} !important`,
+            color: `${sheetFg} !important`,
             'font-family': `${settings.fontFamily} !important`,
-            'font-size': `${settings.fontSize * readerZoom}px !important`,
+            'font-size': `${effectiveFontSize}px !important`,
             'line-height': `${settings.lineHeight} !important`,
             'text-align': `${settings.textAlign} !important`,
-            'letter-spacing': `${settings.letterSpacing}px !important`,
-            'word-spacing': `${settings.wordSpacing}px !important`,
+            'letter-spacing': `${effectiveLetterSpacing}px !important`,
+            'word-spacing': `${effectiveWordSpacing}px !important`,
             'box-sizing': 'border-box !important',
             'touch-action': 'pan-x pan-y !important',
             margin: '0 !important',
-            padding: `0 ${settings.contentMargin}px !important`,
+            padding: `0 ${effectiveMargin}px !important`,
           },
           'html *': {
             'box-sizing': 'border-box !important',
@@ -351,6 +370,13 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           p: {
             'margin-bottom': `${settings.paragraphSpacing}em !important`,
             'text-indent': `${settings.textIndent}em !important`,
+            color: `${sheetFg} !important`,
+          },
+          'div, span, li, blockquote': {
+            color: `${sheetFg} !important`,
+          },
+          'h1, h2, h3, h4, h5, h6': {
+            color: `${sheetFg} !important`,
           },
           'img, svg, video, canvas, figure, table': {
             'break-inside': 'avoid !important',
@@ -359,9 +385,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           'img, svg, video, canvas': {
             display: 'block !important',
             width: 'auto !important',
-            // Fit only the horizontal axis. The intrinsic height remains
-            // available, so portrait art is not compressed and landscape art
-            // cannot be clipped by the iframe's horizontal viewport.
             'max-width': '100% !important',
             'max-height': 'none !important',
             height: 'auto !important',
@@ -373,11 +396,24 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             margin: '1em auto !important',
           },
           a: {
-            color: 'var(--color-accent) !important',
+            color: `${sheetLink} !important`,
           },
         });
       },
-      [settings, readerZoom]
+      [
+        settings.fontFamily,
+        settings.lineHeight,
+        settings.textAlign,
+        settings.paragraphSpacing,
+        settings.textIndent,
+        effectiveFontSize,
+        effectiveMargin,
+        effectiveLetterSpacing,
+        effectiveWordSpacing,
+        sheetBg,
+        sheetFg,
+        sheetLink,
+      ]
     );
     const applyThemeRef = useRef(applyTheme);
     applyThemeRef.current = applyTheme;
@@ -730,6 +766,13 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       const rendition = renditionRef.current;
       if (!rendition) return;
       applyTheme(rendition);
+      if (isPaginated) {
+        try {
+          (rendition as unknown as { resize: (w?: string, h?: string) => void }).resize();
+        } catch {
+          // ignore
+        }
+      }
 
       const zoomCfi = zoomCfiRef.current;
       zoomCfiRef.current = null;
@@ -738,7 +781,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         if (renditionRef.current === rendition) void rendition.display(zoomCfi);
       });
       return () => cancelAnimationFrame(frame);
-    }, [applyTheme]);
+    }, [applyTheme, isPaginated]);
 
     const prevPage = () => {
       if (renditionRef.current) {
@@ -781,7 +824,20 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           ref={viewerRef}
           className={`${styles.viewer} ${isScrolled ? styles.scrollViewer : styles.paginatedViewer}`}
           data-reader-viewport={isScrolled ? 'epub-vertical-scroll' : 'epub-paginated'}
-          style={{ '--epub-page-margin': `${Math.max(32, settings.contentMargin + 12)}px` } as CSSProperties}
+          style={
+            {
+              '--epub-page-margin': `${Math.max(32, effectiveMargin + 12)}px`,
+              '--epub-sheet-width': isExpanded ? '100%' : `${canvasWidth}px`,
+              '--epub-sheet-max-width': isExpanded ? '100%' : readerZoom <= 1 ? '100%' : 'none',
+              '--epub-sheet-min-width': !isExpanded && readerZoom > 1 ? `${canvasWidth}px` : 'unset',
+              '--epub-sheet-bg': sheetBg,
+              '--epub-sheet-color': sheetFg,
+              '--epub-sheet-border': sheetBorder,
+              '--epub-sheet-radius': isExpanded ? '0px' : `${Math.max(4, Math.round(12 * Math.min(1, readerZoom)))}px`,
+              '--epub-sheet-margin': isExpanded ? '0 auto !important' : '16px auto !important',
+              '--epub-sheet-shadow': isExpanded ? 'none' : 'var(--shadow-md)',
+            } as CSSProperties
+          }
         />
 
         {isPaginated && (
