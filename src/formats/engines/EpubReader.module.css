@@ -17,7 +17,7 @@
   position: relative;
 }
 
-/* Paginated EPUBs use the sheet width scaling with zoom in contracted mode */
+/* Paginated EPUBs scale the rendered canvas without changing text layout. */
 .paginatedViewer {
   width: var(--epub-sheet-width, min(794px, 100%));
   max-width: var(--epub-sheet-max-width, 100%);
@@ -31,7 +31,9 @@
   border-radius: var(--epub-sheet-radius, 0px);
   box-shadow: var(--epub-sheet-shadow, var(--shadow-md));
   overflow: hidden;
-  transition: width 0.2s ease, max-width 0.2s ease, background-color 0.2s ease;
+  transform: scale(var(--epub-reader-zoom, 1));
+  transform-origin: center top;
+  transition: background-color 0.2s ease;
 }
 
 /* Standalone image pages in paginated mode break out of the text sheet canvas */
@@ -56,7 +58,8 @@
   overflow: auto !important;
   overscroll-behavior: contain;
   scroll-behavior: auto;
-  overflow-anchor: auto;
+  /* epub.js applies its own scroll correction while adding and trimming views. */
+  overflow-anchor: none;
   scrollbar-gutter: stable;
   padding: 24px 0 72px;
   background: transparent !important;
@@ -74,6 +77,11 @@
   max-width: var(--epub-sheet-max-width, 100%) !important;
   min-width: var(--epub-sheet-min-width, unset) !important;
   margin: var(--epub-sheet-margin, 16px auto) !important;
+}
+
+.scrollViewer :global(.epub-view[data-epub-zoomed="true"]) {
+  transform: scale(var(--epub-section-scale, 1));
+  transform-origin: top center;
 }
 
 /* Standalone image sections appear by themselves without the text paper canvas */

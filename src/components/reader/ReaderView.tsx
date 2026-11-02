@@ -32,7 +32,7 @@ import { DoubleSidedReader } from './DoubleSidedReader';
 import { TableOfContents } from './TableOfContents';
 import { BookmarkPanel } from './BookmarkPanel';
 import { SearchPanel } from './SearchPanel';
-import { useReaderZoom, MIN_READER_ZOOM, MAX_READER_ZOOM, MIN_PDF_ZOOM, MAX_PDF_ZOOM } from './hooks/useReaderZoom';
+import { useReaderZoom, MIN_READER_ZOOM, MAX_READER_ZOOM, MIN_PDF_ZOOM, MAX_PDF_ZOOM, MAX_EPUB_ZOOM } from './hooks/useReaderZoom';
 import { useInBookSearch } from './hooks/useInBookSearch';
 import { ReaderSettings } from './ReaderSettings';
 import { ProgressBar } from './ProgressBar';
@@ -743,7 +743,13 @@ export function ReaderView() {
           <button
             className={styles.iconBtn}
             onClick={() => zoomBy(1.1)}
-            disabled={readerZoom >= (isFixedLayout(book?.sourceFormat) ? MAX_PDF_ZOOM : MAX_READER_ZOOM)}
+            disabled={readerZoom >= (
+              book?.sourceFormat === 'epub'
+                ? MAX_EPUB_ZOOM
+                : isFixedLayout(book?.sourceFormat)
+                  ? MAX_PDF_ZOOM
+                  : MAX_READER_ZOOM
+            )}
             title="Zoom in (Ctrl/Cmd +)"
             aria-label="Zoom in"
             type="button"
@@ -844,6 +850,7 @@ export function ReaderView() {
               onProgressUpdate={handleEpubProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
+              zoomAnchor={zoomAnchor}
               onZoomGesture={(deltaY) => queueWheelZoom(deltaY)}
               onZoomTo={zoomTo}
             />
