@@ -449,6 +449,11 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     const lastPercentageRef = useRef(0);
     const fileIdentityRef = useRef(fileData);
 
+    // Always-current settings ref used inside hook closures registered once at
+    // book-init time so they never close over stale settings values.
+    const settingsRef = useRef(settings);
+    settingsRef.current = settings;
+
     const onProgressUpdateRef = useRef(onProgressUpdate);
     onProgressUpdateRef.current = onProgressUpdate;
 
@@ -1234,7 +1239,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             const block = element as HTMLElement;
             block.style.setProperty('max-width', '100%', 'important');
             block.style.setProperty('overflow-wrap', 'anywhere', 'important');
-            if (!isImageOnly) block.style.setProperty('text-align', settings.textAlign, 'important');
+            if (!isImageOnly) block.style.setProperty('text-align', settingsRef.current.textAlign, 'important');
           });
         document.querySelectorAll('p, div, figure').forEach((parent) => {
           if (parent.querySelector('img, svg')) {
@@ -1542,7 +1547,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             element.style.setProperty('max-width', '100%', 'important');
             element.style.setProperty('overflow-wrap', 'anywhere', 'important');
             if (!body?.classList.contains('epub-image-only-section')) {
-              element.style.setProperty('text-align', settings.textAlign, 'important');
+              element.style.setProperty('text-align', settingsRef.current.textAlign, 'important');
             }
           });
 
@@ -1673,6 +1678,54 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       const rendition = renditionRef.current;
       if (!rendition) return;
       applyTheme(rendition);
+
+      // epub.js's addStylesheetRules appends new CSS rules rather than replacing
+      // old ones in the injected <style> element.  The last rule of equal
+      // specificity wins, so the theme update IS applied by the cascade — but
+      // the EPUB's own !important inline/high-specificity rules can still beat
+      // the sheet-level theme.  Patching live body and paragraph inline styles
+      // directly is the most reliable way to reflect typography changes on
+      // already-mounted iframes without waiting for the next page-render.
+      const s = settingsRef.current;
+      const container = (renditionRef.current as unknown as {
+        manager?: { container?: HTMLElement };
+      }).manager?.container;
+      const iframes = container
+        ? Array.from(container.querySelectorAll<HTMLIFrameElement>('iframe'))
+        : [];
+      for (const iframe of iframes) {
+        const doc = iframe.contentDocument;
+        if (!doc) continue;
+        const body = doc.body;
+        if (!body) continue;
+        // Apply live typography overrides directly so they always win.
+        body.style.setProperty('font-family', s.fontFamily, 'important');
+        body.style.setProperty('line-height', String(s.lineHeight), 'important');
+        body.style.setProperty('font-size', `${s.fontSize}px`, 'important');
+        body.style.setProperty('letter-spacing', `${s.letterSpacing}px`, 'important');
+        body.style.setProperty('word-spacing', `${s.wordSpacing}px`, 'important');
+        if (!body.classList.contains('epub-image-only-section')) {
+          body.style.setProperty('text-align', s.textAlign, 'important');
+        }
+        // Update paragraph spacing and text-indent on all <p> elements.
+        doc.querySelectorAll<HTMLElement>('p').forEach((p) => {
+          if (!p.closest('.epub-image-only-section')) {
+            p.style.setProperty('margin-bottom', `${s.paragraphSpacing}em`, 'important');
+            p.style.setProperty('text-indent', `${s.textIndent}em`, 'important');
+          }
+        });
+        // Propagate text-align to block elements so already-mounted sections
+        // reflect alignment changes immediately (content hooks use settingsRef
+        // for new sections; this handles already-mounted ones).
+        if (!body.classList.contains('epub-image-only-section')) {
+          doc.querySelectorAll<HTMLElement>(
+            'p, div, article, section, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th, dt, dd'
+          ).forEach((el) => {
+            el.style.setProperty('text-align', s.textAlign, 'important');
+          });
+        }
+      }
+
       if (isPaginated) {
         try {
           (rendition as unknown as { resize: (w?: string, h?: string) => void }).resize();
