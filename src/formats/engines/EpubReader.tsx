@@ -208,6 +208,12 @@ const applyEpubSectionScale = (view: HTMLElement, scale: number) => {
   view.style.setProperty('margin-bottom', `${baseMarginBottom * scale + baseHeight * (scale - 1)}px`, 'important');
 };
 
+const getContinuousPreloadOffset = (viewer: HTMLElement | null, zoom: number) => {
+  const viewportHeight = viewer?.clientHeight || window.innerHeight;
+  const scale = Math.max(1, Math.min(8, zoom));
+  return Math.min(24000, Math.max(3600, Math.round(viewportHeight * 8 * scale)));
+};
+
 const restoreEpubZoomAnchor = (
   viewer: HTMLElement,
   anchor: EpubZoomAnchor,
@@ -630,8 +636,13 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       readerZoomRef.current = zoom;
       previewedZoomRef.current = zoom;
       previewedAnchorIdRef.current = anchor?.id;
+      const manager = (renditionRef.current as unknown as {
+        manager?: { ignore?: boolean; settings?: { offset?: number } };
+      } | null)?.manager;
+      if (isScrolled && manager?.settings) {
+        manager.settings.offset = getContinuousPreloadOffset(viewer, zoom);
+      }
       if (anchor) {
-        const manager = (renditionRef.current as unknown as { manager?: { ignore?: boolean } } | null)?.manager;
         restoreEpubZoomAnchor(viewer, anchor, manager);
       }
     }, [isScrolled]);
@@ -725,13 +736,10 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         manager: isScrolled ? 'continuous' : 'default',
         flow: isScrolled ? 'scrolled' : 'paginated',
         spread: isDoubleSided ? 'always' : 'none',
-        // epub.js creates its manager asynchronously in attachTo(). Passing
-        // these at construction time is important; mutating rendition.manager
-        // immediately after renderTo() is too early and leaves virtualization
-        // enabled in continuous mode. Keeping the spine mounted makes the
-        // native scroll origin stable in both directions.
+        // Keep nearby spine sections mounted ahead of the viewport. The
+        // distance grows with zoom while remaining bounded for long books.
         ...(isScrolled
-          ? { offset: Number.MAX_SAFE_INTEGER, offsetDelta: Number.MAX_SAFE_INTEGER }
+          ? { offset: getContinuousPreloadOffset(viewerRef.current, readerZoomRef.current) }
           : {}),
         allowScriptedContent: false,
       });
@@ -745,15 +753,20 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         if (!isScrolled || continuousManagerPatched) return;
         const manager = (rendition as unknown as {
           manager?: {
-            settings: { axis?: string; fullsize?: boolean };
+            settings: { axis?: string; fullsize?: boolean; offset?: number };
+            container: HTMLElement;
+            views: { remove: (view: unknown) => void };
+            scrollTo: (left: number, top: number, silent?: boolean) => void;
             counter: (bounds: { heightDelta: number; [key: string]: number }) => void;
             prepend: (section: unknown) => {
               element: HTMLElement;
               on: (event: string, callback: () => void) => void;
             };
+            erase: (view: { element: HTMLElement }, above?: unknown) => void;
           };
         }).manager;
         if (!manager) return;
+        manager.settings.offset = getContinuousPreloadOffset(viewerRef.current, readerZoomRef.current);
 
         const originalCounter = manager.counter;
         manager.counter = function (bounds) {
@@ -768,6 +781,26 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           const view = originalPrepend.call(manager, section);
           view.on('resized', () => applyEpubSectionScale(view.element, readerZoomRef.current));
           return view;
+        };
+
+        const originalErase = manager.erase;
+        manager.erase = function (view, above) {
+          if (!above || manager.settings.axis !== 'vertical' || manager.settings.fullsize) {
+            originalErase.call(manager, view, above);
+            return;
+          }
+
+          const nextElement = view.element.nextElementSibling as HTMLElement | null;
+          if (!nextElement) {
+            originalErase.call(manager, view, above);
+            return;
+          }
+          const nextTopBeforeRemoval = nextElement.getBoundingClientRect().top;
+          const previousScrollTop = manager.container.scrollTop;
+          manager.views.remove(view);
+          const nextTopAfterRemoval = nextElement.getBoundingClientRect().top;
+          const removedDistance = Math.max(0, nextTopBeforeRemoval - nextTopAfterRemoval);
+          manager.scrollTo(0, previousScrollTop - removedDistance, true);
         };
         continuousManagerPatched = true;
       };
