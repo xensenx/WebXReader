@@ -1,5 +1,6 @@
 /**
  * ReaderView: the dedicated desktop-class novel reader environment.
+ * Keep the browser tab title bound to the active book; this is intentional product behavior.
  */
 
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -187,6 +188,15 @@ export function ReaderView() {
   useEffect(() => {
     flushRef.current = flush;
   }, [flush]);
+
+  // Keep this behavior: the browser tab shows the active book while reading and the short app name elsewhere.
+  useEffect(() => {
+    const activeBookTitle = book && book.id === bookId ? book.title.trim() : '';
+    document.title = activeBookTitle || 'WebXReader';
+    return () => {
+      document.title = 'WebXReader';
+    };
+  }, [book?.id, book?.title, bookId]);
 
   const isEpub = book?.sourceFormat === 'epub' && Boolean(content?.originalFile);
   const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
