@@ -396,6 +396,264 @@ async function buildEpubSearchIndex(book: EpubResourceBook): Promise<EpubSearchS
   return index;
 }
 
+export interface EpubThemeColors {
+  sheetBg: string;
+  sheetFg: string;
+  sheetBorder: string;
+  sheetLink: string;
+}
+
+export function getEpubSheetColors(sheetColor?: string): EpubThemeColors {
+  if (sheetColor === 'archive') {
+    return {
+      sheetBg: '#f6eedb',
+      sheetFg: '#3d3226',
+      sheetBorder: '#e7dbbe',
+      sheetLink: '#854d0e',
+    };
+  }
+  if (sheetColor === 'dark') {
+    return {
+      sheetBg: '#252528',
+      sheetFg: '#e4e4e7',
+      sheetBorder: '#38383c',
+      sheetLink: '#60a5fa',
+    };
+  }
+  return {
+    sheetBg: '#ffffff',
+    sheetFg: '#1a1a1a',
+    sheetBorder: '#e2e8f0',
+    sheetLink: '#2563eb',
+  };
+}
+
+export function buildEpubThemeRules(
+  settings: EffectiveReaderSettings,
+  colors: EpubThemeColors,
+  effectiveFontSize: number,
+  effectiveMargin: number,
+  effectiveLetterSpacing: number,
+  effectiveWordSpacing: number
+): Record<string, Record<string, string>> {
+  const { sheetBg, sheetFg, sheetLink } = colors;
+  return {
+    html: {
+      'box-sizing': 'border-box !important',
+      'touch-action': 'pan-x pan-y !important',
+      'overflow-anchor': 'none !important',
+    },
+    body: {
+      background: `${sheetBg} !important`,
+      color: `${sheetFg} !important`,
+      'font-family': `${settings.fontFamily} !important`,
+      'font-size': `${effectiveFontSize}px !important`,
+      'line-height': `${settings.lineHeight} !important`,
+      'text-align': `${settings.textAlign} !important`,
+      'letter-spacing': `${effectiveLetterSpacing}px !important`,
+      'word-spacing': `${effectiveWordSpacing}px !important`,
+      'box-sizing': 'border-box !important',
+      'touch-action': 'pan-x pan-y !important',
+      'overflow-anchor': 'none !important',
+      margin: '0 !important',
+      padding: `0 ${effectiveMargin}px !important`,
+    },
+    'html *': {
+      'box-sizing': 'border-box !important',
+    },
+    'html, body': {
+      width: '100% !important',
+      'max-width': '100% !important',
+      overflow: 'hidden !important',
+      'overflow-wrap': 'anywhere !important',
+    },
+    '::selection': {
+      background: 'rgba(250, 204, 21, 0.42) !important',
+      color: 'inherit !important',
+    },
+    '::highlight(webx-search-result)': {
+      'background-color': 'rgba(250, 204, 21, 0.42) !important',
+      color: 'inherit !important',
+    },
+    'body > *:not(img):not(svg):not(video):not(canvas)': {
+      'max-width': '100% !important',
+    },
+    p: {
+      'font-family': `${settings.fontFamily} !important`,
+      'line-height': `${settings.lineHeight} !important`,
+      'text-align': `${settings.textAlign} !important`,
+      'margin-top': '0 !important',
+      'margin-bottom': `${settings.paragraphSpacing}em !important`,
+      'text-indent': `${settings.textIndent}em !important`,
+      'letter-spacing': `${effectiveLetterSpacing}px !important`,
+      'word-spacing': `${effectiveWordSpacing}px !important`,
+      color: `${sheetFg} !important`,
+    },
+    'div, article, section': {
+      'font-family': `${settings.fontFamily} !important`,
+      'line-height': `${settings.lineHeight} !important`,
+      color: `${sheetFg} !important`,
+    },
+    'div:not([data-epub-image-view]):not(.epub-image-view)': {
+      'text-align': `${settings.textAlign} !important`,
+    },
+    'li, blockquote, dd, dt': {
+      'font-family': `${settings.fontFamily} !important`,
+      'line-height': `${settings.lineHeight} !important`,
+      'letter-spacing': `${effectiveLetterSpacing}px !important`,
+      'word-spacing': `${effectiveWordSpacing}px !important`,
+      color: `${sheetFg} !important`,
+      'margin-bottom': `${Math.min(settings.paragraphSpacing, 0.8)}em !important`,
+    },
+    'span:not([class*="icon"]):not([class*="math"])': {
+      'font-family': 'inherit !important',
+      'line-height': 'inherit !important',
+      'letter-spacing': 'inherit !important',
+      'word-spacing': 'inherit !important',
+    },
+    'h1, h2, h3, h4, h5, h6': {
+      'font-family': `${settings.fontFamily} !important`,
+      color: `${sheetFg} !important`,
+    },
+    'body.epub-image-only-section': {
+      background: 'transparent !important',
+      padding: '0 !important',
+      margin: '0 auto !important',
+      display: 'flex !important',
+      'flex-direction': 'column !important',
+      'align-items': 'center !important',
+      'justify-content': 'center !important',
+      width: '100% !important',
+    },
+    'body.epub-image-only-section img, body.epub-image-only-section svg': {
+      display: 'block !important',
+      margin: 'auto !important',
+      'object-fit': 'contain !important',
+      background: 'transparent !important',
+      border: 'none !important',
+      'box-shadow': 'none !important',
+    },
+    'body.epub-image-only-section[data-image-orientation="landscape"] img, body.epub-image-only-section[data-image-orientation="landscape"] svg': {
+      'max-width': '100% !important',
+      'max-height': '88vh !important',
+    },
+    'body.epub-image-only-section[data-image-orientation="portrait"] img, body.epub-image-only-section[data-image-orientation="portrait"] svg': {
+      'max-height': '90vh !important',
+      'max-width': '100% !important',
+    },
+    'body.epub-image-only-section[data-image-orientation="square"] img, body.epub-image-only-section[data-image-orientation="square"] svg': {
+      'max-width': '100% !important',
+      'max-height': '88vh !important',
+    },
+    'body.epub-image-only-section figcaption, body.epub-image-only-section p': {
+      'font-size': '0.9em !important',
+      color: 'var(--color-text-secondary, #9ca3af) !important',
+      'text-align': 'center !important',
+      'text-indent': '0 !important',
+      margin: '8px auto 0 !important',
+      'max-width': '600px !important',
+    },
+    'p:has(img), p:has(svg), figure, div:has(> img)': {
+      'text-indent': '0 !important',
+      'text-align': 'center !important',
+      margin: '1.25em auto !important',
+    },
+    'img, svg, video, canvas, figure, table': {
+      'break-inside': 'avoid !important',
+      'page-break-inside': 'avoid !important',
+    },
+    'img, video, canvas': {
+      display: 'block !important',
+      width: 'auto !important',
+      'max-width': '100% !important',
+      'max-height': '85vh !important',
+      height: 'auto !important',
+      'object-fit': 'contain !important',
+      margin: '1.25em auto !important',
+    },
+    svg: {
+      display: 'block !important',
+      'max-width': '100% !important',
+      'max-height': '85vh !important',
+      margin: '1.25em auto !important',
+    },
+    figure: {
+      'max-width': '100% !important',
+      margin: '1.5em auto !important',
+      'text-align': 'center !important',
+    },
+    figcaption: {
+      'font-size': '0.85em !important',
+      opacity: '0.85 !important',
+      'text-align': 'center !important',
+      'text-indent': '0 !important',
+      'margin-top': '0.5em !important',
+    },
+    a: {
+      color: `${sheetLink} !important`,
+    },
+  };
+}
+
+export function buildEpubThemeCss(
+  settings: EffectiveReaderSettings,
+  colors: EpubThemeColors,
+  effectiveFontSize: number,
+  effectiveMargin: number,
+  effectiveLetterSpacing: number,
+  effectiveWordSpacing: number
+): string {
+  const rules = buildEpubThemeRules(
+    settings,
+    colors,
+    effectiveFontSize,
+    effectiveMargin,
+    effectiveLetterSpacing,
+    effectiveWordSpacing
+  );
+  return Object.entries(rules)
+    .map(([selector, declarations]) => {
+      const declStr = Object.entries(declarations)
+        .map(([prop, val]) => `  ${prop}: ${val};`)
+        .join('\n');
+      return `${selector} {\n${declStr}\n}`;
+    })
+    .join('\n\n');
+}
+
+export function applyTypographyToDocument(
+  doc: Document,
+  cssText: string
+) {
+  if (!doc) return;
+  const head = doc.head || doc.querySelector('head');
+  if (!head) return;
+
+  let styleEl = doc.getElementById('epubjs-inserted-css-default') as HTMLStyleElement | null;
+  if (!styleEl) {
+    styleEl = doc.getElementById('webx-epub-typography') as HTMLStyleElement | null;
+  }
+  if (!styleEl) {
+    styleEl = doc.createElement('style');
+    styleEl.id = 'webx-epub-typography';
+    head.appendChild(styleEl);
+  }
+  styleEl.textContent = cssText;
+
+  const body = doc.body;
+  if (body && !body.classList.contains('epub-image-only-section')) {
+    doc.querySelectorAll<HTMLElement>('p').forEach((p) => {
+      if (!p.closest('.epub-image-only-section')) {
+        if (p.style.lineHeight) p.style.removeProperty('line-height');
+        if (p.style.fontFamily) p.style.removeProperty('font-family');
+        if (p.style.marginTop) p.style.removeProperty('margin-top');
+        if (p.style.marginBottom) p.style.removeProperty('margin-bottom');
+        if (p.style.textIndent) p.style.removeProperty('text-indent');
+      }
+    });
+  }
+}
+
 export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
   function EpubReader(
     { fileData, settings, initialCfi, onProgressUpdate, onToggleControls, readerZoom = 1, zoomAnchor, onZoomGesture, onZoomTo },
@@ -413,23 +671,8 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     const imageSectionMapRef = useRef<Map<string, EpubSectionImageInfo>>(new Map());
     const continuousScrollCleanupRef = useRef<(() => void) | null>(null);
 
-    const sheetColor = settings.readerSheetColor ?? 'paper';
-    let sheetBg = '#ffffff';
-    let sheetFg = '#1a1a1a';
-    let sheetBorder = '#e2e8f0';
-    let sheetLink = '#2563eb';
-
-    if (sheetColor === 'archive') {
-      sheetBg = '#f6eedb';
-      sheetFg = '#3d3226';
-      sheetBorder = '#e7dbbe';
-      sheetLink = '#854d0e';
-    } else if (sheetColor === 'dark') {
-      sheetBg = '#252528';
-      sheetFg = '#e4e4e7';
-      sheetBorder = '#38383c';
-      sheetLink = '#60a5fa';
-    }
+    const sheetColors = getEpubSheetColors(settings.readerSheetColor);
+    const { sheetBg, sheetFg, sheetBorder } = sheetColors;
 
     const baseWidth = isDoubleSided
       ? Math.round((settings.maxContentWidth || 794) * 1.8)
@@ -480,149 +723,42 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     // Apply themes to epubjs rendition
     const applyTheme = useCallback(
       (rendition: Rendition) => {
-        rendition.themes.default({
-          html: {
-            'box-sizing': 'border-box !important',
-            'touch-action': 'pan-x pan-y !important',
-            'overflow-anchor': 'none !important',
-          },
-          body: {
-            background: `${sheetBg} !important`,
-            color: `${sheetFg} !important`,
-            'font-family': `${settings.fontFamily} !important`,
-            'font-size': `${effectiveFontSize}px !important`,
-            'line-height': `${settings.lineHeight} !important`,
-            'text-align': `${settings.textAlign} !important`,
-            'letter-spacing': `${effectiveLetterSpacing}px !important`,
-            'word-spacing': `${effectiveWordSpacing}px !important`,
-            'box-sizing': 'border-box !important',
-            'touch-action': 'pan-x pan-y !important',
-            'overflow-anchor': 'none !important',
-            margin: '0 !important',
-            padding: `0 ${effectiveMargin}px !important`,
-          },
-          'html *': {
-            'box-sizing': 'border-box !important',
-          },
-          'html, body': {
-            width: '100% !important',
-            'max-width': '100% !important',
-            overflow: 'hidden !important',
-            'overflow-wrap': 'anywhere !important',
-          },
-          '::selection': {
-            background: 'rgba(250, 204, 21, 0.42) !important',
-            color: 'inherit !important',
-          },
-          '::highlight(webx-search-result)': {
-            'background-color': 'rgba(250, 204, 21, 0.42) !important',
-            color: 'inherit !important',
-          },
-          'body > *:not(img):not(svg):not(video):not(canvas)': {
-            'max-width': '100% !important',
-          },
-          p: {
-            'margin-bottom': `${settings.paragraphSpacing}em !important`,
-            'text-indent': `${settings.textIndent}em !important`,
-            color: `${sheetFg} !important`,
-          },
-          'div, span, li, blockquote': {
-            color: `${sheetFg} !important`,
-          },
-          'h1, h2, h3, h4, h5, h6': {
-            color: `${sheetFg} !important`,
-          },
-          'body.epub-image-only-section': {
-            background: 'transparent !important',
-            padding: '0 !important',
-            margin: '0 auto !important',
-            display: 'flex !important',
-            'flex-direction': 'column !important',
-            'align-items': 'center !important',
-            'justify-content': 'center !important',
-            width: '100% !important',
-          },
-          'body.epub-image-only-section img, body.epub-image-only-section svg': {
-            display: 'block !important',
-            margin: 'auto !important',
-            'object-fit': 'contain !important',
-            background: 'transparent !important',
-            border: 'none !important',
-            'box-shadow': 'none !important',
-          },
-          'body.epub-image-only-section[data-image-orientation="landscape"] img, body.epub-image-only-section[data-image-orientation="landscape"] svg': {
-            'max-width': '100% !important',
-            'max-height': '88vh !important',
-          },
-          'body.epub-image-only-section[data-image-orientation="portrait"] img, body.epub-image-only-section[data-image-orientation="portrait"] svg': {
-            'max-height': '90vh !important',
-            'max-width': '100% !important',
-          },
-          'body.epub-image-only-section[data-image-orientation="square"] img, body.epub-image-only-section[data-image-orientation="square"] svg': {
-            'max-width': '100% !important',
-            'max-height': '88vh !important',
-          },
-          'body.epub-image-only-section figcaption, body.epub-image-only-section p': {
-            'font-size': '0.9em !important',
-            color: 'var(--color-text-secondary, #9ca3af) !important',
-            'text-align': 'center !important',
-            'text-indent': '0 !important',
-            margin: '8px auto 0 !important',
-            'max-width': '600px !important',
-          },
-          'p:has(img), p:has(svg), figure, div:has(> img)': {
-            'text-indent': '0 !important',
-            'text-align': 'center !important',
-          },
-          'img, svg, video, canvas, figure, table': {
-            'break-inside': 'avoid !important',
-            'page-break-inside': 'avoid !important',
-          },
-          'img, video, canvas': {
-            display: 'block !important',
-            width: 'auto !important',
-            'max-width': '100% !important',
-            'max-height': '85vh !important',
-            height: 'auto !important',
-            'object-fit': 'contain !important',
-            margin: '1.25em auto !important',
-          },
-          svg: {
-            display: 'block !important',
-            'max-width': '100% !important',
-            'max-height': '85vh !important',
-            margin: '1.25em auto !important',
-          },
-          figure: {
-            'max-width': '100% !important',
-            margin: '1.5em auto !important',
-            'text-align': 'center !important',
-          },
-          figcaption: {
-            'font-size': '0.85em !important',
-            opacity: '0.85 !important',
-            'text-align': 'center !important',
-            'text-indent': '0 !important',
-            'margin-top': '0.5em !important',
-          },
-          a: {
-            color: `${sheetLink} !important`,
-          },
-        });
+        const colors = getEpubSheetColors(settings.readerSheetColor);
+        const cssText = buildEpubThemeCss(
+          settings,
+          colors,
+          effectiveFontSize,
+          effectiveMargin,
+          effectiveLetterSpacing,
+          effectiveWordSpacing
+        );
+
+        try {
+          (rendition.themes as unknown as { registerCss: (name: string, css: string) => void }).registerCss(
+            'default',
+            cssText
+          );
+        } catch {
+          // ignore if registerCss is not available
+        }
+
+        rendition.themes.default(
+          buildEpubThemeRules(
+            settings,
+            colors,
+            effectiveFontSize,
+            effectiveMargin,
+            effectiveLetterSpacing,
+            effectiveWordSpacing
+          )
+        );
       },
       [
-        settings.fontFamily,
-        settings.lineHeight,
-        settings.textAlign,
-        settings.paragraphSpacing,
-        settings.textIndent,
+        settings,
         effectiveFontSize,
         effectiveMargin,
         effectiveLetterSpacing,
         effectiveWordSpacing,
-        sheetBg,
-        sheetFg,
-        sheetLink,
       ]
     );
     const applyThemeRef = useRef(applyTheme);
@@ -1149,6 +1285,18 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         body.style.setProperty('overflow-anchor', 'none', 'important');
         images.forEach((image) => image.setAttribute('decoding', 'async'));
 
+        const currentSettings = settingsRef.current;
+        const currentColors = getEpubSheetColors(currentSettings.readerSheetColor);
+        const spineThemeCss = buildEpubThemeCss(
+          currentSettings,
+          currentColors,
+          currentSettings.fontSize,
+          currentSettings.contentMargin,
+          currentSettings.letterSpacing,
+          currentSettings.wordSpacing
+        );
+        applyTypographyToDocument(document, spineThemeCss);
+
         if (isImageOnly && targetWidth && targetHeight) {
           document.documentElement.style.setProperty('background', 'transparent', 'important');
           document.documentElement.style.setProperty('overflow', 'hidden', 'important');
@@ -1369,6 +1517,18 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         images.forEach((image) => image.setAttribute('decoding', 'async'));
 
         const body = document.body;
+        const activeSettings = settingsRef.current;
+        const activeColors = getEpubSheetColors(activeSettings.readerSheetColor);
+        const contentThemeCss = buildEpubThemeCss(
+          activeSettings,
+          activeColors,
+          activeSettings.fontSize,
+          activeSettings.contentMargin,
+          activeSettings.letterSpacing,
+          activeSettings.wordSpacing
+        );
+        applyTypographyToDocument(document, contentThemeCss);
+
         document.documentElement.style.setProperty('overflow-anchor', 'none', 'important');
         body?.style.setProperty('overflow-anchor', 'none', 'important');
         const imgs = Array.from(document.querySelectorAll('img'));
@@ -1673,67 +1833,95 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       };
     }, [ensureLocations, fileData, isScrolled, isDoubleSided]);
 
-    // Update themes when settings change
+    // Update themes and views when settings change
     useEffect(() => {
       const rendition = renditionRef.current;
       if (!rendition) return;
       applyTheme(rendition);
 
-      // epub.js's addStylesheetRules appends new CSS rules rather than replacing
-      // old ones in the injected <style> element.  The last rule of equal
-      // specificity wins, so the theme update IS applied by the cascade — but
-      // the EPUB's own !important inline/high-specificity rules can still beat
-      // the sheet-level theme.  Patching live body and paragraph inline styles
-      // directly is the most reliable way to reflect typography changes on
-      // already-mounted iframes without waiting for the next page-render.
-      const s = settingsRef.current;
-      const container = (renditionRef.current as unknown as {
+      const colors = getEpubSheetColors(settings.readerSheetColor);
+      const cssText = buildEpubThemeCss(
+        settings,
+        colors,
+        effectiveFontSize,
+        effectiveMargin,
+        effectiveLetterSpacing,
+        effectiveWordSpacing
+      );
+
+      // Directly update all active iframes/documents with the new CSS
+      const container = (rendition as unknown as {
         manager?: { container?: HTMLElement };
       }).manager?.container;
       const iframes = container
         ? Array.from(container.querySelectorAll<HTMLIFrameElement>('iframe'))
         : [];
       for (const iframe of iframes) {
-        const doc = iframe.contentDocument;
-        if (!doc) continue;
-        const body = doc.body;
-        if (!body) continue;
-        // Apply live typography overrides directly so they always win.
-        body.style.setProperty('font-family', s.fontFamily, 'important');
-        body.style.setProperty('line-height', String(s.lineHeight), 'important');
-        body.style.setProperty('font-size', `${s.fontSize}px`, 'important');
-        body.style.setProperty('letter-spacing', `${s.letterSpacing}px`, 'important');
-        body.style.setProperty('word-spacing', `${s.wordSpacing}px`, 'important');
-        if (!body.classList.contains('epub-image-only-section')) {
-          body.style.setProperty('text-align', s.textAlign, 'important');
-        }
-        // Update paragraph spacing and text-indent on all <p> elements.
-        doc.querySelectorAll<HTMLElement>('p').forEach((p) => {
-          if (!p.closest('.epub-image-only-section')) {
-            p.style.setProperty('margin-bottom', `${s.paragraphSpacing}em`, 'important');
-            p.style.setProperty('text-indent', `${s.textIndent}em`, 'important');
-          }
-        });
-        // Propagate text-align to block elements so already-mounted sections
-        // reflect alignment changes immediately (content hooks use settingsRef
-        // for new sections; this handles already-mounted ones).
-        if (!body.classList.contains('epub-image-only-section')) {
-          doc.querySelectorAll<HTMLElement>(
-            'p, div, article, section, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th, dt, dd'
-          ).forEach((el) => {
-            el.style.setProperty('text-align', s.textAlign, 'important');
-          });
+        if (iframe.contentDocument) {
+          applyTypographyToDocument(iframe.contentDocument, cssText);
         }
       }
 
-      if (isPaginated) {
+      // Re-measure and expand active views so iframe dimensions match the new text flow
+      type EpubView = {
+        element: HTMLElement;
+        iframe?: HTMLIFrameElement;
+        contents?: unknown;
+        expand: () => void;
+        layout?: { format: (c: unknown) => void };
+      };
+      const manager = (rendition as unknown as {
+        manager?: {
+          views?: {
+            all: () => EpubView[];
+          };
+        };
+      }).manager;
+      const allViews = manager?.views?.all ? manager.views.all() : [];
+
+      for (const view of allViews) {
+        if (view.element.getAttribute('data-epub-image-view') === 'true') continue;
         try {
-          (rendition as unknown as { resize: (w?: string, h?: string) => void }).resize();
+          if (isPaginated && view.layout && view.contents) {
+            view.layout.format(view.contents);
+          }
+          view.expand();
+          if (isScrolled) {
+            applyEpubSectionScale(view.element, readerZoomRef.current);
+          }
         } catch {
-          // ignore
+          // ignore layout errors
         }
       }
-    }, [applyTheme, isPaginated]);
+
+      // Keep reading position coherent after layout recalculation
+      if (isPaginated) {
+        if (latestCfiRef.current) {
+          try {
+            void rendition.display(latestCfiRef.current);
+          } catch {
+            // ignore
+          }
+        }
+      } else if (isScrolled) {
+        const scrollSurface = viewerRef.current?.querySelector<HTMLElement>('.epub-container');
+        if (scrollSurface && lastPercentageRef.current > 0) {
+          const maxScroll = Math.max(0, scrollSurface.scrollHeight - scrollSurface.clientHeight);
+          if (maxScroll > 0) {
+            scrollSurface.scrollTop = Math.min(maxScroll, lastPercentageRef.current * maxScroll);
+          }
+        }
+      }
+    }, [
+      applyTheme,
+      isPaginated,
+      isScrolled,
+      settings,
+      effectiveFontSize,
+      effectiveMargin,
+      effectiveLetterSpacing,
+      effectiveWordSpacing,
+    ]);
 
     const prevPage = () => {
       if (renditionRef.current) {
