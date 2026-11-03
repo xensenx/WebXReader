@@ -11,6 +11,8 @@ import type { EffectiveReaderSettings } from '../../hooks/useReaderSettings';
 import { createTextExcerpt, extractDomText, findTextMatches, findTextRange } from '../../utils/text-search';
 import { showTransientSearchHighlight } from '../../utils/transient-search-highlight';
 import type { ReaderSearchResult } from '../../components/reader/search-types';
+import { getEpubImageSectionLayout } from './epub-image-layout';
+import type { EpubSectionImageInfo } from './epub-image-layout';
 import styles from './EpubReader.module.css';
 
 export interface EpubReaderHandle {
@@ -41,7 +43,7 @@ interface EpubReaderProps {
   onToggleControls?: () => void;
   readerZoom?: number;
   zoomAnchor?: EpubZoomAnchor;
-  onZoomGesture?: (deltaY: number) => void;
+  onZoomGesture?: (deltaY: number, point?: { x: number; y: number }) => void;
   onZoomTo?: (zoom: number, point?: { x: number; y: number }) => void;
 }
 
@@ -77,14 +79,6 @@ interface EpubSearchSectionIndex {
   title: string;
   text: string;
 }
-
-type EpubImageOrientation = 'landscape' | 'portrait' | 'square';
-type EpubSectionImageInfo = {
-  isImageOnly: boolean;
-  orientation: EpubImageOrientation;
-  targetWidth?: number;
-  targetHeight?: number;
-};
 
 const isInlineOrNetworkUrl = (value: string) =>
   /^(?:data:|blob:|https?:|file:|mailto:|javascript:)/i.test(value.trim());
@@ -909,7 +903,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
                 viewIndex >= 0 &&
                 viewIndex < currentViewIndex &&
                 currentViewIndex - viewIndex <= retainedPreviousSections;
-              if (viewIsNearScrollBuffer(view) || keepNearbyImage) {
+              if (view.element.isConnected && (viewIsNearScrollBuffer(view) || keepNearbyImage)) {
                 view.show();
               } else {
                 realDestroy.get(view)?.();
@@ -1112,15 +1106,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         const body = document.body;
         if (!body) return;
         const svgs = Array.from(document.querySelectorAll('svg'));
-        const hasVisualMedia = images.length > 0 || svgs.length > 0;
-        const substantiveParagraphs = Array.from(document.querySelectorAll('p, blockquote, article, section > p'))
-          .filter((element) => !element.querySelector('img, svg') && (element.textContent || '').trim().length > 60);
-        const nonImageText = Array.from(body.childNodes)
-          .filter((node) => node.nodeName !== 'FIGURE' && node.nodeName !== 'SVG' && node.nodeName !== 'IMG')
-          .map((node) => node.textContent || '')
-          .join(' ')
-          .trim();
-        const isImageOnly = hasVisualMedia && substantiveParagraphs.length === 0 && nonImageText.length < 200;
 
         // Reserve intrinsic image sizes before the iframe is laid out so
         // images do not increase a prepended section's height after display.
@@ -1138,61 +1123,13 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           if (!Number(image.getAttribute('height'))) image.setAttribute('height', String(size.height));
         }));
 
-        let primaryWidth = 0;
-        let primaryHeight = 0;
-        for (const svg of svgs) {
-          const viewBox = svg.getAttribute('viewBox');
-          if (!viewBox) continue;
-          const parts = viewBox.trim().split(/[\s,]+/).map(Number);
-          if (parts.length === 4 && parts[2] > 0 && parts[3] > 0 && parts[2] * parts[3] > primaryWidth * primaryHeight) {
-            primaryWidth = parts[2];
-            primaryHeight = parts[3];
-          }
-        }
-        for (const image of images) {
-          const width = Number(image.getAttribute('width')) || 0;
-          const height = Number(image.getAttribute('height')) || 0;
-          if (width > 0 && height > 0 && width * height > primaryWidth * primaryHeight) {
-            primaryWidth = width;
-            primaryHeight = height;
-          }
-        }
-
-        let orientation: EpubImageOrientation = 'portrait';
-        if (primaryWidth > 0 && primaryHeight > 0) {
-          const ratio = primaryWidth / primaryHeight;
-          orientation = ratio > 1.15 ? 'landscape' : ratio < 0.95 ? 'portrait' : 'square';
-        }
-
-        let targetWidth: number | undefined;
-        let targetHeight: number | undefined;
-        if (isImageOnly) {
-          const viewer = viewerRef.current;
-          const availableWidth = viewer?.clientWidth || window.innerWidth;
-          const availableHeight = viewer?.clientHeight || window.innerHeight;
-          const aspectRatio = primaryWidth > 0 && primaryHeight > 0
-            ? primaryWidth / primaryHeight
-            : orientation === 'landscape' ? 1.5 : 0.67;
-          if (orientation === 'landscape') {
-            targetWidth = Math.min(Math.round(availableWidth * 0.96), 1400);
-            targetHeight = Math.round(targetWidth / aspectRatio);
-            const maxHeight = Math.round(availableHeight * 0.88);
-            if (targetHeight > maxHeight) {
-              targetHeight = maxHeight;
-              targetWidth = Math.round(targetHeight * aspectRatio);
-            }
-          } else {
-            targetHeight = Math.min(Math.round(availableHeight * 0.90), 1200);
-            targetWidth = Math.round(targetHeight * aspectRatio);
-            const maxWidth = Math.min(Math.round(availableWidth * 0.96), canvasWidth > 0 ? canvasWidth : 800);
-            if (targetWidth > maxWidth) {
-              targetWidth = maxWidth;
-              targetHeight = Math.round(targetWidth / aspectRatio);
-            }
-          }
-        }
-
-        const imageInfo: EpubSectionImageInfo = { isImageOnly, orientation, targetWidth, targetHeight };
+        const viewer = viewerRef.current;
+        const imageInfo = getEpubImageSectionLayout(document, {
+          availableWidth: viewer?.clientWidth || window.innerWidth,
+          availableHeight: viewer?.clientHeight || window.innerHeight,
+          canvasWidth,
+        });
+        const { isImageOnly, orientation, targetWidth, targetHeight } = imageInfo;
         if (section.href) imageSectionMapRef.current.set(section.href, imageInfo);
         const sectionIndex = section.index;
         const manager = (rendition as unknown as {
@@ -1353,7 +1290,21 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
               : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
                 ? event.deltaY * (document.defaultView?.innerHeight || window.innerHeight)
                 : event.deltaY;
-            onZoomGestureRef.current?.(delta);
+            const frame = contentWindow?.frameElement as HTMLIFrameElement | null;
+            const frameRect = frame?.getBoundingClientRect();
+            const scaleX = frame && frame.clientWidth > 0 && frameRect
+              ? frameRect.width / frame.clientWidth
+              : 1;
+            const scaleY = frame && frame.clientHeight > 0 && frameRect
+              ? frameRect.height / frame.clientHeight
+              : 1;
+            const point = frame && frameRect
+              ? {
+                  x: frameRect.left + event.clientX * scaleX,
+                  y: frameRect.top + event.clientY * scaleY,
+                }
+              : undefined;
+            onZoomGestureRef.current?.(delta, point);
           }, { capture: true, passive: false });
 
           contentWindow?.addEventListener('touchstart', (event: TouchEvent) => {
@@ -1417,23 +1368,16 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         body?.style.setProperty('overflow-anchor', 'none', 'important');
         const imgs = Array.from(document.querySelectorAll('img'));
         const svgs = Array.from(document.querySelectorAll('svg'));
-        const hasVisualMedia = imgs.length > 0 || svgs.length > 0;
-
-        // Substantive reading text: check if there are paragraphs with meaningful sentences (> 60 chars)
-        const substantiveParagraphs = Array.from(document.querySelectorAll('p, blockquote, article, section > p'))
-          .filter((el) => {
-            if (el.querySelector('img, svg')) return false;
-            return (el.textContent || '').trim().length > 60;
+        const getImageLayout = () => {
+          const viewerEl = viewerRef.current;
+          return getEpubImageSectionLayout(document, {
+            availableWidth: viewerEl?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200),
+            availableHeight: viewerEl?.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 800),
+            canvasWidth,
           });
-
-        const nonImageText = Array.from(body?.childNodes || [])
-          .filter((node) => node.nodeName !== 'FIGURE' && node.nodeName !== 'SVG' && node.nodeName !== 'IMG')
-          .map((node) => node.textContent || '')
-          .join(' ')
-          .trim();
-
-        // Standalone image page / image-first section (covers, plates, full-page illustrations, comics, maps)
-        const isImageOnly = hasVisualMedia && substantiveParagraphs.length === 0 && nonImageText.length < 200;
+        };
+        let imageInfo = getImageLayout();
+        const isImageOnly = imageInfo.isImageOnly;
 
         const imagesNeedingDimensions = images.filter((image) => {
           const width = Number(image.getAttribute('width'));
@@ -1447,88 +1391,15 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         imagesToWaitFor.forEach((image) => image.setAttribute('loading', 'eager'));
         await Promise.all(imagesToWaitFor.map(waitForImageLayout));
 
-        let orientation: 'landscape' | 'portrait' | 'square' = 'portrait';
-        let primaryWidth = 0;
-        let primaryHeight = 0;
-
-        for (const svg of svgs) {
-          const viewBox = svg.getAttribute('viewBox');
-          if (viewBox) {
-            const parts = viewBox.trim().split(/[\s,]+/).map(Number);
-            if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
-              const sw = parts[2];
-              const sh = parts[3];
-              if (sw * sh > primaryWidth * primaryHeight) {
-                primaryWidth = sw;
-                primaryHeight = sh;
-              }
-            }
-          }
-          const svgImg = svg.querySelector('image');
-          if (svgImg) {
-            const iw = parseFloat(svgImg.getAttribute('width') || '0');
-            const ih = parseFloat(svgImg.getAttribute('height') || '0');
-            if (iw > 0 && ih > 0 && iw * ih > primaryWidth * primaryHeight) {
-              primaryWidth = iw;
-              primaryHeight = ih;
-            }
-          }
-        }
-
-        for (const img of imgs) {
-          const w = img.naturalWidth || parseFloat(img.getAttribute('width') || '0') || img.clientWidth || 0;
-          const h = img.naturalHeight || parseFloat(img.getAttribute('height') || '0') || img.clientHeight || 0;
-          if (w * h > primaryWidth * primaryHeight) {
-            primaryWidth = w;
-            primaryHeight = h;
-          }
-        }
-
-        if (primaryWidth > 0 && primaryHeight > 0) {
-          const ratio = primaryWidth / primaryHeight;
-          if (ratio > 1.15) {
-            orientation = 'landscape';
-          } else if (ratio < 0.95) {
-            orientation = 'portrait';
-          } else {
-            orientation = 'square';
-          }
-        }
+        imageInfo = getImageLayout();
+        const { orientation, targetWidth = 0, targetHeight = 0 } = imageInfo;
 
         const sectionHref = (contents.section as unknown as { href?: string })?.href || '';
         if (sectionHref) {
-          imageSectionMapRef.current.set(sectionHref, { isImageOnly, orientation });
+          imageSectionMapRef.current.set(sectionHref, imageInfo);
           if (isPaginated && (latestCfiRef.current?.includes(sectionHref) || !latestCfiRef.current)) {
             setIsCurrentImagePage(isImageOnly);
             setCurrentImageOrientation(orientation);
-          }
-        }
-
-        const viewerEl = viewerRef.current;
-        const availableWidth = viewerEl?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200);
-        const availableHeight = viewerEl?.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 800);
-        const aspectRatio = (primaryWidth > 0 && primaryHeight > 0)
-          ? (primaryWidth / primaryHeight)
-          : (orientation === 'landscape' ? 1.5 : 0.67);
-
-        let targetWidth = 0;
-        let targetHeight = 0;
-
-        if (orientation === 'landscape') {
-          targetWidth = Math.min(Math.round(availableWidth * 0.96), 1400);
-          targetHeight = Math.round(targetWidth / aspectRatio);
-          const maxHeight = Math.round(availableHeight * 0.88);
-          if (targetHeight > maxHeight) {
-            targetHeight = maxHeight;
-            targetWidth = Math.round(targetHeight * aspectRatio);
-          }
-        } else {
-          targetHeight = Math.min(Math.round(availableHeight * 0.90), 1200);
-          targetWidth = Math.round(targetHeight * aspectRatio);
-          const maxWidth = Math.min(Math.round(availableWidth * 0.96), canvasWidth > 0 ? canvasWidth : 800);
-          if (targetWidth > maxWidth) {
-            targetWidth = maxWidth;
-            targetHeight = Math.round(targetWidth / aspectRatio);
           }
         }
 
@@ -1720,13 +1591,29 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
 
       // Display as soon as the first section is ready. Generating a location
       // index can be expensive for large books and must not block reading.
+      const ensureLocationsWhenIdle = () => {
+        const generateLocations = () => {
+          if (active) ensureLocations();
+        };
+        const idleWindow = window as Window & {
+          requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+        };
+        if (idleWindow.requestIdleCallback) {
+          idleWindow.requestIdleCallback(generateLocations, { timeout: 2000 });
+        } else {
+          window.setTimeout(generateLocations, 500);
+        }
+      };
       book.ready
         .then(() => {
           if (pendingProgressRef.current !== null) ensureLocations();
           return rendition.display(latestCfiRef.current || initialCfiRef.current || undefined);
         })
         .then(() => {
-          if (active) setLoading(false);
+          if (active) {
+            ensureLocationsWhenIdle();
+            setLoading(false);
+          }
         })
         .catch((err) => {
           console.warn('Could not display initial EPUB location:', err);

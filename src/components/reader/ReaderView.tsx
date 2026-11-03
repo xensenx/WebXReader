@@ -863,7 +863,7 @@ export function ReaderView() {
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
-              onZoomGesture={(deltaY) => queueWheelZoom(deltaY)}
+              onZoomGesture={(deltaY, point) => queueWheelZoom(deltaY, point)}
               onZoomTo={zoomTo}
             />
           ) : effectiveReadingMode === 'paginated' ? (
