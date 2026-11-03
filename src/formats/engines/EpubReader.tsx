@@ -417,6 +417,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     const [isCurrentImagePage, setIsCurrentImagePage] = useState(false);
     const [currentImageOrientation, setCurrentImageOrientation] = useState<'landscape' | 'portrait' | 'square' | null>(null);
     const imageSectionMapRef = useRef<Map<string, EpubSectionImageInfo>>(new Map());
+    const continuousScrollCleanupRef = useRef<(() => void) | null>(null);
 
     const sheetColor = settings.readerSheetColor ?? 'paper';
     let sheetBg = '#ffffff';
@@ -813,24 +814,42 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
 
       let continuousManagerPatched = false;
       const patchContinuousManagerScrollMath = () => {
+        if (!active) return;
         const scrollSurface = viewerRef.current?.querySelector<HTMLElement>('.epub-container');
         scrollSurface?.setAttribute('data-reader-viewport', isScrolled ? 'epub-scroll' : 'epub-paginated');
         if (!isScrolled || continuousManagerPatched) return;
+        type ContinuousView = {
+          index: number;
+          element: HTMLElement;
+          iframe?: HTMLIFrameElement;
+          displayed: boolean;
+          show: () => void;
+          destroy: () => void;
+          emit: (event: string) => void;
+        };
         const manager = (rendition as unknown as {
           manager?: {
             settings: { axis?: string; fullsize?: boolean; offset?: number };
+            ignore?: boolean;
             container: HTMLElement;
             views: {
-              all: () => Array<{ index: number; element: HTMLElement }>;
+              all: () => ContinuousView[];
               remove: (view: unknown) => void;
             };
+            q: { enqueue: (task: () => unknown) => Promise<unknown> };
             scrollTo: (left: number, top: number, silent?: boolean) => void;
             counter: (bounds: { heightDelta: number; [key: string]: number }) => void;
             createView: (section: { href?: string; index?: number }, forceRight?: boolean) => {
               element: HTMLElement;
               iframe?: HTMLIFrameElement;
+              index: number;
+              displayed: boolean;
               show: () => void;
+              destroy: () => void;
+              emit: (event: string) => void;
             };
+            check: (offsetLeft?: number, offsetTop?: number) => Promise<unknown>;
+            trim: () => Promise<unknown>;
             prepend: (section: unknown) => {
               element: HTMLElement;
               on: (event: string, callback: () => void) => void;
@@ -838,33 +857,201 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             erase: (view: { element: HTMLElement }, above?: unknown) => void;
           };
         }).manager;
-        if (!manager) return;
+        // epub.js emits `started` before manager.render() creates its DOM
+        // container. The render hook can also call this during initialization,
+        // so wait until the continuous manager is attached.
+        if (!manager?.container || !manager.views || !manager.q) return;
 
         manager.settings.offset = getContinuousPreloadOffset(viewerRef.current);
+
+        const originalCounter = manager.counter;
+        const originalCheck = manager.check;
+        const originalTrim = manager.trim;
+        const pendingDestroyViews = new Set<ContinuousView>();
+        const realDestroy = new WeakMap<ContinuousView, () => void>();
+        let scrollIsMoving = false;
+        let lastUserScrollDirection: 'up' | 'down' | null = null;
+        let lastObservedScrollTop = manager.container.scrollTop;
+        let lastUserScrollTop = lastObservedScrollTop;
+        let lastScrollChangeAt = 0;
+        let stableScrollFrames = 0;
+        let scrollMonitorFrame: number | null = null;
+        let pendingTrim = false;
+        let pendingPrependCheck = false;
+        let pendingCounterHeightDelta = 0;
+
+        const applyPrependCounter = (heightDelta: number) => {
+          originalCounter.call(manager, { heightDelta });
+        };
+
+        const viewIsNearScrollBuffer = (view: ContinuousView) => {
+          const viewRect = view.element.getBoundingClientRect();
+          const containerRect = manager.container.getBoundingClientRect();
+          const buffer = manager.settings.offset || 0;
+          return viewRect.bottom >= containerRect.top - buffer && viewRect.top <= containerRect.bottom + buffer;
+        };
+
+        const flushDeferredScrollWork = () => {
+          void manager.q.enqueue(async () => {
+            if (scrollIsMoving) return;
+
+            if (pendingCounterHeightDelta !== 0) {
+              const heightDelta = pendingCounterHeightDelta;
+              pendingCounterHeightDelta = 0;
+              applyPrependCounter(heightDelta);
+            }
+
+            for (const view of pendingDestroyViews) {
+              pendingDestroyViews.delete(view);
+              if (viewIsNearScrollBuffer(view)) {
+                view.show();
+              } else {
+                realDestroy.get(view)?.();
+              }
+            }
+
+            if (scrollIsMoving) return;
+            if (pendingTrim) {
+              pendingTrim = false;
+              await originalTrim.call(manager);
+            }
+            if (pendingPrependCheck && !scrollIsMoving) {
+              pendingPrependCheck = false;
+              await manager.check();
+            }
+          });
+        };
+
+        const scheduleScrollMonitor = () => {
+          if (scrollMonitorFrame !== null) return;
+          scrollMonitorFrame = window.requestAnimationFrame((time) => {
+            scrollMonitorFrame = null;
+            const currentScrollTop = manager.container.scrollTop;
+            if (Math.abs(currentScrollTop - lastObservedScrollTop) > 0.5) {
+              lastObservedScrollTop = currentScrollTop;
+              scrollIsMoving = true;
+              lastScrollChangeAt = time;
+              stableScrollFrames = 0;
+            } else if (scrollIsMoving) {
+              stableScrollFrames += 1;
+            }
+
+            if (scrollIsMoving && stableScrollFrames >= 4 && time - lastScrollChangeAt >= 200) {
+              scrollIsMoving = false;
+              stableScrollFrames = 0;
+              flushDeferredScrollWork();
+            }
+
+            if (scrollIsMoving || pendingTrim || pendingPrependCheck || pendingDestroyViews.size > 0) {
+              scheduleScrollMonitor();
+            }
+          });
+        };
+
+        const onContinuousScroll = () => {
+          const currentScrollTop = manager.container.scrollTop;
+          const delta = currentScrollTop - lastUserScrollTop;
+          const isProgrammaticScroll = Boolean(manager.ignore);
+          if (!isProgrammaticScroll && Math.abs(delta) > 0.5) {
+            lastUserScrollDirection = delta < 0 ? 'up' : 'down';
+          }
+          lastUserScrollTop = currentScrollTop;
+          if (isProgrammaticScroll) {
+            // epub.js marks counter()/scrollTo() corrections as ignored before
+            // the browser dispatches their scroll event. Do not treat those
+            // corrections as fresh user movement or the hold cycle restarts.
+            lastObservedScrollTop = currentScrollTop;
+          } else if (Math.abs(currentScrollTop - lastObservedScrollTop) > 0.5) {
+            scrollIsMoving = true;
+            lastScrollChangeAt = performance.now();
+            stableScrollFrames = 0;
+            lastObservedScrollTop = currentScrollTop;
+          }
+          scheduleScrollMonitor();
+        };
+
+        manager.container.addEventListener('scroll', onContinuousScroll, { capture: true, passive: true });
+        continuousScrollCleanupRef.current = () => {
+          manager.container.removeEventListener('scroll', onContinuousScroll, true);
+          if (scrollMonitorFrame !== null) window.cancelAnimationFrame(scrollMonitorFrame);
+          scrollMonitorFrame = null;
+          scrollIsMoving = false;
+          for (const view of pendingDestroyViews) realDestroy.get(view)?.();
+          pendingDestroyViews.clear();
+        };
+
+        manager.check = function (offsetLeft, offsetTop) {
+          const prependThreshold = typeof offsetTop === 'number' && offsetTop !== 0
+            ? offsetTop
+            : (manager.settings.offset || 0);
+          const currentScrollTop = manager.container.scrollTop;
+          if (
+            scrollIsMoving &&
+            lastUserScrollDirection === 'up' &&
+            manager.settings.axis === 'vertical' &&
+            currentScrollTop < prependThreshold
+          ) {
+            pendingPrependCheck = true;
+            scheduleScrollMonitor();
+            // Keep the normal check/update path alive while choosing an offset
+            // that cannot prepend above the viewport. The queued check at rest
+            // will use epub.js's real preload offset and add the previous spine
+            // section without fighting the active scroll.
+            const safeOffset = currentScrollTop > 0 ? currentScrollTop : -1;
+            return originalCheck.call(manager, offsetLeft, safeOffset);
+          }
+          return originalCheck.call(manager, offsetLeft, offsetTop);
+        };
+
+        manager.trim = function () {
+          if (scrollIsMoving) {
+            pendingTrim = true;
+            scheduleScrollMonitor();
+            return Promise.resolve();
+          }
+          return originalTrim.call(manager);
+        };
 
         const originalCreateView = manager.createView;
         manager.createView = function (section, forceRight) {
           const view = originalCreateView.call(manager, section, forceRight);
+          const destroyView = view.destroy.bind(view);
+          realDestroy.set(view, destroyView);
+          view.destroy = function () {
+            if (scrollIsMoving && view.displayed) {
+              view.element.style.visibility = 'hidden';
+              if (view.iframe) view.iframe.style.visibility = 'hidden';
+              pendingDestroyViews.add(view);
+              scheduleScrollMonitor();
+              return;
+            }
+            pendingDestroyViews.delete(view);
+            destroyView();
+          };
           applyImageViewMetadata(
             view.element,
             section.index,
             section.href ? imageSectionMapRef.current.get(section.href) : undefined
           );
-          const originalShow = view.show;
           view.show = function () {
-            const alreadyVisible = view.element.style.visibility === 'visible' &&
-              (!view.iframe || view.iframe.style.visibility === 'visible');
-            if (!alreadyVisible) originalShow.call(view);
+            view.element.style.visibility = 'visible';
+            if (view.iframe) view.iframe.style.visibility = 'visible';
+            // epub.js toggles translateZ(0) and forces layout on every show.
+            // That redraw makes images flash when a hidden spine view re-enters
+            // the continuous-scroll buffer.
+            view.emit('shown');
           };
           return view;
         };
 
-        const originalCounter = manager.counter;
         manager.counter = function (bounds) {
-          originalCounter.call(manager, {
-            ...bounds,
-            heightDelta: bounds.heightDelta * Math.max(0.01, readerZoomRef.current),
-          });
+          const scaledHeightDelta = bounds.heightDelta * Math.max(0.01, readerZoomRef.current);
+          if (scrollIsMoving && manager.settings.axis === 'vertical') {
+            pendingCounterHeightDelta += scaledHeightDelta;
+            scheduleScrollMonitor();
+            return;
+          }
+          applyPrependCounter(scaledHeightDelta);
         };
 
         const originalPrepend = manager.prepend;
@@ -899,7 +1086,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
 
         continuousManagerPatched = true;
       };
-      void rendition.started.then(patchContinuousManagerScrollMath);
+      rendition.on('attached', patchContinuousManagerScrollMath);
 
       // Resolve image references while the spine document is still being
       // serialized and stabilize image dimensions before epub.js measures the
@@ -1570,6 +1757,8 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
 
       return () => {
         active = false;
+        continuousScrollCleanupRef.current?.();
+        continuousScrollCleanupRef.current = null;
         if (bookRef.current === book) bookRef.current = null;
         if (renditionRef.current === rendition) renditionRef.current = null;
         locationsReadyRef.current = false;
