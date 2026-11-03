@@ -96,7 +96,6 @@
   display: flex !important;
   justify-content: center !important;
   align-items: center !important;
-  transition: width 0.2s ease, max-width 0.2s ease;
 }
 
 /* Landscape images can expand wide across the screen up to 1400px or full viewport */
