@@ -868,6 +868,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         const originalCounter = manager.counter;
         const originalCheck = manager.check;
         const originalTrim = manager.trim;
+        const retainedPreviousSections = 6;
         const pendingDestroyViews = new Set<ContinuousView>();
         const realDestroy = new WeakMap<ContinuousView, () => void>();
         let scrollIsMoving = false;
@@ -893,9 +894,22 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           void manager.q.enqueue(async () => {
             if (scrollIsMoving) return;
 
+            const allViews = manager.views.all();
+            const viewportRect = manager.container.getBoundingClientRect();
+            const currentViewIndex = allViews.findIndex((view) => {
+              const rect = view.element.getBoundingClientRect();
+              return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
+            });
+
             for (const view of pendingDestroyViews) {
               pendingDestroyViews.delete(view);
-              if (viewIsNearScrollBuffer(view)) {
+              const viewIndex = allViews.indexOf(view);
+              const keepNearbyImage = view.element.getAttribute('data-epub-image-view') === 'true' &&
+                currentViewIndex >= 0 &&
+                viewIndex >= 0 &&
+                viewIndex < currentViewIndex &&
+                currentViewIndex - viewIndex <= retainedPreviousSections;
+              if (viewIsNearScrollBuffer(view) || keepNearbyImage) {
                 view.show();
               } else {
                 realDestroy.get(view)?.();
@@ -1049,6 +1063,15 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
 
         const originalErase = manager.erase;
         manager.erase = function (view, above) {
+          // Keep a short history before the viewport. The reader can then
+          // scroll through earlier text and image sections before reaching
+          // the point where a new prepend must wait for scrolling to settle.
+          if (Array.isArray(above)) {
+            const aboveViews = above as ContinuousView[];
+            const positionInAbove = aboveViews.indexOf(view as ContinuousView);
+            if (positionInAbove >= aboveViews.length - retainedPreviousSections) return;
+          }
+
           if (!above || manager.settings.axis !== 'vertical' || manager.settings.fullsize) {
             originalErase.call(manager, view, above);
             return;
