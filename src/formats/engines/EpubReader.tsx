@@ -78,6 +78,14 @@ interface EpubSearchSectionIndex {
   text: string;
 }
 
+type EpubImageOrientation = 'landscape' | 'portrait' | 'square';
+type EpubSectionImageInfo = {
+  isImageOnly: boolean;
+  orientation: EpubImageOrientation;
+  targetWidth?: number;
+  targetHeight?: number;
+};
+
 const isInlineOrNetworkUrl = (value: string) =>
   /^(?:data:|blob:|https?:|file:|mailto:|javascript:)/i.test(value.trim());
 
@@ -175,6 +183,58 @@ const waitForImageLayout = (image: HTMLImageElement): Promise<void> => {
     });
   }
   return Promise.resolve();
+};
+
+const measureImageSource = (source: string): Promise<{ width: number; height: number } | null> => {
+  if (!/^(?:data:|blob:)/i.test(source)) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    let settled = false;
+    const timeout = window.setTimeout(() => finish(null), 1200);
+    const finish = (size: { width: number; height: number } | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      image.onload = null;
+      image.onerror = null;
+      resolve(size);
+    };
+
+    image.onload = () => finish({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => finish(null);
+    image.src = source;
+    if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+      finish({ width: image.naturalWidth, height: image.naturalHeight });
+    }
+  });
+};
+
+const applyImageViewMetadata = (
+  element: HTMLElement,
+  sectionIndex: number | undefined,
+  imageInfo: EpubSectionImageInfo | undefined
+) => {
+  if (typeof sectionIndex === 'number') {
+    element.setAttribute('data-epub-section-index', String(sectionIndex));
+  }
+  if (!imageInfo?.isImageOnly) return;
+
+  element.setAttribute('data-epub-image-view', 'true');
+  element.setAttribute('data-image-orientation', imageInfo.orientation);
+  element.setAttribute('data-target-width', String(imageInfo.targetWidth || 0));
+  element.setAttribute('data-target-height', String(imageInfo.targetHeight || 0));
+  element.classList.add('epub-image-view');
+  element.style.setProperty('background', 'transparent', 'important');
+  element.style.setProperty('border', 'none', 'important');
+  element.style.setProperty('box-shadow', 'none', 'important');
+  element.style.setProperty('border-radius', '0', 'important');
+  element.style.setProperty('padding', '0', 'important');
+  if (imageInfo.targetWidth && imageInfo.targetHeight) {
+    element.style.setProperty('width', `${imageInfo.targetWidth}px`, 'important');
+    element.style.setProperty('height', `${imageInfo.targetHeight}px`, 'important');
+    element.style.setProperty('min-height', `${imageInfo.targetHeight}px`, 'important');
+  }
 };
 
 const clearEpubSectionScale = (view: HTMLElement) => {
@@ -356,7 +416,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     const isExpanded = Boolean(settings.expandContent);
     const [isCurrentImagePage, setIsCurrentImagePage] = useState(false);
     const [currentImageOrientation, setCurrentImageOrientation] = useState<'landscape' | 'portrait' | 'square' | null>(null);
-    const imageSectionMapRef = useRef<Map<string, { isImageOnly: boolean; orientation: 'landscape' | 'portrait' | 'square' }>>(new Map());
+    const imageSectionMapRef = useRef<Map<string, EpubSectionImageInfo>>(new Map());
 
     const sheetColor = settings.readerSheetColor ?? 'paper';
     let sheetBg = '#ffffff';
@@ -719,6 +779,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         latestCfiRef.current = initialCfiRef.current;
         lastPercentageRef.current = 0;
         pendingProgressRef.current = null;
+        imageSectionMapRef.current.clear();
       }
       const book = ePub(fileData);
       bookRef.current = book;
@@ -759,9 +820,17 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           manager?: {
             settings: { axis?: string; fullsize?: boolean; offset?: number };
             container: HTMLElement;
-            views: { remove: (view: unknown) => void };
+            views: {
+              all: () => Array<{ index: number; element: HTMLElement }>;
+              remove: (view: unknown) => void;
+            };
             scrollTo: (left: number, top: number, silent?: boolean) => void;
             counter: (bounds: { heightDelta: number; [key: string]: number }) => void;
+            createView: (section: { href?: string; index?: number }, forceRight?: boolean) => {
+              element: HTMLElement;
+              iframe?: HTMLIFrameElement;
+              show: () => void;
+            };
             prepend: (section: unknown) => {
               element: HTMLElement;
               on: (event: string, callback: () => void) => void;
@@ -772,6 +841,23 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         if (!manager) return;
 
         manager.settings.offset = getContinuousPreloadOffset(viewerRef.current);
+
+        const originalCreateView = manager.createView;
+        manager.createView = function (section, forceRight) {
+          const view = originalCreateView.call(manager, section, forceRight);
+          applyImageViewMetadata(
+            view.element,
+            section.index,
+            section.href ? imageSectionMapRef.current.get(section.href) : undefined
+          );
+          const originalShow = view.show;
+          view.show = function () {
+            const alreadyVisible = view.element.style.visibility === 'visible' &&
+              (!view.iframe || view.iframe.style.visibility === 'visible');
+            if (!alreadyVisible) originalShow.call(view);
+          };
+          return view;
+        };
 
         const originalCounter = manager.counter;
         manager.counter = function (bounds) {
@@ -816,12 +902,211 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       void rendition.started.then(patchContinuousManagerScrollMath);
 
       // Resolve image references while the spine document is still being
-      // serialized. This runs before epub.js measures columns, unlike the
-      // rendition content hook which runs after the initial view layout.
-      book.spine.hooks.content.register(async (document: Document, section: { index?: number }) => {
-        await prepareEpubImageSources(book, {
+      // serialized and stabilize image dimensions before epub.js measures the
+      // section. Resizing an image view after it is prepended moves the scroll
+      // surface and feels like the reader is pulling against the user.
+      book.spine.hooks.content.register(async (document: Document, section: { index?: number; href?: string }) => {
+        const contents: EpubContent = {
           document,
           sectionIndex: section.index,
+        };
+        const images = await prepareEpubImageSources(book, contents);
+        if (!isScrolled) return;
+
+        const body = document.body;
+        if (!body) return;
+        const svgs = Array.from(document.querySelectorAll('svg'));
+        const hasVisualMedia = images.length > 0 || svgs.length > 0;
+        const substantiveParagraphs = Array.from(document.querySelectorAll('p, blockquote, article, section > p'))
+          .filter((element) => !element.querySelector('img, svg') && (element.textContent || '').trim().length > 60);
+        const nonImageText = Array.from(body.childNodes)
+          .filter((node) => node.nodeName !== 'FIGURE' && node.nodeName !== 'SVG' && node.nodeName !== 'IMG')
+          .map((node) => node.textContent || '')
+          .join(' ')
+          .trim();
+        const isImageOnly = hasVisualMedia && substantiveParagraphs.length === 0 && nonImageText.length < 200;
+
+        // Reserve intrinsic image sizes before the iframe is laid out so
+        // images do not increase a prepended section's height after display.
+        const imagesMissingDimensions = images.filter((image) => {
+          const width = Number(image.getAttribute('width'));
+          const height = Number(image.getAttribute('height'));
+          return !(width > 0 && height > 0);
+        });
+        await Promise.all(imagesMissingDimensions.map(async (image) => {
+          const source = image.getAttribute('src');
+          if (!source) return;
+          const size = await measureImageSource(source);
+          if (!size) return;
+          if (!Number(image.getAttribute('width'))) image.setAttribute('width', String(size.width));
+          if (!Number(image.getAttribute('height'))) image.setAttribute('height', String(size.height));
+        }));
+
+        let primaryWidth = 0;
+        let primaryHeight = 0;
+        for (const svg of svgs) {
+          const viewBox = svg.getAttribute('viewBox');
+          if (!viewBox) continue;
+          const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+          if (parts.length === 4 && parts[2] > 0 && parts[3] > 0 && parts[2] * parts[3] > primaryWidth * primaryHeight) {
+            primaryWidth = parts[2];
+            primaryHeight = parts[3];
+          }
+        }
+        for (const image of images) {
+          const width = Number(image.getAttribute('width')) || 0;
+          const height = Number(image.getAttribute('height')) || 0;
+          if (width > 0 && height > 0 && width * height > primaryWidth * primaryHeight) {
+            primaryWidth = width;
+            primaryHeight = height;
+          }
+        }
+
+        let orientation: EpubImageOrientation = 'portrait';
+        if (primaryWidth > 0 && primaryHeight > 0) {
+          const ratio = primaryWidth / primaryHeight;
+          orientation = ratio > 1.15 ? 'landscape' : ratio < 0.95 ? 'portrait' : 'square';
+        }
+
+        let targetWidth: number | undefined;
+        let targetHeight: number | undefined;
+        if (isImageOnly) {
+          const viewer = viewerRef.current;
+          const availableWidth = viewer?.clientWidth || window.innerWidth;
+          const availableHeight = viewer?.clientHeight || window.innerHeight;
+          const aspectRatio = primaryWidth > 0 && primaryHeight > 0
+            ? primaryWidth / primaryHeight
+            : orientation === 'landscape' ? 1.5 : 0.67;
+          if (orientation === 'landscape') {
+            targetWidth = Math.min(Math.round(availableWidth * 0.96), 1400);
+            targetHeight = Math.round(targetWidth / aspectRatio);
+            const maxHeight = Math.round(availableHeight * 0.88);
+            if (targetHeight > maxHeight) {
+              targetHeight = maxHeight;
+              targetWidth = Math.round(targetHeight * aspectRatio);
+            }
+          } else {
+            targetHeight = Math.min(Math.round(availableHeight * 0.90), 1200);
+            targetWidth = Math.round(targetHeight * aspectRatio);
+            const maxWidth = Math.min(Math.round(availableWidth * 0.96), canvasWidth > 0 ? canvasWidth : 800);
+            if (targetWidth > maxWidth) {
+              targetWidth = maxWidth;
+              targetHeight = Math.round(targetWidth / aspectRatio);
+            }
+          }
+        }
+
+        const imageInfo: EpubSectionImageInfo = { isImageOnly, orientation, targetWidth, targetHeight };
+        if (section.href) imageSectionMapRef.current.set(section.href, imageInfo);
+        const sectionIndex = section.index;
+        const manager = (rendition as unknown as {
+          manager?: { views?: { all: () => Array<{ index: number; element: HTMLElement }> } };
+        }).manager;
+        const view = typeof sectionIndex === 'number'
+          ? manager?.views?.all().find((entry) => entry.index === sectionIndex)
+          : undefined;
+        if (view) applyImageViewMetadata(view.element, sectionIndex, imageInfo);
+
+        document.documentElement.style.setProperty('overflow-anchor', 'none', 'important');
+        body.style.setProperty('overflow-anchor', 'none', 'important');
+        images.forEach((image) => image.setAttribute('decoding', 'async'));
+
+        if (isImageOnly && targetWidth && targetHeight) {
+          document.documentElement.style.setProperty('background', 'transparent', 'important');
+          document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+          document.documentElement.style.setProperty('width', '100%', 'important');
+          document.documentElement.style.setProperty('height', '100%', 'important');
+          document.documentElement.style.setProperty('margin', '0', 'important');
+          document.documentElement.style.setProperty('padding', '0', 'important');
+          body.classList.add('epub-image-only-section');
+          body.setAttribute('data-image-orientation', orientation);
+          body.setAttribute('data-webx-layout-prepared', 'true');
+          body.style.setProperty('background', 'transparent', 'important');
+          body.style.setProperty('overflow', 'hidden', 'important');
+          body.style.setProperty('padding', '0', 'important');
+          body.style.setProperty('margin', '0 auto', 'important');
+          body.style.setProperty('display', 'flex', 'important');
+          body.style.setProperty('flex-direction', 'column', 'important');
+          body.style.setProperty('align-items', 'center', 'important');
+          body.style.setProperty('justify-content', 'center', 'important');
+          body.style.setProperty('width', `${targetWidth}px`, 'important');
+          body.style.setProperty('height', `${targetHeight}px`, 'important');
+
+          document.querySelectorAll('div, main, section, article').forEach((element) => {
+            const container = element as HTMLElement;
+            container.style.setProperty('background', 'transparent', 'important');
+            container.style.setProperty('border', 'none', 'important');
+            container.style.setProperty('box-shadow', 'none', 'important');
+            container.style.setProperty('margin', '0 auto', 'important');
+            container.style.setProperty('padding', '0', 'important');
+            container.style.setProperty('width', '100%', 'important');
+            container.style.setProperty('height', '100%', 'important');
+            container.style.setProperty('display', 'flex', 'important');
+            container.style.setProperty('align-items', 'center', 'important');
+            container.style.setProperty('justify-content', 'center', 'important');
+          });
+          svgs.forEach((svg) => {
+            svg.style.setProperty('display', 'block', 'important');
+            svg.style.setProperty('margin', 'auto', 'important');
+            svg.style.setProperty('width', `${targetWidth}px`, 'important');
+            svg.style.setProperty('height', `${targetHeight}px`, 'important');
+            svg.style.setProperty('max-width', '100%', 'important');
+            svg.style.setProperty('max-height', '100%', 'important');
+            svg.style.setProperty('background', 'transparent', 'important');
+            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+          });
+          images.forEach((image) => {
+            image.style.setProperty('display', 'block', 'important');
+            image.style.setProperty('margin', 'auto', 'important');
+            image.style.setProperty('width', `${targetWidth}px`, 'important');
+            image.style.setProperty('height', `${targetHeight}px`, 'important');
+            image.style.setProperty('max-width', '100%', 'important');
+            image.style.setProperty('max-height', '100%', 'important');
+            image.style.setProperty('object-fit', 'contain', 'important');
+            image.style.setProperty('background', 'transparent', 'important');
+            image.style.setProperty('box-shadow', 'none', 'important');
+            image.style.setProperty('border', 'none', 'important');
+          });
+        } else {
+          svgs.forEach((svg) => {
+            svg.style.setProperty('display', 'block', 'important');
+            svg.style.setProperty('margin', '1.25em auto', 'important');
+            svg.style.setProperty('max-width', '100%', 'important');
+            svg.style.setProperty('max-height', '85vh', 'important');
+            const viewBox = svg.getAttribute('viewBox');
+            if (viewBox) {
+              const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+              if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+                svg.style.setProperty('aspect-ratio', `${parts[2]} / ${parts[3]}`, 'important');
+                svg.style.setProperty('width', '100%', 'important');
+                svg.style.setProperty('height', 'auto', 'important');
+              }
+            }
+          });
+          images.forEach((image) => {
+            image.style.setProperty('display', 'block', 'important');
+            image.style.setProperty('margin', '1.25em auto', 'important');
+            image.style.setProperty('max-width', '100%', 'important');
+            image.style.setProperty('max-height', '85vh', 'important');
+            image.style.setProperty('width', 'auto', 'important');
+            image.style.setProperty('height', 'auto', 'important');
+            image.style.setProperty('object-fit', 'contain', 'important');
+          });
+          body.setAttribute('data-webx-layout-prepared', 'true');
+        }
+
+        document
+          .querySelectorAll('p, div, article, section, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th, dt, dd')
+          .forEach((element) => {
+            const block = element as HTMLElement;
+            block.style.setProperty('max-width', '100%', 'important');
+            block.style.setProperty('overflow-wrap', 'anywhere', 'important');
+            if (!isImageOnly) block.style.setProperty('text-align', settings.textAlign, 'important');
+          });
+        document.querySelectorAll('p, div, figure').forEach((parent) => {
+          if (parent.querySelector('img, svg')) {
+            (parent as HTMLElement).style.setProperty('text-indent', '0', 'important');
+          }
         });
       });
 
@@ -918,6 +1203,14 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           };
           contentWindow?.addEventListener('touchend', finishPinch, { capture: true, passive: true });
           contentWindow?.addEventListener('touchcancel', finishPinch, { capture: true, passive: true });
+        }
+
+        if (isScrolled && document.body?.getAttribute('data-webx-layout-prepared') === 'true') {
+          const frame = document.defaultView?.frameElement as HTMLIFrameElement | null;
+          frame?.setAttribute('allowtransparency', 'true');
+          frame?.style.setProperty('background', 'transparent', 'important');
+          frame?.style.setProperty('border', 'none', 'important');
+          return;
         }
 
         const images = await prepareEpubImageSources(book, contents);
@@ -1197,7 +1490,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       rendition.hooks.render.register((view: {
         element?: HTMLElement;
         iframe?: HTMLIFrameElement;
-        reframe?: (width: number, height: number) => void;
       }) => {
         const scrollSurface = viewerRef.current?.querySelector<HTMLElement>('.epub-container');
         scrollSurface?.setAttribute('data-reader-viewport', isScrolled ? 'epub-scroll' : 'epub-paginated');
@@ -1212,7 +1504,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             const width = Number(w);
             const height = Number(h);
             if (Number.isFinite(width) && Number.isFinite(height)) {
-              view.reframe?.(width, height);
               el.style.setProperty('width', `${width}px`, 'important');
               el.style.setProperty('height', `${height}px`, 'important');
               el.style.setProperty('min-height', `${height}px`, 'important');
