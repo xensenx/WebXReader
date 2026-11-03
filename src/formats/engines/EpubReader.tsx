@@ -745,6 +745,12 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       });
 
       renditionRef.current = rendition;
+      let initialSectionRendered = false;
+      rendition.on('rendered', () => {
+        if (!active || initialSectionRendered) return;
+        initialSectionRendered = true;
+        setLoading(false);
+      });
 
       let continuousManagerPatched = false;
       const patchContinuousManagerScrollMath = () => {
