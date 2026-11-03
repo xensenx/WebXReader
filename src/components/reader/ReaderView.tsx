@@ -220,6 +220,8 @@ export function ReaderView() {
     loading: !stageReady,
     previewRefs: zoomPreviewRefs,
   });
+  const resetZoomRef = useRef(resetZoom);
+  resetZoomRef.current = resetZoom;
 
   const {
     searchOpen,
@@ -253,8 +255,8 @@ export function ReaderView() {
     setActiveChapterId('');
     setBook(null);
     setContent(null);
-    resetZoom();
-  }, [bookId, resetZoom]);
+    resetZoomRef.current();
+  }, [bookId]);
 
   useEffect(() => {
     if (initialProgressRef.current || !progress) return;
