@@ -831,6 +831,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           manager?: {
             settings: { axis?: string; fullsize?: boolean; offset?: number };
             ignore?: boolean;
+            scrollTop?: number;
             container: HTMLElement;
             views: {
               all: () => ContinuousView[];
@@ -870,15 +871,12 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         const pendingDestroyViews = new Set<ContinuousView>();
         const realDestroy = new WeakMap<ContinuousView, () => void>();
         let scrollIsMoving = false;
-        let lastUserScrollDirection: 'up' | 'down' | null = null;
         let lastObservedScrollTop = manager.container.scrollTop;
-        let lastUserScrollTop = lastObservedScrollTop;
         let lastScrollChangeAt = 0;
         let stableScrollFrames = 0;
         let scrollMonitorFrame: number | null = null;
         let pendingTrim = false;
         let pendingPrependCheck = false;
-        let pendingCounterHeightDelta = 0;
 
         const applyPrependCounter = (heightDelta: number) => {
           originalCounter.call(manager, { heightDelta });
@@ -894,12 +892,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         const flushDeferredScrollWork = () => {
           void manager.q.enqueue(async () => {
             if (scrollIsMoving) return;
-
-            if (pendingCounterHeightDelta !== 0) {
-              const heightDelta = pendingCounterHeightDelta;
-              pendingCounterHeightDelta = 0;
-              applyPrependCounter(heightDelta);
-            }
 
             for (const view of pendingDestroyViews) {
               pendingDestroyViews.delete(view);
@@ -950,12 +942,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
 
         const onContinuousScroll = () => {
           const currentScrollTop = manager.container.scrollTop;
-          const delta = currentScrollTop - lastUserScrollTop;
           const isProgrammaticScroll = Boolean(manager.ignore);
-          if (!isProgrammaticScroll && Math.abs(delta) > 0.5) {
-            lastUserScrollDirection = delta < 0 ? 'up' : 'down';
-          }
-          lastUserScrollTop = currentScrollTop;
           if (isProgrammaticScroll) {
             // epub.js marks counter()/scrollTo() corrections as ignored before
             // the browser dispatches their scroll event. Do not treat those
@@ -984,12 +971,16 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           const prependThreshold = typeof offsetTop === 'number' && offsetTop !== 0
             ? offsetTop
             : (manager.settings.offset || 0);
-          const currentScrollTop = manager.container.scrollTop;
+          // check() reads manager.scrollTop, which epub.js updates in its
+          // scroll listener. Use that same value here; reading container.scrollTop
+          // can race the listener and accidentally let a prepend through.
+          const managerScrollTop = typeof manager.scrollTop === 'number'
+            ? manager.scrollTop
+            : manager.container.scrollTop;
           if (
             scrollIsMoving &&
-            lastUserScrollDirection === 'up' &&
             manager.settings.axis === 'vertical' &&
-            currentScrollTop < prependThreshold
+            managerScrollTop < prependThreshold
           ) {
             pendingPrependCheck = true;
             scheduleScrollMonitor();
@@ -997,7 +988,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             // that cannot prepend above the viewport. The queued check at rest
             // will use epub.js's real preload offset and add the previous spine
             // section without fighting the active scroll.
-            const safeOffset = currentScrollTop > 0 ? currentScrollTop : -1;
+            const safeOffset = managerScrollTop > 0 ? managerScrollTop : -1;
             return originalCheck.call(manager, offsetLeft, safeOffset);
           }
           return originalCheck.call(manager, offsetLeft, offsetTop);
@@ -1046,11 +1037,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
 
         manager.counter = function (bounds) {
           const scaledHeightDelta = bounds.heightDelta * Math.max(0.01, readerZoomRef.current);
-          if (scrollIsMoving && manager.settings.axis === 'vertical') {
-            pendingCounterHeightDelta += scaledHeightDelta;
-            scheduleScrollMonitor();
-            return;
-          }
           applyPrependCounter(scaledHeightDelta);
         };
 
