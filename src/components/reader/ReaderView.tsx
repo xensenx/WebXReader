@@ -1,5 +1,6 @@
 /**
  * ReaderView: the dedicated desktop-class novel reader environment.
+ * Keep the browser tab title bound to the active book; this is intentional product behavior.
  */
 
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -32,7 +33,7 @@ import { DoubleSidedReader } from './DoubleSidedReader';
 import { TableOfContents } from './TableOfContents';
 import { BookmarkPanel } from './BookmarkPanel';
 import { SearchPanel } from './SearchPanel';
-import { useReaderZoom, MIN_READER_ZOOM, MAX_READER_ZOOM, MIN_PDF_ZOOM, MAX_PDF_ZOOM } from './hooks/useReaderZoom';
+import { useReaderZoom, MIN_READER_ZOOM, MAX_READER_ZOOM, MIN_PDF_ZOOM, MAX_PDF_ZOOM, MAX_EPUB_ZOOM } from './hooks/useReaderZoom';
 import { useInBookSearch } from './hooks/useInBookSearch';
 import { ReaderSettings } from './ReaderSettings';
 import { ProgressBar } from './ProgressBar';
@@ -188,6 +189,15 @@ export function ReaderView() {
     flushRef.current = flush;
   }, [flush]);
 
+  // Keep this behavior: the browser tab shows the active book while reading and the short app name elsewhere.
+  useEffect(() => {
+    const activeBookTitle = book && book.id === bookId ? book.title.trim() : '';
+    document.title = activeBookTitle || 'WebXReader';
+    return () => {
+      document.title = 'WebXReader';
+    };
+  }, [book?.id, book?.title, bookId]);
+
   const isEpub = book?.sourceFormat === 'epub' && Boolean(content?.originalFile);
   const isPdf = book?.sourceFormat === 'pdf' && Boolean(content?.originalFile);
   const isCbz = (book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && Boolean(content?.originalFile);
@@ -220,6 +230,8 @@ export function ReaderView() {
     loading: !stageReady,
     previewRefs: zoomPreviewRefs,
   });
+  const resetZoomRef = useRef(resetZoom);
+  resetZoomRef.current = resetZoom;
 
   const {
     searchOpen,
@@ -253,8 +265,8 @@ export function ReaderView() {
     setActiveChapterId('');
     setBook(null);
     setContent(null);
-    resetZoom();
-  }, [bookId, resetZoom]);
+    resetZoomRef.current();
+  }, [bookId]);
 
   useEffect(() => {
     if (initialProgressRef.current || !progress) return;
@@ -743,7 +755,13 @@ export function ReaderView() {
           <button
             className={styles.iconBtn}
             onClick={() => zoomBy(1.1)}
-            disabled={readerZoom >= (isFixedLayout(book?.sourceFormat) ? MAX_PDF_ZOOM : MAX_READER_ZOOM)}
+            disabled={readerZoom >= (
+              book?.sourceFormat === 'epub'
+                ? MAX_EPUB_ZOOM
+                : isFixedLayout(book?.sourceFormat)
+                  ? MAX_PDF_ZOOM
+                  : MAX_READER_ZOOM
+            )}
             title="Zoom in (Ctrl/Cmd +)"
             aria-label="Zoom in"
             type="button"
@@ -844,7 +862,8 @@ export function ReaderView() {
               onProgressUpdate={handleEpubProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
-              onZoomGesture={(deltaY) => queueWheelZoom(deltaY)}
+              zoomAnchor={zoomAnchor}
+              onZoomGesture={(deltaY, point) => queueWheelZoom(deltaY, point)}
               onZoomTo={zoomTo}
             />
           ) : effectiveReadingMode === 'paginated' ? (

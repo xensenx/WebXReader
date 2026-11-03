@@ -147,7 +147,7 @@ describe('Reader Settings Enhancements', () => {
       expect(screen.queryByText(/^expand to full width$/i)).not.toBeInTheDocument();
     });
 
-    it('renders original Reading Mode options and Expand to Full Width toggle for non-txt formats (e.g. epub)', () => {
+    it('renders original Reading Mode options and Expand to Full Width toggle for non-txt formats (e.g. mobi)', () => {
       const handleUpdate = vi.fn();
       render(
         <ReaderSettings
@@ -156,7 +156,7 @@ describe('Reader Settings Enhancements', () => {
           settings={dummySettings}
           onUpdate={handleUpdate}
           onReset={vi.fn()}
-          format="epub"
+          format="mobi"
         />
       );
 
@@ -185,7 +185,7 @@ describe('Reader Settings Enhancements', () => {
           settings={{ ...dummySettings, expandContent: true }}
           onUpdate={handleUpdate}
           onReset={vi.fn()}
-          format="epub"
+          format="mobi"
         />
       );
 

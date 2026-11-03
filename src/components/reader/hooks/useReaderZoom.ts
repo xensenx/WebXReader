@@ -20,15 +20,21 @@ export const MIN_READER_ZOOM = 0.5;
 export const MAX_READER_ZOOM = 3;
 export const MIN_PDF_ZOOM = 0.24;
 export const MAX_PDF_ZOOM = 8;
+export const MAX_EPUB_ZOOM = 8;
 
-export type ReaderZoomAnchor = PdfZoomAnchor;
+export type ReaderZoomAnchor = PdfZoomAnchor & {
+  epubSectionIndex?: number;
+  epubSectionX?: number;
+  epubSectionY?: number;
+};
 
-export function clampReaderZoom(value: number, fixedLayout: boolean): number {
+export function clampReaderZoom(value: number, fixedLayout: boolean, continuous = false): number {
   const min = fixedLayout ? MIN_PDF_ZOOM : MIN_READER_ZOOM;
-  const max = fixedLayout ? MAX_PDF_ZOOM : MAX_READER_ZOOM;
-  // Keep PDF wheel/pinch zoom continuous. Rounding each input step makes
-  // small trackpad deltas visibly stall and jump at high magnification.
-  const zoom = fixedLayout ? value : Math.round(value * 100) / 100;
+  const max = continuous ? MAX_EPUB_ZOOM : fixedLayout ? MAX_PDF_ZOOM : MAX_READER_ZOOM;
+  // Keep PDF and EPUB gesture zoom continuous. Fine EPUB precision avoids
+  // visible steps during trackpad zoom at higher magnification.
+  const precision = continuous ? 1000 : 100;
+  const zoom = fixedLayout ? value : Math.round(value * precision) / precision;
   return Math.min(max, Math.max(min, zoom));
 }
 
@@ -113,6 +119,11 @@ export function useReaderZoom({
     );
     const page = hitPage && stage.contains(hitPage) ? hitPage : null;
     const pageRect = page?.getBoundingClientRect();
+    const hitSection = sourceFormat === 'epub'
+      ? (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-epub-section-index]')
+      : null;
+    const section = hitSection && stage.contains(hitSection) ? hitSection : null;
+    const sectionRect = section?.getBoundingClientRect();
 
     return {
       id: ++zoomAnchorIdRef.current,
@@ -121,18 +132,24 @@ export function useReaderZoom({
         : undefined,
       pageX: pageRect?.width ? Math.max(0, Math.min(1, (x - pageRect.left) / pageRect.width)) : undefined,
       pageY: pageRect?.height ? Math.max(0, Math.min(1, (y - pageRect.top) / pageRect.height)) : undefined,
+      epubSectionIndex: section ? Number(section.dataset.epubSectionIndex) : undefined,
+      epubSectionX: sectionRect?.width ? Math.max(0, Math.min(1, (x - sectionRect.left) / sectionRect.width)) : undefined,
+      epubSectionY: sectionRect?.height ? Math.max(0, Math.min(1, (y - sectionRect.top) / sectionRect.height)) : undefined,
       viewportX,
       viewportY,
       scrollRatioX: (viewport.scrollLeft + viewportX) / Math.max(1, viewport.scrollWidth),
       scrollRatioY: (viewport.scrollTop + viewportY) / Math.max(1, viewport.scrollHeight),
     } satisfies ReaderZoomAnchor;
-  }, [readerStageRef]);
+  }, [readerStageRef, sourceFormat]);
 
   const updateZoom = useCallback((nextZoom: number, fixedLayout: boolean, anchor?: ReaderZoomAnchor) => {
     if (Math.abs(nextZoom - readerZoomRef.current) < 1e-7) return;
     readerZoomRef.current = nextZoom;
     if (!fixedLayout) {
       if (anchor) setZoomAnchor(anchor);
+      if (sourceFormat === 'epub') {
+        previewRefs?.epubReaderRef?.current?.previewZoom(nextZoom, anchor ?? captureZoomAnchor());
+      }
       setReaderZoom(nextZoom);
       return;
     }
@@ -160,23 +177,24 @@ export function useReaderZoom({
       setReaderZoom(readerZoomRef.current);
       pdfZoomCommitTimerRef.current = null;
     }, 120);
-  }, [captureZoomAnchor, previewRefs]);
+  }, [captureZoomAnchor, previewRefs, sourceFormat]);
 
   const zoomBy = useCallback((factor: number, point?: { x: number; y: number }) => {
     const anchor = captureZoomAnchor(point?.x, point?.y);
     const fixedLayout = isFixedLayout(sourceFormat);
-    updateZoom(clampReaderZoom(readerZoomRef.current * factor, fixedLayout), fixedLayout, anchor);
+    updateZoom(clampReaderZoom(readerZoomRef.current * factor, fixedLayout, sourceFormat === 'epub'), fixedLayout, anchor);
   }, [sourceFormat, captureZoomAnchor, updateZoom]);
 
   const zoomTo = useCallback((targetZoom: number, point?: { x: number; y: number }) => {
     const anchor = captureZoomAnchor(point?.x, point?.y);
     const fixedLayout = isFixedLayout(sourceFormat);
-    updateZoom(clampReaderZoom(targetZoom, fixedLayout), fixedLayout, anchor);
+    updateZoom(clampReaderZoom(targetZoom, fixedLayout, sourceFormat === 'epub'), fixedLayout, anchor);
   }, [sourceFormat, captureZoomAnchor, updateZoom]);
 
   const resetZoom = useCallback(() => {
+    const epubAnchor = sourceFormat === 'epub' ? captureZoomAnchor() : undefined;
     readerZoomRef.current = 1;
-    setZoomAnchor(undefined);
+    setZoomAnchor(epubAnchor);
     pdfZoomAnchorRef.current = undefined;
     wheelZoomDeltaRef.current = 0;
     wheelZoomPointRef.current = undefined;
@@ -197,11 +215,14 @@ export function useReaderZoom({
       pdfZoomCommitTimerRef.current = null;
     }
     setReaderZoom(1);
+    if (sourceFormat === 'epub') {
+      previewRefs?.epubReaderRef?.current?.previewZoom(1, epubAnchor);
+    }
     if (zoomLabelRef.current) {
       zoomLabelRef.current.textContent = '100%';
       zoomLabelRef.current.setAttribute('aria-label', 'Book zoom 100 percent');
     }
-  }, []);
+  }, [captureZoomAnchor, previewRefs, sourceFormat]);
 
   const queueWheelZoom = useCallback((deltaY: number, point?: { x: number; y: number }) => {
     const fixedLayout = isFixedLayout(sourceFormat);
