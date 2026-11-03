@@ -1,9 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildEpubThemeRules,
   buildEpubThemeCss,
   getEpubSheetColors,
   applyTypographyToDocument,
+  applyWithScrollAnchor,
+  type ScrollAnchorManager,
 } from '../formats/engines/EpubReader';
 import type { EffectiveReaderSettings } from '../hooks/useReaderSettings';
 
@@ -73,6 +75,18 @@ describe('EPUB Reader Typography Enhancements', () => {
       expect(rules.p['text-indent']).toBe('0em !important');
       expect(rules.p['text-align']).toBe('left !important');
 
+      // Universal paragraph spacing selectors to override publisher classes and adjacent siblings
+      const universalSelector = 'html body p, html body p[class], html body [class*="calibre"] p, html body div[class*="para"], html body div[class*="paragraph"], html body div.paragraph, html body div.p, html body article p, html body section p';
+      expect(rules[universalSelector]['margin-top']).toBe('0 !important');
+      expect(rules[universalSelector]['margin-bottom']).toBe('1em !important');
+
+      const siblingSelector = 'p + p, p + div, div + p, html body p + p, html body p + div, html body div + p, html body p[class] + p[class], html body div[class*="para"] + div[class*="para"]';
+      expect(rules[siblingSelector]['margin-top']).toBe('0 !important');
+      expect(rules[siblingSelector]['margin-bottom']).toBe('1em !important');
+
+      const divParaSelector = 'div.paragraph, div[class*="para"], div[class*="paragraph"], div.p';
+      expect(rules[divParaSelector]['margin-bottom']).toBe('1em !important');
+
       // Divs and block containers
       expect(rules['div, article, section']['font-family']).toBe('Georgia, serif !important');
       expect(rules['div, article, section']['line-height']).toBe('1.7 !important');
@@ -140,6 +154,8 @@ describe('EPUB Reader Typography Enhancements', () => {
       expect(css).toContain('span:not([class*="icon"]):not([class*="math"]) {');
       expect(css).toContain('font-family: inherit !important;');
       expect(css).toContain('line-height: inherit !important;');
+      expect(css).toContain('html body p');
+      expect(css).toContain('p + p');
     });
   });
 
@@ -160,30 +176,40 @@ describe('EPUB Reader Typography Enhancements', () => {
       expect(styleEl?.textContent).toBe(updatedCss);
     });
 
-    it('clears conflicting author inline style properties on <p> elements', () => {
+    it('clears conflicting author inline style properties including margin shorthand on paragraphs and divs', () => {
       const doc = document.implementation.createHTMLDocument('EPUB Chapter');
       doc.body.innerHTML = `
         <div class="chapter">
-          <p id="p1" style="font-family: BookAntiqua; line-height: 1.1; margin-top: 2em; margin-bottom: 0px; text-indent: 20px;">
-            Chapter text with author inline styles.
+          <p id="p1" style="font-family: BookAntiqua; line-height: 1.1; margin: 0; text-indent: 20px;">
+            Chapter text with author inline margin shorthand.
           </p>
+          <div id="para1" class="paragraph" style="margin-top: 2em; margin-bottom: 0px; font-family: Arial;">
+            Div-based paragraph.
+          </div>
           <p id="p2">Normal paragraph.</p>
         </div>
       `;
 
       const p1 = doc.getElementById('p1') as HTMLElement;
+      const para1 = doc.getElementById('para1') as HTMLElement;
+
       expect(p1.style.fontFamily).toContain('BookAntiqua');
       expect(p1.style.lineHeight).toBe('1.1');
-      expect(p1.style.marginTop).toBe('2em');
+      expect(p1.style.margin).toBe('0px');
 
       applyTypographyToDocument(doc, '/* test */');
 
-      // Author inline typography overrides are cleared so reader settings take effect
+      // Author inline typography and margin overrides are cleared so reader settings take effect
       expect(p1.style.fontFamily).toBe('');
       expect(p1.style.lineHeight).toBe('');
+      expect(p1.style.margin).toBe('');
       expect(p1.style.marginTop).toBe('');
       expect(p1.style.marginBottom).toBe('');
       expect(p1.style.textIndent).toBe('');
+
+      expect(para1.style.fontFamily).toBe('');
+      expect(para1.style.marginTop).toBe('');
+      expect(para1.style.marginBottom).toBe('');
     });
 
     it('leaves standalone image sections untouched', () => {
@@ -199,6 +225,155 @@ describe('EPUB Reader Typography Enhancements', () => {
       // Image only section body is not stripped
       expect(p.style.fontFamily).toContain('CoverFont');
       expect(p.style.marginTop).toBe('10px');
+    });
+  });
+
+  describe('applyWithScrollAnchor', () => {
+    it('compensates scroll drift when content expands so reading position is maintained', () => {
+      // Mock scroll container
+      const scrollSurface = document.createElement('div');
+      scrollSurface.scrollTop = 500;
+      Object.defineProperty(scrollSurface, 'clientHeight', { value: 800, configurable: true });
+      scrollSurface.getBoundingClientRect = () => ({
+        top: 0,
+        bottom: 800,
+        left: 0,
+        right: 800,
+        width: 800,
+        height: 800,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+      // Mock view and iframe
+      const viewElement = document.createElement('div');
+      Object.defineProperty(viewElement, 'isConnected', { value: true, configurable: true });
+
+      const iframe = document.createElement('iframe');
+      const iframeDoc = document.implementation.createHTMLDocument('Section');
+      const p = iframeDoc.createElement('p');
+      p.textContent = 'User reading this line';
+      iframeDoc.body.appendChild(p);
+
+      Object.defineProperty(iframe, 'contentDocument', { value: iframeDoc, configurable: true });
+      Object.defineProperty(iframe, 'clientHeight', { value: 1200, configurable: true });
+
+      // Anchor element starts at screen Y = 100
+      let pTop = 50;
+      let iframeTop = 50;
+      iframe.getBoundingClientRect = () => ({
+        top: iframeTop,
+        bottom: iframeTop + 1200,
+        left: 0,
+        right: 800,
+        width: 800,
+        height: 1200,
+        x: 0,
+        y: iframeTop,
+        toJSON: () => {},
+      });
+      viewElement.getBoundingClientRect = () => iframe.getBoundingClientRect();
+
+      p.getBoundingClientRect = () => ({
+        top: pTop,
+        bottom: pTop + 40,
+        left: 50,
+        right: 400,
+        width: 350,
+        height: 40,
+        x: 50,
+        y: pTop,
+        toJSON: () => {},
+      });
+
+      const manager: ScrollAnchorManager = {
+        views: {
+          all: () => [{ element: viewElement, iframe }],
+        },
+        counter: vi.fn(),
+      };
+
+      // Content above the reading anchor expands by 120px during typography adjustment
+      applyWithScrollAnchor(scrollSurface, manager, () => {
+        // Earlier content expanded, pushing p downwards by 120px
+        pTop += 120;
+      });
+
+      // The 120px drift must be added to scrollTop (500 + 120 = 620)
+      // to keep the reading position perfectly locked on screen
+      expect(scrollSurface.scrollTop).toBe(620);
+      expect(manager.ignore).toBe(true);
+    });
+
+    it('compensates scroll drift when content contracts so reading position is maintained', () => {
+      const scrollSurface = document.createElement('div');
+      scrollSurface.scrollTop = 800;
+      Object.defineProperty(scrollSurface, 'clientHeight', { value: 800, configurable: true });
+      scrollSurface.getBoundingClientRect = () => ({
+        top: 0,
+        bottom: 800,
+        left: 0,
+        right: 800,
+        width: 800,
+        height: 800,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+      const viewElement = document.createElement('div');
+      Object.defineProperty(viewElement, 'isConnected', { value: true, configurable: true });
+
+      const iframe = document.createElement('iframe');
+      const iframeDoc = document.implementation.createHTMLDocument('Section');
+      const p = iframeDoc.createElement('p');
+      p.textContent = 'Reading anchor';
+      iframeDoc.body.appendChild(p);
+
+      Object.defineProperty(iframe, 'contentDocument', { value: iframeDoc, configurable: true });
+      Object.defineProperty(iframe, 'clientHeight', { value: 1200, configurable: true });
+
+      let pTop = 150;
+      let iframeTop = 50;
+      iframe.getBoundingClientRect = () => ({
+        top: iframeTop,
+        bottom: iframeTop + 1200,
+        left: 0,
+        right: 800,
+        width: 800,
+        height: 1200,
+        x: 0,
+        y: iframeTop,
+        toJSON: () => {},
+      });
+      viewElement.getBoundingClientRect = () => iframe.getBoundingClientRect();
+
+      p.getBoundingClientRect = () => ({
+        top: pTop,
+        bottom: pTop + 40,
+        left: 50,
+        right: 400,
+        width: 350,
+        height: 40,
+        x: 50,
+        y: pTop,
+        toJSON: () => {},
+      });
+
+      const manager: ScrollAnchorManager = {
+        views: {
+          all: () => [{ element: viewElement, iframe }],
+        },
+      };
+
+      // Content contracts by 70px
+      applyWithScrollAnchor(scrollSurface, manager, () => {
+        pTop -= 70;
+      });
+
+      // ScrollTop must decrease by 70px (800 - 70 = 730)
+      expect(scrollSurface.scrollTop).toBe(730);
     });
   });
 });

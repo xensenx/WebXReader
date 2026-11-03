@@ -489,6 +489,25 @@ export function buildEpubThemeRules(
       'word-spacing': `${effectiveWordSpacing}px !important`,
       color: `${sheetFg} !important`,
     },
+    'html body p, html body p[class], html body [class*="calibre"] p, html body div[class*="para"], html body div[class*="paragraph"], html body div.paragraph, html body div.p, html body article p, html body section p': {
+      'margin-top': '0 !important',
+      'margin-bottom': `${settings.paragraphSpacing}em !important`,
+      'line-height': `${settings.lineHeight} !important`,
+      'font-family': `${settings.fontFamily} !important`,
+      'text-align': `${settings.textAlign} !important`,
+    },
+    'p + p, p + div, div + p, html body p + p, html body p + div, html body div + p, html body p[class] + p[class], html body div[class*="para"] + div[class*="para"]': {
+      'margin-top': '0 !important',
+      'margin-bottom': `${settings.paragraphSpacing}em !important`,
+    },
+    'div.paragraph, div[class*="para"], div[class*="paragraph"], div.p': {
+      'font-family': `${settings.fontFamily} !important`,
+      'line-height': `${settings.lineHeight} !important`,
+      'margin-top': '0 !important',
+      'margin-bottom': `${settings.paragraphSpacing}em !important`,
+      'text-align': `${settings.textAlign} !important`,
+      color: `${sheetFg} !important`,
+    },
     'div, article, section': {
       'font-family': `${settings.fontFamily} !important`,
       'line-height': `${settings.lineHeight} !important`,
@@ -629,28 +648,170 @@ export function applyTypographyToDocument(
   const head = doc.head || doc.querySelector('head');
   if (!head) return;
 
-  let styleEl = doc.getElementById('epubjs-inserted-css-default') as HTMLStyleElement | null;
-  if (!styleEl) {
-    styleEl = doc.getElementById('webx-epub-typography') as HTMLStyleElement | null;
-  }
+  let styleEl = doc.getElementById('webx-epub-typography') as HTMLStyleElement | null;
   if (!styleEl) {
     styleEl = doc.createElement('style');
     styleEl.id = 'webx-epub-typography';
-    head.appendChild(styleEl);
   }
+  // Append to head so it is the last child and has cascade priority over author stylesheets
+  head.appendChild(styleEl);
   styleEl.textContent = cssText;
 
   const body = doc.body;
   if (body && !body.classList.contains('epub-image-only-section')) {
-    doc.querySelectorAll<HTMLElement>('p').forEach((p) => {
-      if (!p.closest('.epub-image-only-section')) {
-        if (p.style.lineHeight) p.style.removeProperty('line-height');
-        if (p.style.fontFamily) p.style.removeProperty('font-family');
-        if (p.style.marginTop) p.style.removeProperty('margin-top');
-        if (p.style.marginBottom) p.style.removeProperty('margin-bottom');
-        if (p.style.textIndent) p.style.removeProperty('text-indent');
+    doc.querySelectorAll<HTMLElement>(
+      'p, div.paragraph, div[class*="para"], div[class*="paragraph"], div.p, [class*="calibre"] p'
+    ).forEach((p) => {
+      if (!p.closest('.epub-image-only-section') && !p.querySelector('img, svg')) {
+        p.style.removeProperty('margin');
+        p.style.removeProperty('margin-top');
+        p.style.removeProperty('margin-bottom');
+        p.style.removeProperty('line-height');
+        p.style.removeProperty('font-family');
+        p.style.removeProperty('text-indent');
       }
     });
+  }
+}
+
+export type ScrollAnchorTarget = {
+  element: HTMLElement;
+  iframe?: HTMLIFrameElement;
+};
+
+export type ScrollAnchorManager = {
+  views?: {
+    all: () => ScrollAnchorTarget[];
+  };
+  counter?: (bounds: { heightDelta: number; [key: string]: number }) => void;
+  ignore?: boolean;
+};
+
+export function applyWithScrollAnchor(
+  scrollSurface: HTMLElement | null | undefined,
+  manager: ScrollAnchorManager | undefined,
+  applyChanges: () => void
+): void {
+  if (!scrollSurface) {
+    applyChanges();
+    return;
+  }
+
+  const containerRect = scrollSurface.getBoundingClientRect();
+  const targetViewportY = containerRect.top + Math.max(20, Math.min(150, scrollSurface.clientHeight * 0.15));
+
+  const allViews = manager?.views?.all ? manager.views.all() : [];
+  let anchorView = allViews.find((v) => {
+    if (!v.element || !v.element.isConnected) return false;
+    const r = v.element.getBoundingClientRect();
+    return r.top <= targetViewportY && r.bottom > targetViewportY;
+  });
+
+  if (!anchorView && allViews.length > 0) {
+    anchorView = allViews.find((v) => {
+      if (!v.element || !v.element.isConnected) return false;
+      return v.element.getBoundingClientRect().bottom > containerRect.top;
+    }) || allViews[0];
+  }
+
+  let anchorEl: HTMLElement | null = null;
+  let anchorRange: Range | null = null;
+  let beforeScreenY = 0;
+
+  if (anchorView) {
+    const iframe = anchorView.iframe;
+    const doc = iframe?.contentDocument;
+    if (iframe && doc && doc.body) {
+      const iframeRect = iframe.getBoundingClientRect();
+      const docWidth = doc.documentElement?.clientWidth || doc.body.clientWidth || 400;
+      const localX = Math.max(30, Math.min(docWidth / 2, 200));
+      const localY = targetViewportY - iframeRect.top;
+
+      if (typeof doc.caretRangeFromPoint === 'function' && localY >= 0 && localY <= iframe.clientHeight) {
+        try {
+          const range = doc.caretRangeFromPoint(localX, localY);
+          if (range && range.startContainer) {
+            const rangeRect = range.getBoundingClientRect();
+            if (rangeRect.height > 0 || rangeRect.width > 0) {
+              anchorRange = range;
+              beforeScreenY = iframeRect.top + rangeRect.top;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!anchorRange) {
+        if (typeof doc.elementFromPoint === 'function' && localY >= 0 && localY <= iframe.clientHeight) {
+          try {
+            const el = doc.elementFromPoint(localX, localY) as HTMLElement | null;
+            if (el && el !== doc.body && el !== doc.documentElement) {
+              anchorEl = (el.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, div.paragraph, div[class*="para"], div') as HTMLElement) || el;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        if (!anchorEl) {
+          const blocks = Array.from(doc.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6, li, blockquote, div'));
+          for (const b of blocks) {
+            const r = b.getBoundingClientRect();
+            if (r.bottom >= localY && r.top <= localY + 200) {
+              anchorEl = b;
+              break;
+            }
+          }
+        }
+
+        if (anchorEl) {
+          beforeScreenY = iframeRect.top + anchorEl.getBoundingClientRect().top;
+        } else {
+          beforeScreenY = anchorView.element.getBoundingClientRect().top;
+        }
+      }
+    } else {
+      beforeScreenY = anchorView.element.getBoundingClientRect().top;
+    }
+  }
+
+  // Temporarily suppress epub.js manager.counter during batch expand
+  // so prepended view expansions do not shift scrollTop unexpectedly
+  const originalCounter = manager?.counter;
+  if (manager) {
+    manager.counter = () => {};
+  }
+
+  try {
+    applyChanges();
+  } finally {
+    if (manager && originalCounter) {
+      manager.counter = originalCounter;
+    }
+  }
+
+  let afterScreenY = beforeScreenY;
+  if (anchorRange && anchorView?.iframe) {
+    try {
+      const r = anchorRange.getBoundingClientRect();
+      afterScreenY = anchorView.iframe.getBoundingClientRect().top + r.top;
+    } catch {
+      anchorRange = null;
+    }
+  }
+  if (!anchorRange && anchorEl && anchorView?.iframe) {
+    afterScreenY = anchorView.iframe.getBoundingClientRect().top + anchorEl.getBoundingClientRect().top;
+  } else if (!anchorRange && !anchorEl && anchorView) {
+    afterScreenY = anchorView.element.getBoundingClientRect().top;
+  }
+
+  const drift = afterScreenY - beforeScreenY;
+  if (Math.abs(drift) > 0.5) {
+    if (manager) {
+      manager.ignore = true;
+    }
+    scrollSurface.scrollTop = Math.max(0, scrollSurface.scrollTop + drift);
   }
 }
 
@@ -1849,20 +2010,6 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         effectiveWordSpacing
       );
 
-      // Directly update all active iframes/documents with the new CSS
-      const container = (rendition as unknown as {
-        manager?: { container?: HTMLElement };
-      }).manager?.container;
-      const iframes = container
-        ? Array.from(container.querySelectorAll<HTMLIFrameElement>('iframe'))
-        : [];
-      for (const iframe of iframes) {
-        if (iframe.contentDocument) {
-          applyTypographyToDocument(iframe.contentDocument, cssText);
-        }
-      }
-
-      // Re-measure and expand active views so iframe dimensions match the new text flow
       type EpubView = {
         element: HTMLElement;
         iframe?: HTMLIFrameElement;
@@ -1872,43 +2019,59 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       };
       const manager = (rendition as unknown as {
         manager?: {
+          container?: HTMLElement;
           views?: {
             all: () => EpubView[];
           };
+          counter?: (bounds: { heightDelta: number; [key: string]: number }) => void;
+          ignore?: boolean;
         };
       }).manager;
-      const allViews = manager?.views?.all ? manager.views.all() : [];
 
-      for (const view of allViews) {
-        if (view.element.getAttribute('data-epub-image-view') === 'true') continue;
-        try {
-          if (isPaginated && view.layout && view.contents) {
-            view.layout.format(view.contents);
+      const performViewUpdate = () => {
+        // Directly update all active iframes/documents with the new CSS
+        const container = manager?.container;
+        const iframes = container
+          ? Array.from(container.querySelectorAll<HTMLIFrameElement>('iframe'))
+          : [];
+        for (const iframe of iframes) {
+          if (iframe.contentDocument) {
+            applyTypographyToDocument(iframe.contentDocument, cssText);
           }
-          view.expand();
-          if (isScrolled) {
-            applyEpubSectionScale(view.element, readerZoomRef.current);
-          }
-        } catch {
-          // ignore layout errors
         }
-      }
 
-      // Keep reading position coherent after layout recalculation
-      if (isPaginated) {
-        if (latestCfiRef.current) {
+        // Re-measure and expand active views so iframe dimensions match the new text flow
+        const allViews = manager?.views?.all ? manager.views.all() : [];
+        for (const view of allViews) {
+          if (view.element.getAttribute('data-epub-image-view') === 'true') continue;
           try {
-            void rendition.display(latestCfiRef.current);
+            if (isPaginated && view.layout && view.contents) {
+              view.layout.format(view.contents);
+            }
+            view.expand();
+            if (isScrolled) {
+              applyEpubSectionScale(view.element, readerZoomRef.current);
+            }
           } catch {
-            // ignore
+            // ignore layout errors
           }
         }
-      } else if (isScrolled) {
-        const scrollSurface = viewerRef.current?.querySelector<HTMLElement>('.epub-container');
-        if (scrollSurface && lastPercentageRef.current > 0) {
-          const maxScroll = Math.max(0, scrollSurface.scrollHeight - scrollSurface.clientHeight);
-          if (maxScroll > 0) {
-            scrollSurface.scrollTop = Math.min(maxScroll, lastPercentageRef.current * maxScroll);
+      };
+
+      if (isScrolled) {
+        const scrollSurface = viewerRef.current?.querySelector<HTMLElement>('.epub-container') || manager?.container;
+        applyWithScrollAnchor(scrollSurface, manager, performViewUpdate);
+      } else {
+        performViewUpdate();
+        if (isPaginated) {
+          const currentLoc = (rendition as unknown as { location?: { start?: { cfi?: string } } }).location;
+          const targetCfi = currentLoc?.start?.cfi || latestCfiRef.current;
+          if (targetCfi) {
+            try {
+              void rendition.display(targetCfi);
+            } catch {
+              // ignore
+            }
           }
         }
       }
