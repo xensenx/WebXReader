@@ -15,8 +15,8 @@ export const epubFormat: FormatDefinition = {
   requiresOriginalFile: true,
   capabilities: {
     continuousScroll: true,
-    paginated: true,
-    doubleSided: false,
+    paginated: false,
+    doubleSided: true,
     zoom: true,
     search: true,
     customTypography: true,

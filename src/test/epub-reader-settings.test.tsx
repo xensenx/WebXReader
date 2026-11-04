@@ -29,7 +29,7 @@ describe('EPUB Reader Settings Enhancements', () => {
   };
 
   describe('ReaderSettings component for EPUB', () => {
-    it('renders Reading Mode options (Vertical Scroll, Pages, Double Sided) and sub-mode Contracted / Expanded controls for EPUB when in scroll mode', () => {
+    it('renders Reading Mode options (Vertical Scroll and Double Sided) without Pages or Contracted / Expanded controls for EPUB', () => {
       const handleUpdate = vi.fn();
       const { rerender } = render(
         <ReaderSettings
@@ -42,74 +42,59 @@ describe('EPUB Reader Settings Enhancements', () => {
         />
       );
 
-      // Primary reading modes
-      expect(screen.getByRole('button', { name: /vertical scroll/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /^pages$/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /double sided/i })).toBeInTheDocument();
+      // Primary reading modes for EPUB: Vertical Scroll and Double Sided only
+      const scrollBtn = screen.getByRole('button', { name: /vertical scroll/i });
+      const doubleSidedBtn = screen.getByRole('button', { name: /double sided/i });
 
-      // Scroll sub-modes
-      const contractedBtn = screen.getByRole('button', { name: /contracted mode/i });
-      const expandedBtn = screen.getByRole('button', { name: /expanded mode/i });
-      expect(contractedBtn).toBeInTheDocument();
-      expect(expandedBtn).toBeInTheDocument();
+      expect(scrollBtn).toBeInTheDocument();
+      expect(doubleSidedBtn).toBeInTheDocument();
 
-      // Contracted Mode active when expandContent is false
-      expect(contractedBtn.className).toMatch(/modeBtnActive/);
-      expect(expandedBtn.className).not.toMatch(/modeBtnActive/);
+      // Pages mode is removed for EPUB
+      expect(screen.queryByRole('button', { name: /^pages$/i })).not.toBeInTheDocument();
 
-      // Click Expanded Mode
-      fireEvent.click(expandedBtn);
-      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: true });
+      // Contracted Mode and Expanded Mode are removed for EPUB since Page Width slider is offered
+      expect(screen.queryByRole('button', { name: /contracted mode/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /expanded mode/i })).not.toBeInTheDocument();
 
-      // Rerender with expandContent: true
+      // Click Double Sided
+      fireEvent.click(doubleSidedBtn);
+      expect(handleUpdate).toHaveBeenCalledWith({ readingMode: 'vertical' });
+
+      // Rerender with readingMode: 'vertical'
       rerender(
         <ReaderSettings
           isOpen
           onClose={vi.fn()}
-          settings={{ ...dummySettings, expandContent: true }}
+          settings={{ ...dummySettings, readingMode: 'vertical' }}
           onUpdate={handleUpdate}
           onReset={vi.fn()}
           format="epub"
         />
       );
 
-      expect(expandedBtn.className).toMatch(/modeBtnActive/);
-      expect(contractedBtn.className).not.toMatch(/modeBtnActive/);
+      expect(doubleSidedBtn.className).toMatch(/modeBtnActive/);
+      expect(scrollBtn.className).not.toMatch(/modeBtnActive/);
 
-      // Click Contracted Mode
-      fireEvent.click(contractedBtn);
-      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: false });
+      // Click Vertical Scroll
+      fireEvent.click(scrollBtn);
+      expect(handleUpdate).toHaveBeenCalledWith({ readingMode: 'scroll' });
     });
 
-    it('does not render Contracted Mode and Expanded Mode buttons when EPUB reading mode is paginated or double sided', () => {
-      const { rerender } = render(
+    it('renders Pages button for non-EPUB formats like CBZ', () => {
+      render(
         <ReaderSettings
           isOpen
           onClose={vi.fn()}
-          settings={{ ...dummySettings, readingMode: 'paginated' }}
+          settings={dummySettings}
           onUpdate={vi.fn()}
           onReset={vi.fn()}
-          format="epub"
+          format="cbz"
         />
       );
 
-      expect(screen.queryByRole('button', { name: /contracted mode/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /expanded mode/i })).not.toBeInTheDocument();
-
-      // Rerender as double-sided (vertical)
-      rerender(
-        <ReaderSettings
-          isOpen
-          onClose={vi.fn()}
-          settings={{ ...dummySettings, readingMode: 'vertical' }}
-          onUpdate={vi.fn()}
-          onReset={vi.fn()}
-          format="epub"
-        />
-      );
-
-      expect(screen.queryByRole('button', { name: /contracted mode/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /expanded mode/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^pages$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /vertical scroll/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /double sided/i })).toBeInTheDocument();
     });
 
     it('renders Page Canvas color options (Paper White, Archive Gold, Dark) and toggles readerSheetColor', () => {

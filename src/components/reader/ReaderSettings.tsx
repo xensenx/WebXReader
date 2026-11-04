@@ -224,18 +224,18 @@ export function ReaderSettings({
                 </button>
               </div>
             ) : (
-              <>
-                <div className={styles.modeRow} aria-label={isFixed ? 'Fixed-layout document' : 'Reading modes'}>
-                  <button
-                    className={`${styles.modeBtn} ${
-                      settings.readingMode === 'scroll' ? styles.modeBtnActive : ''
-                    }`}
-                    onClick={() => onUpdate({ readingMode: 'scroll' })}
-                    type="button"
-                  >
-                    <Scroll size={18} />
-                    <span>Vertical Scroll</span>
-                  </button>
+              <div className={styles.modeRow} aria-label={isFixed ? 'Fixed-layout document' : 'Reading modes'}>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.readingMode === 'scroll' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readingMode: 'scroll' })}
+                  type="button"
+                >
+                  <Scroll size={18} />
+                  <span>Vertical Scroll</span>
+                </button>
+                {format !== 'epub' && (
                   <button
                     className={`${styles.modeBtn} ${
                       settings.readingMode === 'paginated' ? styles.modeBtnActive : ''
@@ -246,45 +246,20 @@ export function ReaderSettings({
                     <BookOpen size={18} />
                     <span>Pages</span>
                   </button>
-                  <button
-                    className={`${styles.modeBtn} ${
-                      settings.readingMode === 'vertical' ? styles.modeBtnActive : ''
-                    }`}
-                    onClick={() => onUpdate({ readingMode: 'vertical' })}
-                    disabled={!canDoubleSided}
-                    title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
-                    type="button"
-                  >
-                    <Pilcrow size={18} />
-                    <span>Double Sided</span>
-                  </button>
-                </div>
-
-                {format === 'epub' && settings.readingMode === 'scroll' && (
-                  <div className={`${styles.modeRow} ${styles.modeRowTxt}`} aria-label="Scroll display mode">
-                    <button
-                      className={`${styles.modeBtn} ${
-                        !settings.expandContent ? styles.modeBtnActive : ''
-                      }`}
-                      onClick={() => onUpdate({ expandContent: false })}
-                      type="button"
-                    >
-                      <Minimize2 size={16} />
-                      <span>Contracted Mode</span>
-                    </button>
-                    <button
-                      className={`${styles.modeBtn} ${
-                        Boolean(settings.expandContent) ? styles.modeBtnActive : ''
-                      }`}
-                      onClick={() => onUpdate({ expandContent: true })}
-                      type="button"
-                    >
-                      <Maximize2 size={16} />
-                      <span>Expanded Mode</span>
-                    </button>
-                  </div>
                 )}
-              </>
+                <button
+                  className={`${styles.modeBtn} ${
+                    settings.readingMode === 'vertical' ? styles.modeBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readingMode: 'vertical' })}
+                  disabled={!canDoubleSided}
+                  title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
+                  type="button"
+                >
+                  {format === 'epub' ? <BookOpen size={18} /> : <Pilcrow size={18} />}
+                  <span>Double Sided</span>
+                </button>
+              </div>
             )}
           </div>
 

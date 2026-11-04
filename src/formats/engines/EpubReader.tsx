@@ -14,6 +14,7 @@ import type { ReaderSearchResult } from '../../components/reader/search-types';
 import { getEpubImageSectionLayout } from './epub-image-layout';
 import type { EpubSectionImageInfo } from './epub-image-layout';
 import styles from './EpubReader.module.css';
+import { EpubDoubleSidedReader } from './EpubDoubleSidedReader';
 
 export interface EpubReaderHandle {
   goToHref: (href: string) => void;
@@ -47,7 +48,7 @@ interface EpubReaderProps {
   onZoomTo?: (zoom: number, point?: { x: number; y: number }) => void;
 }
 
-type EpubContent = {
+export type EpubContent = {
   document?: Document;
   sectionIndex?: number;
   cfiFromRange?: (range: Range) => string;
@@ -57,33 +58,35 @@ type EpubContent = {
   };
 };
 
-type EpubResourceBook = ReturnType<typeof ePub>;
+export type EpubResourceBook = ReturnType<typeof ePub>;
 
 type EpubResources = {
   get: (path: string) => string | Promise<string | undefined> | undefined;
   urls?: string[];
 };
 
-type EpubSearchSection = {
+export type EpubSearchSection = {
   index: number;
   href: string;
+  cfiBase?: string;
   document: Document;
   load: (request?: Function) => Promise<unknown>;
   cfiFromRange: (range: Range) => string;
   unload: () => void;
 };
 
-interface EpubSearchSectionIndex {
+export interface EpubSearchSectionIndex {
   index: number;
   href: string;
+  cfiBase?: string;
   title: string;
   text: string;
 }
 
-const isInlineOrNetworkUrl = (value: string) =>
+export const isInlineOrNetworkUrl = (value: string) =>
   /^(?:data:|blob:|https?:|file:|mailto:|javascript:)/i.test(value.trim());
 
-const withoutFragment = (value: string) => value.split('#')[0].split('?')[0];
+export const withoutFragment = (value: string) => value.split('#')[0].split('?')[0];
 
 const appendCandidate = (candidates: string[], value: string | undefined) => {
   if (!value || candidates.includes(value)) return;
@@ -95,7 +98,33 @@ const appendCandidate = (candidates: string[], value: string | undefined) => {
  * or a URL which has already been substituted by epub.js. Resolve all three
  * forms through epub.js's resource map before the iframe is paginated.
  */
-const resolveEpubResource = async (
+export function normalizeEpubLocation(target: string | undefined): string | undefined {
+  if (!target || typeof target !== 'string') return undefined;
+  const s = target.trim();
+  if (!s) return undefined;
+
+  // If bare cfiBase like "/6/22" or "/6/22!"
+  if (s.startsWith('/6/')) {
+    const parts = s.split('/');
+    if (parts.length >= 3) {
+      const num = parts[2].replace(/\D/g, '');
+      if (num) return `epubcfi(/6/${num}!/4)`;
+    }
+  }
+
+  // If epubcfi(/6/xx!) without path after !
+  if (s.startsWith('epubcfi(') && s.endsWith(')')) {
+    const inner = s.slice(8, -1);
+    const indirection = inner.split('!');
+    if (indirection.length >= 2 && !indirection[1]) {
+      return `epubcfi(${indirection[0]}!/4)`;
+    }
+  }
+
+  return s;
+}
+
+export const resolveEpubResource = async (
   book: EpubResourceBook,
   rawSource: string,
   contents: EpubContent
@@ -114,8 +143,15 @@ const resolveEpubResource = async (
 
   if (baseUrl) {
     try {
-      appendCandidate(candidates, new URL(source, baseUrl).toString());
-      appendCandidate(candidates, new URL(withoutFragment(source), baseUrl).toString());
+      const normalizedBase = baseUrl.startsWith('http://') || baseUrl.startsWith('https://')
+        ? baseUrl
+        : `http://epub.local${baseUrl.startsWith('/') ? '' : '/'}${baseUrl}`;
+      const resolved = new URL(source, normalizedBase);
+      appendCandidate(candidates, resolved.pathname);
+      appendCandidate(candidates, resolved.pathname.replace(/^\//, ''));
+      const resolvedNoFrag = new URL(withoutFragment(source), normalizedBase);
+      appendCandidate(candidates, resolvedNoFrag.pathname);
+      appendCandidate(candidates, resolvedNoFrag.pathname.replace(/^\//, ''));
     } catch {
       // Some archived EPUB paths are not valid browser URLs. The package
       // path candidates below still cover those publications.
@@ -123,35 +159,61 @@ const resolveEpubResource = async (
   }
 
   try {
-    appendCandidate(candidates, book.resolve(source, true));
+    const resolvedFromBook = book.resolve(source, true);
+    if (resolvedFromBook) {
+      appendCandidate(candidates, resolvedFromBook);
+      appendCandidate(candidates, resolvedFromBook.replace(/^\//, ''));
+    }
   } catch {
     // Keep trying the resource map with the candidates already collected.
   }
 
   const resources = book.resources as unknown as EpubResources;
-  for (const candidate of candidates) {
-    const replacement = await Promise.resolve(resources.get(candidate));
-    if (typeof replacement === 'string' && replacement.length > 0) {
-      return replacement;
+  if (resources && typeof resources.get === 'function') {
+    for (const candidate of candidates) {
+      try {
+        const rep = await Promise.resolve(resources.get(candidate));
+        if (typeof rep === 'string' && rep.length > 0) {
+          return rep;
+        }
+      } catch {}
+    }
+
+    // Match against the manifest when a browser URL and a package-relative URL
+    // describe the same asset but do not have identical string forms.
+    const normalizedCandidates = candidates.map((candidate) => withoutFragment(candidate));
+    const manifestUrl = resources.urls?.find((url) => {
+      if (normalizedCandidates.includes(withoutFragment(url))) return true;
+      try {
+        return normalizedCandidates.includes(withoutFragment(book.resolve(url, true)));
+      } catch {
+        return false;
+      }
+    });
+
+    if (manifestUrl) {
+      try {
+        const rep = await Promise.resolve(resources.get(manifestUrl));
+        if (typeof rep === 'string' && rep.length > 0) {
+          return rep;
+        }
+      } catch {}
     }
   }
 
-  // Match against the manifest when a browser URL and a package-relative URL
-  // describe the same asset but do not have identical string forms.
-  const normalizedCandidates = candidates.map((candidate) => withoutFragment(candidate));
-  const manifestUrl = resources.urls?.find((url) => {
-    if (normalizedCandidates.includes(withoutFragment(url))) return true;
-    try {
-      return normalizedCandidates.includes(withoutFragment(book.resolve(url, true)));
-    } catch {
-      return false;
-    }
-  });
-
-  if (manifestUrl) {
-    const replacement = await Promise.resolve(resources.get(manifestUrl));
-    if (typeof replacement === 'string' && replacement.length > 0) {
-      return replacement;
+  // Direct archive lookup fallback with leading slash handling
+  // (epub.js archive.getBlob / archive.createUrl expects a leading slash)
+  const archive = (book as unknown as { archive?: { createUrl: (url: string) => Promise<string> } }).archive;
+  if (archive && typeof archive.createUrl === 'function') {
+    for (const candidate of candidates) {
+      const clean = withoutFragment(candidate).replace(/^http:\/\/epub\.local\/?/, '');
+      const slashPath = clean.startsWith('/') ? clean : '/' + clean;
+      try {
+        const rep = await archive.createUrl(slashPath);
+        if (typeof rep === 'string' && rep.length > 0) {
+          return rep;
+        }
+      } catch {}
     }
   }
 
@@ -234,13 +296,20 @@ const applyImageViewMetadata = (
 const clearEpubSectionScale = (view: HTMLElement) => {
   view.removeAttribute('data-epub-zoomed');
   view.style.removeProperty('--epub-section-scale');
+  view.style.removeProperty('--epub-section-origin-x');
+  view.style.removeProperty('--epub-section-pan-x');
   view.style.removeProperty('margin-top');
   view.style.removeProperty('margin-bottom');
   delete view.dataset.epubSectionBaseMarginTop;
   delete view.dataset.epubSectionBaseMarginBottom;
 };
 
-const applyEpubSectionScale = (view: HTMLElement, scale: number) => {
+const applyEpubSectionScale = (
+  view: HTMLElement,
+  scale: number,
+  originX: number = 0.5,
+  panX: number = 0
+) => {
   if (Math.abs(scale - 1) < 1e-7) {
     clearEpubSectionScale(view);
     return;
@@ -258,6 +327,8 @@ const applyEpubSectionScale = (view: HTMLElement, scale: number) => {
   const baseMarginBottom = Number(view.dataset.epubSectionBaseMarginBottom) || 0;
   view.dataset.epubZoomed = 'true';
   view.style.setProperty('--epub-section-scale', String(scale));
+  view.style.setProperty('--epub-section-origin-x', `${Math.max(0, Math.min(100, originX * 100))}%`);
+  view.style.setProperty('--epub-section-pan-x', `${panX}px`);
   view.style.setProperty('margin-top', `${baseMarginTop * scale}px`, 'important');
   view.style.setProperty('margin-bottom', `${baseMarginBottom * scale + baseHeight * (scale - 1)}px`, 'important');
 };
@@ -318,7 +389,7 @@ const resolveSrcset = async (
   element.setAttribute(attribute, resolvedEntries.join(','));
 };
 
-const prepareEpubImageSources = async (
+export const prepareEpubImageSources = async (
   book: EpubResourceBook,
   contents: EpubContent
 ) => {
@@ -358,7 +429,7 @@ const prepareEpubImageSources = async (
   return images;
 };
 
-async function buildEpubSearchIndex(book: EpubResourceBook): Promise<EpubSearchSectionIndex[]> {
+export async function buildEpubSearchIndex(book: EpubResourceBook): Promise<EpubSearchSectionIndex[]> {
   await book.ready;
   const sections: EpubSearchSection[] = [];
   (book.spine as unknown as { each: (callback: (section: EpubSearchSection) => void) => void })
@@ -442,6 +513,8 @@ export function buildEpubThemeRules(
       'box-sizing': 'border-box !important',
       'touch-action': 'pan-x pan-y !important',
       'overflow-anchor': 'none !important',
+      '-webkit-font-smoothing': 'subpixel-antialiased !important',
+      'text-rendering': 'optimizeLegibility !important',
     },
     body: {
       background: `${sheetBg} !important`,
@@ -455,6 +528,8 @@ export function buildEpubThemeRules(
       'box-sizing': 'border-box !important',
       'touch-action': 'pan-x pan-y !important',
       'overflow-anchor': 'none !important',
+      '-webkit-font-smoothing': 'subpixel-antialiased !important',
+      'text-rendering': 'optimizeLegibility !important',
       margin: '0 !important',
       padding: `0 ${effectiveMargin}px !important`,
     },
@@ -815,8 +890,8 @@ export function applyWithScrollAnchor(
   }
 }
 
-export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
-  function EpubReader(
+const EpubScrollReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
+  function EpubScrollReader(
     { fileData, settings, initialCfi, onProgressUpdate, onToggleControls, readerZoom = 1, zoomAnchor, onZoomGesture, onZoomTo },
     ref
   ) {
@@ -873,6 +948,13 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
     const previewedZoomRef = useRef<number | null>(null);
     const previewedAnchorIdRef = useRef<number | undefined>(undefined);
     const zoomWheelDocumentsRef = useRef(new WeakSet<Document>());
+    const zoomOriginXRef = useRef<number>(0.5);
+    const zoomPanXRef = useRef<number>(0);
+    const hoverPointerRatioXRef = useRef<number>(0.5);
+    const isDraggingRef = useRef<boolean>(false);
+    const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    const panStartRef = useRef<number>(0);
+    const hasDraggedRef = useRef<boolean>(false);
 
     const initialCfiRef = useRef(initialCfi);
 
@@ -982,12 +1064,58 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       if (visibleRange) showTransientSearchHighlight(visibleRange);
     }, []);
 
+    const updateHoverRatio = useCallback((clientX: number) => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      const view = viewer.querySelector<HTMLElement>('.epub-view');
+      if (view) {
+        const rect = view.getBoundingClientRect();
+        if (rect.width > 0) {
+          const ratio = (clientX - rect.left) / rect.width;
+          hoverPointerRatioXRef.current = Math.max(0, Math.min(1, ratio));
+        }
+      }
+    }, []);
+
     const previewZoom = useCallback((zoom: number, anchor?: EpubZoomAnchor) => {
       const viewer = viewerRef.current;
       if (!viewer) return;
       const scrollSurface = viewer.querySelector<HTMLElement>('.epub-container');
+      const previousZoom = readerZoomRef.current;
+
       if (isScrolled && scrollSurface) {
-        viewer.querySelectorAll<HTMLElement>('.epub-view').forEach((view) => applyEpubSectionScale(view, zoom));
+        let targetOriginX = 0.5;
+
+        if (zoom <= 1.001) {
+          // Zooming out to 100% or less: reset origin and pan to center
+          targetOriginX = 0.5;
+          zoomOriginXRef.current = 0.5;
+          zoomPanXRef.current = 0;
+        } else if (zoom > previousZoom) {
+          // Zooming IN: anchor anywhere user keeps their pointer towards!
+          if (typeof anchor?.epubSectionX === 'number' && Number.isFinite(anchor.epubSectionX)) {
+            targetOriginX = anchor.epubSectionX;
+          } else if (typeof hoverPointerRatioXRef.current === 'number' && Number.isFinite(hoverPointerRatioXRef.current)) {
+            targetOriginX = hoverPointerRatioXRef.current;
+          } else {
+            targetOriginX = zoomOriginXRef.current ?? 0.5;
+          }
+          zoomOriginXRef.current = targetOriginX;
+        } else {
+          // Zooming OUT (zoom < previousZoom):
+          // Smoothly pull origin back towards 0.5 (center) and damp horizontal pan
+          const prevOrigin = zoomOriginXRef.current ?? 0.5;
+          const centerWeight = Math.min(1, Math.max(0, (zoom - 1.0) / Math.max(0.01, previousZoom - 1.0)));
+          targetOriginX = 0.5 + (prevOrigin - 0.5) * centerWeight;
+          zoomOriginXRef.current = targetOriginX;
+          zoomPanXRef.current = zoomPanXRef.current * centerWeight;
+        }
+
+        targetOriginX = Math.max(0, Math.min(1, targetOriginX));
+
+        viewer.querySelectorAll<HTMLElement>('.epub-view').forEach((view) => {
+          applyEpubSectionScale(view, zoom, targetOriginX, zoomPanXRef.current);
+        });
       } else {
         viewer.style.setProperty('--epub-reader-zoom', String(zoom));
       }
@@ -1034,7 +1162,15 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       goToCfi: (cfi: string) => {
         if (renditionRef.current) {
           latestCfiRef.current = cfi;
-          renditionRef.current.display(cfi);
+          const candidate = normalizeEpubLocation(cfi) || cfi;
+          renditionRef.current.display(candidate).catch(() => {
+            if (bookRef.current) {
+              const spineSec = bookRef.current.spine.get(candidate) || bookRef.current.spine.get(cfi);
+              if (spineSec?.href) {
+                renditionRef.current?.display(spineSec.href);
+              }
+            }
+          });
         }
       },
       goToProgress: (fraction: number) => {
@@ -1353,7 +1489,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         const originalPrepend = manager.prepend;
         manager.prepend = function (section) {
           const view = originalPrepend.call(manager, section);
-          view.on('resized', () => applyEpubSectionScale(view.element, readerZoomRef.current));
+          view.on('resized', () => applyEpubSectionScale(view.element, readerZoomRef.current, zoomOriginXRef.current, zoomPanXRef.current));
           return view;
         };
 
@@ -1593,6 +1729,14 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             lastPinchZoomAt = frameWindow.performance.now();
             onZoomToRef.current?.(pending.zoom, pending.point);
           };
+
+          contentWindow?.addEventListener('mousemove', (event: MouseEvent) => {
+            const frame = contentWindow?.frameElement as HTMLIFrameElement | null;
+            if (frame) {
+              const frameRect = frame.getBoundingClientRect();
+              updateHoverRatio(frameRect.left + event.clientX);
+            }
+          }, { passive: true });
 
           contentWindow?.addEventListener('wheel', (event: WheelEvent) => {
             if (!event.ctrlKey && !event.metaKey) return;
@@ -1912,7 +2056,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             }
           }
         }
-        if (isScrolled) applyEpubSectionScale(el, readerZoomRef.current);
+        if (isScrolled) applyEpubSectionScale(el, readerZoomRef.current, zoomOriginXRef.current, zoomPanXRef.current);
       });
 
       // Display as soon as the first section is ready. Generating a location
@@ -1931,9 +2075,38 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         }
       };
       book.ready
-        .then(() => {
+        .then(async () => {
           if (pendingProgressRef.current !== null) ensureLocations();
-          return rendition.display(latestCfiRef.current || initialCfiRef.current || undefined);
+          const rawTarget = latestCfiRef.current || initialCfiRef.current;
+          const candidate = normalizeEpubLocation(rawTarget);
+          let displayed = false;
+
+          if (candidate) {
+            try {
+              await rendition.display(candidate);
+              displayed = true;
+            } catch (err) {
+              console.warn('Could not display candidate EPUB location, trying fallback:', candidate, err);
+            }
+
+            if (!displayed) {
+              try {
+                const spineSec = book.spine.get(candidate) || (rawTarget ? book.spine.get(rawTarget) : null);
+                if (spineSec?.href) {
+                  await rendition.display(spineSec.href);
+                  displayed = true;
+                }
+              } catch {}
+            }
+          }
+
+          if (!displayed) {
+            try {
+              await rendition.display();
+            } catch (err) {
+              console.warn('Could not display default EPUB location:', err);
+            }
+          }
         })
         .then(() => {
           if (active) {
@@ -1942,7 +2115,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
           }
         })
         .catch((err) => {
-          console.warn('Could not display initial EPUB location:', err);
+          console.warn('Could not initialize EPUB rendition display:', err);
           if (active) setLoading(false);
         });
 
@@ -2050,7 +2223,7 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             }
             view.expand();
             if (isScrolled) {
-              applyEpubSectionScale(view.element, readerZoomRef.current);
+              applyEpubSectionScale(view.element, readerZoomRef.current, zoomOriginXRef.current, zoomPanXRef.current);
             }
           } catch {
             // ignore layout errors
@@ -2126,6 +2299,50 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         <div
           ref={viewerRef}
           className={`${styles.viewer} ${isScrolled ? styles.scrollViewer : styles.paginatedViewer}`}
+          onPointerDown={(e) => {
+            if (!isScrolled || readerZoomRef.current <= 1 || e.button !== 0) return;
+            const target = e.target as HTMLElement;
+            if (target.closest(`.${styles.navZone}`)) return;
+            isDraggingRef.current = true;
+            hasDraggedRef.current = false;
+            dragStartRef.current = { x: e.clientX, y: e.clientY };
+            panStartRef.current = zoomPanXRef.current;
+          }}
+          onPointerMove={(e) => {
+            updateHoverRatio(e.clientX);
+            if (!isDraggingRef.current || !isScrolled || readerZoomRef.current <= 1) return;
+            const dx = e.clientX - dragStartRef.current.x;
+            if (Math.abs(dx) > 3) hasDraggedRef.current = true;
+            const viewer = viewerRef.current;
+            if (!viewer) return;
+            const view = viewer.querySelector<HTMLElement>('.epub-view');
+            const viewW = view?.clientWidth || canvasWidth;
+            const containerW = viewer.clientWidth || window.innerWidth;
+            const maxPan = Math.max(80, (viewW * readerZoomRef.current - containerW) / 2 + 100);
+            const newPan = Math.max(-maxPan, Math.min(maxPan, panStartRef.current + dx));
+            zoomPanXRef.current = newPan;
+            viewer.querySelectorAll<HTMLElement>('.epub-view').forEach((v) => {
+              v.style.setProperty('--epub-section-pan-x', `${newPan}px`);
+            });
+          }}
+          onPointerUp={() => {
+            if (!isDraggingRef.current) return;
+            isDraggingRef.current = false;
+            if (hasDraggedRef.current) {
+              setTimeout(() => {
+                hasDraggedRef.current = false;
+              }, 60);
+            }
+          }}
+          onDoubleClick={(e) => {
+            if (!isScrolled) return;
+            if (readerZoomRef.current <= 1) {
+              updateHoverRatio(e.clientX);
+              onZoomToRef.current?.(1.6, { x: e.clientX, y: e.clientY });
+            } else {
+              onZoomToRef.current?.(1);
+            }
+          }}
           data-reader-viewport={undefined}
           data-epub-image-page={isPaginated && isCurrentImagePage ? 'true' : undefined}
           data-image-orientation={isPaginated && isCurrentImagePage ? (currentImageOrientation || undefined) : undefined}
@@ -2175,5 +2392,14 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
         )}
       </div>
     );
+  }
+);
+
+export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
+  function EpubReader(props, ref) {
+    if (props.settings.readingMode === 'vertical' || props.settings.readingMode === 'paginated') {
+      return <EpubDoubleSidedReader ref={ref} {...props} />;
+    }
+    return <EpubScrollReader ref={ref} {...props} />;
   }
 );
