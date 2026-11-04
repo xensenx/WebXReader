@@ -253,8 +253,8 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           ? centerPageIndex
           : Math.floor(centerPageIndex / 2) * 2;
 
-        const rangeStart = Math.max(0, spreadStart - 2);
-        const rangeEnd = Math.min(pages.length - 1, spreadStart + 3);
+        const rangeStart = Math.max(0, spreadStart - 6);
+        const rangeEnd = Math.min(pages.length - 1, spreadStart + 7);
 
         const activePages = new Set<number>();
         for (let i = rangeStart; i <= rangeEnd; i++) {
@@ -262,7 +262,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           const pageEl = pageElements[i];
           if (!pageEl) continue;
 
-          if (!renderedPagesSetRef.current.has(i)) {
+          if (!renderedPagesSetRef.current.has(i) || pageEl.innerHTML === '') {
             renderPageContent(pageEl, pages[i], dimensions, i);
             renderedPagesSetRef.current.add(i);
           }
@@ -549,9 +549,26 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           renderSpread(currentPageIndexRef.current);
         });
 
+        // Notify progress update on initial layout or re-layout
+        const initialInfo = pages[initialPage];
+        const initialFrac = pages.length > 1
+          ? Math.min(1, Math.max(0, (initialPage + 1) / pages.length))
+          : 1;
+        if (initialInfo?.cfi) {
+          latestCfiRef.current = initialInfo.cfi;
+        }
+        onProgressUpdateRef.current(
+          initialInfo?.cfi || '',
+          initialFrac,
+          initialInfo?.sectionHref
+        );
+
         // Listen for realistic page turn events
         pageFlip.on('flip', (event) => {
-          const newIndex = typeof event.data === 'number' ? event.data : (event.data as any).page;
+          const rawIndex = typeof event.data === 'number' ? event.data : (event.data as any).page;
+          const newIndex = dimensions.isPortrait
+            ? rawIndex
+            : Math.floor(rawIndex / 2) * 2;
           setCurrentPageIndex(newIndex);
           currentPageIndexRef.current = newIndex;
           renderSpread(newIndex);
@@ -1068,16 +1085,18 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
     // Page navigation methods
     const flipPrev = useCallback(() => {
       if (pageFlipRef.current) {
+        const step = dimensionsRef.current?.isPortrait ? 1 : 2;
         const current = currentPageIndexRef.current;
-        renderSpread(Math.max(0, current - 2));
+        renderSpread(Math.max(0, current - step));
         pageFlipRef.current.flipPrev();
       }
     }, [renderSpread]);
 
     const flipNext = useCallback(() => {
       if (pageFlipRef.current) {
+        const step = dimensionsRef.current?.isPortrait ? 1 : 2;
         const current = currentPageIndexRef.current;
-        renderSpread(Math.min(pagesRef.current.length - 1, current + 2));
+        renderSpread(Math.min(pagesRef.current.length - 1, current + step));
         pageFlipRef.current.flipNext();
       }
     }, [renderSpread]);
@@ -1089,8 +1108,28 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
             0,
             Math.min(pagesRef.current.length - 1, pageIdx)
           );
-          renderSpread(safeIdx);
-          pageFlipRef.current.turnToPage(safeIdx);
+          const spreadIdx = dimensionsRef.current?.isPortrait
+            ? safeIdx
+            : Math.floor(safeIdx / 2) * 2;
+
+          setCurrentPageIndex(spreadIdx);
+          currentPageIndexRef.current = spreadIdx;
+          renderSpread(spreadIdx);
+          pageFlipRef.current.turnToPage(spreadIdx);
+
+          const currentInfo = pagesRef.current[spreadIdx];
+          const progress = pagesRef.current.length > 1
+            ? Math.min(1, Math.max(0, (spreadIdx + 1) / pagesRef.current.length))
+            : 1;
+
+          if (currentInfo?.cfi) {
+            latestCfiRef.current = currentInfo.cfi;
+          }
+          onProgressUpdateRef.current(
+            currentInfo?.cfi || '',
+            progress,
+            currentInfo?.sectionHref
+          );
         }
       },
       [renderSpread]
