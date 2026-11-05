@@ -80,8 +80,10 @@
 }
 
 .scrollViewer :global(.epub-view[data-epub-zoomed="true"]) {
-  transform: scale(var(--epub-section-scale, 1));
-  transform-origin: top center;
+  transform: translate(var(--epub-section-pan-x, 0px), 0px) scale(var(--epub-section-scale, 1));
+  transform-origin: var(--epub-section-origin-x, 50%) top;
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* Standalone image sections appear by themselves without the text paper canvas */
