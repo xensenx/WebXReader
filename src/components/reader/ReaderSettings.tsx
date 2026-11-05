@@ -249,7 +249,11 @@ export function ReaderSettings({
                 )}
                 <button
                   className={`${styles.modeBtn} ${
-                    settings.readingMode === 'vertical' ? styles.modeBtnActive : ''
+                    (format === 'epub'
+                      ? settings.readingMode === 'vertical' || settings.readingMode === 'paginated'
+                      : settings.readingMode === 'vertical')
+                      ? styles.modeBtnActive
+                      : ''
                   }`}
                   onClick={() => onUpdate({ readingMode: 'vertical' })}
                   disabled={!canDoubleSided}

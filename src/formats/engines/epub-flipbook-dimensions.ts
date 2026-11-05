@@ -19,14 +19,25 @@ export const PAGE_ASPECT_RATIO = 1.42; // standard book page height / width
 export const HEADER_HEIGHT = 32;
 export const FOOTER_HEIGHT = 32;
 
+/**
+ * Calculates responsive dimensions for two-page spread or single-page portrait layout.
+ *
+ * @param containerWidth - Available container client width
+ * @param containerHeight - Available container client height
+ * @param maxContentWidth - User preference max content width limit
+ * @param contentMargin - Page inner padding margin
+ * @returns Computed dimensions guaranteed to fit within the container viewport
+ */
 export function calculateFlipBookDimensions(
   containerWidth: number,
   containerHeight: number,
   maxContentWidth?: number,
   contentMargin?: number
 ): FlipBookDimensions {
-  const availW = Math.max(320, containerWidth - 48);
-  const availH = Math.max(400, containerHeight - 48);
+  const marginX = containerWidth > 120 ? 48 : 8;
+  const marginY = containerHeight > 120 ? 48 : 8;
+  const availW = Math.max(80, containerWidth - marginX);
+  const availH = Math.max(100, containerHeight - marginY);
 
   const isPortrait = availW < 680;
   let pageWidth: number;
@@ -45,7 +56,7 @@ export function calculateFlipBookDimensions(
     // Spread mode: two pages side-by-side
     const maxHalfW = Math.min(
       availW / 2,
-      Math.max(340, (maxContentWidth || 800) * 0.95)
+      Math.max(120, (maxContentWidth || 800) * 0.95)
     );
     if (maxHalfW * PAGE_ASPECT_RATIO <= availH) {
       pageWidth = Math.floor(maxHalfW);
@@ -60,12 +71,37 @@ export function calculateFlipBookDimensions(
     }
   }
 
-  pageWidth = Math.max(260, Math.min(1000, pageWidth));
-  pageHeight = Math.max(380, Math.min(1400, pageHeight));
+  // Ensure dimensions never exceed container viewport
+  if (isPortrait) {
+    if (pageWidth > containerWidth) {
+      pageWidth = containerWidth;
+      pageHeight = Math.floor(pageWidth * PAGE_ASPECT_RATIO);
+    }
+    if (pageHeight > containerHeight) {
+      pageHeight = containerHeight;
+      pageWidth = Math.max(1, Math.floor(pageHeight / PAGE_ASPECT_RATIO));
+    }
+  } else {
+    if (pageWidth * 2 > containerWidth) {
+      pageWidth = Math.floor(containerWidth / 2);
+      pageHeight = Math.floor(pageWidth * PAGE_ASPECT_RATIO);
+    }
+    if (pageHeight > containerHeight) {
+      pageHeight = containerHeight;
+      pageWidth = Math.max(1, Math.floor(pageHeight / PAGE_ASPECT_RATIO));
+    }
+  }
 
-  const pageInnerPadding = Math.max(16, Math.min(48, contentMargin || 28));
-  const printableW = Math.max(180, pageWidth - pageInnerPadding * 2);
-  const printableH = Math.max(240, pageHeight - pageInnerPadding * 2 - HEADER_HEIGHT - FOOTER_HEIGHT);
+  const pageInnerPadding = Math.min(
+    Math.max(8, contentMargin ?? 24),
+    Math.max(4, Math.floor(pageWidth * 0.08))
+  );
+
+  const headerH = Math.min(HEADER_HEIGHT, Math.max(16, Math.floor(pageHeight * 0.06)));
+  const footerH = Math.min(FOOTER_HEIGHT, Math.max(16, Math.floor(pageHeight * 0.06)));
+
+  const printableW = Math.max(20, pageWidth - pageInnerPadding * 2);
+  const printableH = Math.max(20, pageHeight - pageInnerPadding * 2 - headerH - footerH);
 
   return {
     containerWidth,
@@ -75,8 +111,8 @@ export function calculateFlipBookDimensions(
     printableW,
     printableH,
     pageInnerPadding,
-    headerHeight: HEADER_HEIGHT,
-    footerHeight: FOOTER_HEIGHT,
+    headerHeight: headerH,
+    footerHeight: footerH,
     isPortrait,
   };
 }

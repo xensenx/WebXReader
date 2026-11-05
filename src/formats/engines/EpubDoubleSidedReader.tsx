@@ -49,6 +49,26 @@ import {
   calculateFlipBookDimensions,
   type FlipBookDimensions,
 } from './epub-flipbook-dimensions';
+import {
+  sanitizeReaderHtml,
+  escapeHtml,
+  escapeAttr,
+} from '../../core/parsing/sanitize-reader-html';
+
+/**
+ * Scopes author stylesheet rules to the page content root using CSS @scope.
+ *
+ * @param cssText - Raw author stylesheet text
+ * @param scopeSelector - Target selector to scope styles into
+ * @returns Scoped CSS rules text
+ */
+export function scopeCss(cssText: string, scopeSelector: string): string {
+  if (!cssText || !cssText.trim()) return '';
+  const normalized = cssText
+    .replace(/(^|[\s,;{}])(html|body)([\s,{])/gi, '$1:scope$3')
+    .replace(/(^|[\s,;{}])(html|body):/gi, '$1:scope:');
+  return `@scope (${scopeSelector}) {\n${normalized}\n}`;
+}
 import styles from './EpubDoubleSidedReader.module.css';
 
 export type { FlipBookDimensions };
@@ -65,6 +85,7 @@ export interface FlipPageInfo {
   imageHtml?: string;
   cfi: string;
   htmlContent: string;
+  authorStyles?: string;
 }
 
 interface ParsedSection {
@@ -77,6 +98,7 @@ interface ParsedSection {
   imageHtml?: string;
   htmlContent: string;
   textContent: string;
+  authorStyles?: string;
 }
 
 interface EpubDoubleSidedReaderProps {
@@ -112,6 +134,9 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
 
     const [loading, setLoading] = useState(true);
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
+    const [isPortrait, setIsPortrait] = useState(false);
+    const readerZoomRef = useRef(readerZoom);
+    readerZoomRef.current = readerZoom;
 
     // Zoom panning & side focus state
     const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -173,13 +198,18 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
         const isLeftPage = !dimensions.isPortrait && pageIndex % 2 === 0;
 
         if (pageInfo.isImageOnly) {
-          const content = pageInfo.imageSrc
-            ? `<img src="${pageInfo.imageSrc}" class="${styles.fullImage}" alt="${pageInfo.chapterTitle || ''}" />`
-            : (pageInfo.imageHtml || pageInfo.htmlContent || '');
+          const safeImageSrc = pageInfo.imageSrc ? escapeAttr(pageInfo.imageSrc) : '';
+          const safeTitle = pageInfo.chapterTitle ? escapeAttr(pageInfo.chapterTitle) : '';
+          const safeContent = safeImageSrc
+            ? `<img src="${safeImageSrc}" class="${styles.fullImage}" alt="${safeTitle}" />`
+            : sanitizeReaderHtml(pageInfo.imageHtml || pageInfo.htmlContent || '', {
+                allowImages: true,
+                allowSvg: true,
+              });
 
           pageEl.innerHTML = `
             <div class="${styles.imageWrapper}">
-              ${content}
+              ${safeContent}
             </div>
             ${
               isLeftPage
@@ -191,7 +221,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
         }
 
         const titleHtml = pageInfo.chapterTitle
-          ? `<div class="${styles.pageHeader}">${pageInfo.chapterTitle}</div>`
+          ? `<div class="${styles.pageHeader}">${escapeHtml(pageInfo.chapterTitle)}</div>`
           : '';
 
         const footerHtml = `
@@ -204,10 +234,19 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           ? `<div class="${styles.spineShadowLeft}"></div><div class="${styles.pageEdgeLeft}"></div>`
           : `<div class="${styles.spineShadowRight}"></div><div class="${styles.pageEdgeRight}"></div>`;
 
-        const styleTag = themeCssRef.current ? `<style>${themeCssRef.current}</style>` : '';
+        const scopedThemeStyle = themeCssRef.current ? `<style>${themeCssRef.current}</style>` : '';
+        const scopedAuthorStyle = pageInfo.authorStyles
+          ? `<style>${scopeCss(pageInfo.authorStyles, `.${styles.columnSlider}`)}</style>`
+          : '';
+
+        const sanitizedContent = sanitizeReaderHtml(pageInfo.htmlContent, {
+          allowImages: true,
+          allowSvg: true,
+        });
 
         pageEl.innerHTML = `
-          ${styleTag}
+          ${scopedThemeStyle}
+          ${scopedAuthorStyle}
           ${titleHtml}
           <div
             class="${styles.pageInner}"
@@ -228,7 +267,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
                 transform: translateX(-${pageInfo.columnPageIndex * dimensions.printableW}px);
               "
             >
-              ${pageInfo.htmlContent}
+              ${sanitizedContent}
             </div>
           </div>
           ${footerHtml}
@@ -294,6 +333,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
       ) => {
         if (!bookContainerRef.current) return;
 
+        setIsPortrait(dimensions.isPortrait);
         const colors = getEpubSheetColors(currentSettings.readerSheetColor);
         const themeCss = buildEpubThemeCss(
           currentSettings,
@@ -301,23 +341,29 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           currentSettings.fontSize,
           0,
           currentSettings.letterSpacing,
-          currentSettings.wordSpacing
+          currentSettings.wordSpacing,
+          `.${styles.columnSlider}`
         );
         themeCssRef.current = themeCss;
 
+        const measureThemeCss = buildEpubThemeCss(
+          currentSettings,
+          colors,
+          currentSettings.fontSize,
+          0,
+          currentSettings.letterSpacing,
+          currentSettings.wordSpacing,
+          `.${styles.measureRoot}`
+        );
+
         // Offscreen container for multi-column measurement
         const measureContainer = document.createElement('div');
-        measureContainer.style.position = 'absolute';
-        measureContainer.style.visibility = 'hidden';
-        measureContainer.style.pointerEvents = 'none';
-        measureContainer.style.left = '-99999px';
-        measureContainer.style.top = '-99999px';
+        measureContainer.className = styles.measureRoot;
         measureContainer.style.width = `${dimensions.printableW}px`;
         measureContainer.style.height = `${dimensions.printableH}px`;
         measureContainer.style.columnWidth = `${dimensions.printableW}px`;
         measureContainer.style.columnGap = '0px';
         measureContainer.style.columnFill = 'auto';
-        measureContainer.style.overflow = 'hidden';
         document.body.appendChild(measureContainer);
 
         const pages: FlipPageInfo[] = [];
@@ -336,11 +382,15 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
               imageHtml: sec.imageHtml,
               cfi: sec.cfi,
               htmlContent: sec.imageHtml || (sec.imageSrc ? `<img src="${sec.imageSrc}" class="${styles.fullImage}" alt="" />` : sec.htmlContent),
+              authorStyles: sec.authorStyles,
             });
           } else {
             let sectionPagesCount = 1;
             try {
-              measureContainer.innerHTML = `<style>${themeCss}</style>${sec.htmlContent}`;
+              const scopedSecAuthor = sec.authorStyles
+                ? `<style>${scopeCss(sec.authorStyles, `.${styles.measureRoot}`)}</style>`
+                : '';
+              measureContainer.innerHTML = `<style>${measureThemeCss}</style>${scopedSecAuthor}${sec.htmlContent}`;
               const scrollW = measureContainer.scrollWidth;
               if (scrollW > dimensions.printableW) {
                 sectionPagesCount = Math.max(1, Math.ceil(scrollW / dimensions.printableW));
@@ -362,6 +412,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
                 isImageOnly: false,
                 cfi: sec.cfi,
                 htmlContent: sec.htmlContent,
+                authorStyles: sec.authorStyles,
               });
             }
           }
@@ -401,23 +452,13 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           });
         }
 
+        const previousPages = pagesRef.current;
         pagesRef.current = pages;
 
-        // Teardown previous PageFlip instance cleanly without removing the root book container
+        // Teardown previous PageFlip instance cleanly
         if (pageFlipRef.current) {
           try {
-            // Note: DO NOT call pageFlipRef.current.destroy()!
-            // PageFlip's destroy() method calls this.block.remove(), which permanently
-            // removes bookContainerRef.current from the DOM, causing the book to vanish on resize!
-            const pf = pageFlipRef.current as any;
-            if (pf.render) {
-              pf.render.render = () => {};
-              pf.render.drawFrame = () => {};
-            }
-            const ui = pf.ui;
-            if (ui && typeof ui.destroy === 'function') {
-              ui.destroy();
-            }
+            pageFlipRef.current.destroy();
           } catch {
             // ignore
           }
@@ -435,6 +476,11 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
         bookEl.innerHTML = '';
         renderedPagesSetRef.current.clear();
 
+        // Mount PageFlip inside a dedicated child element so destroy() only removes the mount element
+        const mountEl = document.createElement('div');
+        mountEl.className = styles.flipBookMount;
+        bookEl.appendChild(mountEl);
+
         // Create page DOM elements for PageFlip
         const pageElements: HTMLElement[] = [];
         for (let i = 0; i < pages.length; i++) {
@@ -446,7 +492,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           } else {
             pageEl.setAttribute('data-density', 'soft');
           }
-          bookEl.appendChild(pageEl);
+          mountEl.appendChild(pageEl);
           pageElements.push(pageEl);
         }
         pageElementsRef.current = pageElements;
@@ -456,7 +502,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
         if (typeof targetProgress === 'number' && pages.length > 0) {
           if (targetProgress >= 1 && targetProgress === Math.floor(targetProgress)) {
             // Integer page index passed directly from previous layout
-            const prevPageInfo = pagesRef.current[targetProgress];
+            const prevPageInfo = previousPages[targetProgress];
             if (prevPageInfo) {
               const matchIdx = pages.findIndex(
                 (p) =>
@@ -517,7 +563,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
         }
 
         // Initialize PageFlip
-        const pageFlip = new PageFlip(bookEl, {
+        const pageFlip = new PageFlip(mountEl, {
           width: dimensions.pageWidth,
           height: dimensions.pageHeight,
           size: 'fixed',
@@ -531,7 +577,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           usePortrait: dimensions.isPortrait,
           startPage: initialPage,
           flippingTime: 650,
-          useMouseEvents: true,
+          useMouseEvents: readerZoomRef.current <= 1,
           showPageCorners: true,
           disableFlipByClick: true,
           autoSize: false,
@@ -551,8 +597,11 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
 
         // Notify progress update on initial layout or re-layout
         const initialInfo = pages[initialPage];
+        const lastVisibleInitial = dimensions.isPortrait
+          ? initialPage
+          : Math.min(pages.length - 1, initialPage + 1);
         const initialFrac = pages.length > 1
-          ? Math.min(1, Math.max(0, (initialPage + 1) / pages.length))
+          ? (lastVisibleInitial >= pages.length - 1 ? 1 : Math.min(1, Math.max(0, (lastVisibleInitial + 1) / pages.length)))
           : 1;
         if (initialInfo?.cfi) {
           latestCfiRef.current = initialInfo.cfi;
@@ -574,8 +623,11 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           renderSpread(newIndex);
 
           const currentInfo = pagesRef.current[newIndex];
+          const lastVisibleFlip = dimensions.isPortrait
+            ? newIndex
+            : Math.min(pagesRef.current.length - 1, newIndex + 1);
           const progress = pagesRef.current.length > 1
-            ? Math.min(1, Math.max(0, (newIndex + 1) / pagesRef.current.length))
+            ? (lastVisibleFlip >= pagesRef.current.length - 1 ? 1 : Math.min(1, Math.max(0, (lastVisibleFlip + 1) / pagesRef.current.length)))
             : 1;
 
           if (currentInfo?.cfi) {
@@ -648,6 +700,14 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
               if (!doc) continue;
               const body = doc.body || doc.getElementsByTagName('body')[0] || doc.documentElement;
               if (!body) continue;
+
+              let authorStyles = '';
+              try {
+                const styleTags = Array.from(doc.querySelectorAll('style'));
+                for (const st of styleTags) {
+                  if (st.textContent) authorStyles += st.textContent + '\n';
+                }
+              } catch {}
 
               const chapterTitle =
                 titleMap.get(withoutFragment(section.href)) ||
@@ -756,6 +816,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
                 imageHtml,
                 htmlContent: body.innerHTML,
                 textContent,
+                authorStyles,
               });
             } catch (err) {
               console.warn('Failed to parse spine section:', section.href, err);
@@ -785,15 +846,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
         isMounted = false;
         if (pageFlipRef.current) {
           try {
-            const pf = pageFlipRef.current as any;
-            if (pf.render) {
-              pf.render.render = () => {};
-              pf.render.drawFrame = () => {};
-            }
-            const ui = pf.ui;
-            if (ui && typeof ui.destroy === 'function') {
-              ui.destroy();
-            }
+            pageFlipRef.current.destroy();
           } catch {
             // ignore
           }
@@ -945,9 +998,18 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
       // allow realistic page corner peel when at 100% (<= 1)
       if (pageFlipRef.current) {
         try {
-          const flipSettings = (pageFlipRef.current as any).getSettings?.();
+          const pf = pageFlipRef.current as any;
+          const flipSettings = pf.getSettings?.();
           if (flipSettings) {
             flipSettings.useMouseEvents = readerZoom <= 1;
+          }
+          const ui = pf.getUI?.() || pf.ui;
+          if (ui) {
+            if (readerZoom > 1) {
+              ui.removeHandlers?.();
+            } else {
+              ui.setHandlers?.();
+            }
           }
         } catch {}
       }
@@ -1118,8 +1180,12 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           pageFlipRef.current.turnToPage(spreadIdx);
 
           const currentInfo = pagesRef.current[spreadIdx];
+          const isPort = dimensionsRef.current?.isPortrait;
+          const lastVisibleTurn = isPort
+            ? spreadIdx
+            : Math.min(pagesRef.current.length - 1, spreadIdx + 1);
           const progress = pagesRef.current.length > 1
-            ? Math.min(1, Math.max(0, (spreadIdx + 1) / pagesRef.current.length))
+            ? (lastVisibleTurn >= pagesRef.current.length - 1 ? 1 : Math.min(1, Math.max(0, (lastVisibleTurn + 1) / pagesRef.current.length)))
             : 1;
 
           if (currentInfo?.cfi) {
@@ -1313,14 +1379,19 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
             onClick={(e) => {
               if (hasDraggedRef.current) return;
               const target = e.target as HTMLElement;
-              if (target.tagName.toLowerCase() === 'a') {
-                const href = target.getAttribute('href');
+              const anchor = target.closest('a');
+              if (anchor) {
+                const href = anchor.getAttribute('href');
                 if (href) {
                   e.preventDefault();
-                  const targetPage = pagesRef.current.findIndex((p) =>
-                    p.sectionHref.includes(withoutFragment(href))
-                  );
-                  if (targetPage >= 0) turnToPage(targetPage);
+                  const targetPath = withoutFragment(href).trim();
+                  if (targetPath) {
+                    const targetPage = pagesRef.current.findIndex((p) =>
+                      withoutFragment(p.sectionHref).includes(targetPath) ||
+                      targetPath.includes(withoutFragment(p.sectionHref))
+                    );
+                    if (targetPage >= 0) turnToPage(targetPage);
+                  }
                 }
                 return;
               }
@@ -1384,7 +1455,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
         </div>
 
         {/* Page Focus Selector when zoomed in on two-page spreads */}
-        {readerZoom > 1 && dimensionsRef.current && !dimensionsRef.current.isPortrait && (
+        {readerZoom > 1 && !isPortrait && (
           <div className={styles.sideFocusBar} role="group" aria-label="Page zoom focus">
             <button
               type="button"

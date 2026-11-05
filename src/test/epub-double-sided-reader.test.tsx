@@ -69,8 +69,8 @@ describe('EPUB Double Sided FlipBook Reader', () => {
     it('clamps to safe minimum dimensions on very small viewports', () => {
       const dims = calculateFlipBookDimensions(200, 300);
 
-      expect(dims.pageWidth).toBeGreaterThanOrEqual(260);
-      expect(dims.pageHeight).toBeGreaterThanOrEqual(380);
+      expect(dims.pageWidth).toBeLessThanOrEqual(200);
+      expect(dims.pageHeight).toBeLessThanOrEqual(300);
       expect(dims.printableW).toBeGreaterThan(0);
       expect(dims.printableH).toBeGreaterThan(0);
     });

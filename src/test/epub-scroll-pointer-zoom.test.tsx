@@ -1,51 +1,78 @@
-import { describe, it, expect } from 'vitest';
+import React from 'react';
+import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
+import { render, act } from '@testing-library/react';
+import { EpubReader, type EpubReaderHandle } from '../formats/engines/EpubReader';
+import type { EffectiveReaderSettings } from '../hooks/useReaderSettings';
 
 describe('EPUB Vertical Scroll Pointer-Anchored Zoom', () => {
-  it('applies pointer-anchored transform origin and pan to section elements when zooming in', () => {
-    const view = document.createElement('div');
-    view.className = 'epub-view';
-    document.body.appendChild(view);
+  const dummySettings: EffectiveReaderSettings = {
+    fontFamily: 'Georgia, serif',
+    fontSize: 18,
+    lineHeight: 1.7,
+    paragraphSpacing: 1.0,
+    letterSpacing: 0,
+    wordSpacing: 0,
+    textAlign: 'left',
+    textIndent: 0,
+    maxContentWidth: 720,
+    contentMargin: 24,
+    readingMode: 'scroll',
+    theme: 'light',
+    readerSheetColor: 'paper',
+    expandContent: false,
+  };
 
-    // Apply zoom in at pointer ratio 0.2 (20% from left edge)
-    view.dataset.epubZoomed = 'true';
-    view.style.setProperty('--epub-section-scale', '1.6');
-    view.style.setProperty('--epub-section-origin-x', '20%');
-    view.style.setProperty('--epub-section-pan-x', '-40px');
+  it('exercises real previewZoom flow on EpubReader to anchor zoom to pointer and clear on 1x', () => {
+    const readerRef = React.createRef<EpubReaderHandle>();
+    const dummyBuffer = new ArrayBuffer(8);
 
-    expect(view.style.getPropertyValue('--epub-section-scale')).toBe('1.6');
-    expect(view.style.getPropertyValue('--epub-section-origin-x')).toBe('20%');
-    expect(view.style.getPropertyValue('--epub-section-pan-x')).toBe('-40px');
+    const { container } = render(
+      <EpubReader
+        ref={readerRef}
+        fileData={dummyBuffer}
+        settings={dummySettings}
+        onProgressUpdate={vi.fn()}
+      />
+    );
 
-    document.body.removeChild(view);
-  });
+    const viewer = container.querySelector('[class*="viewer"]');
+    expect(viewer).toBeInTheDocument();
 
-  it('resets origin to 50% (center) and pan to 0px when zooming out to 100% or below', () => {
-    const view = document.createElement('div');
-    view.className = 'epub-view';
-    document.body.appendChild(view);
+    // Emulate epub.js rendition scroll container and section view elements
+    const scrollContainer = document.createElement('div');
+    scrollContainer.className = 'epub-container';
+    const sectionView = document.createElement('div');
+    sectionView.className = 'epub-view';
+    sectionView.style.height = '600px';
+    scrollContainer.appendChild(sectionView);
+    viewer!.appendChild(scrollContainer);
 
-    // Initially zoomed in
-    view.dataset.epubZoomed = 'true';
-    view.style.setProperty('--epub-section-scale', '1.5');
-    view.style.setProperty('--epub-section-origin-x', '15%');
-    view.style.setProperty('--epub-section-pan-x', '30px');
+    // Call real previewZoom with 1.6x zoom and pointer-anchored at 25% (epubSectionX: 0.25)
+    act(() => {
+      readerRef.current?.previewZoom(1.6, {
+        viewportX: 200,
+        viewportY: 300,
+        scrollRatioX: 0.25,
+        scrollRatioY: 0.5,
+        epubSectionX: 0.25,
+        id: 1,
+      });
+    });
 
-    // Zoom out to 1.0 (100%)
-    const zoom = 1.0;
-    if (zoom <= 1.001) {
-      delete view.dataset.epubZoomed;
-      view.style.removeProperty('--epub-section-scale');
-      view.style.removeProperty('--epub-section-origin-x');
-      view.style.removeProperty('--epub-section-pan-x');
-    }
+    expect(sectionView.dataset.epubZoomed).toBe('true');
+    expect(sectionView.style.getPropertyValue('--epub-section-scale')).toBe('1.6');
+    expect(sectionView.style.getPropertyValue('--epub-section-origin-x')).toBe('25%');
 
-    expect(view.dataset.epubZoomed).toBeUndefined();
-    expect(view.style.getPropertyValue('--epub-section-scale')).toBe('');
-    expect(view.style.getPropertyValue('--epub-section-origin-x')).toBe('');
-    expect(view.style.getPropertyValue('--epub-section-pan-x')).toBe('');
+    // Zoom back out to 1.0x (100%): resets origin to center (50%) and clears pan & zoom data
+    act(() => {
+      readerRef.current?.previewZoom(1.0);
+    });
 
-    document.body.removeChild(view);
+    expect(sectionView.dataset.epubZoomed).toBeUndefined();
+    expect(sectionView.style.getPropertyValue('--epub-section-scale')).toBe('');
+    expect(sectionView.style.getPropertyValue('--epub-section-origin-x')).toBe('');
+    expect(sectionView.style.getPropertyValue('--epub-section-pan-x')).toBe('');
   });
 
   it('smoothly pulls origin back towards 50% when zooming out partially', () => {

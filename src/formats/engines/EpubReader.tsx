@@ -689,13 +689,26 @@ export function buildEpubThemeRules(
   };
 }
 
+/**
+ * Builds CSS stylesheet rules string for EPUB typography and themes.
+ *
+ * @param settings - Effective reader settings
+ * @param colors - Reader sheet theme colors
+ * @param effectiveFontSize - Font size in px
+ * @param effectiveMargin - Content margin in px
+ * @param effectiveLetterSpacing - Letter spacing in px
+ * @param effectiveWordSpacing - Word spacing in px
+ * @param scopeSelector - Optional root selector to scope rules to (e.g. .epubPageContent)
+ * @returns Formatted CSS string
+ */
 export function buildEpubThemeCss(
   settings: EffectiveReaderSettings,
   colors: EpubThemeColors,
   effectiveFontSize: number,
   effectiveMargin: number,
   effectiveLetterSpacing: number,
-  effectiveWordSpacing: number
+  effectiveWordSpacing: number,
+  scopeSelector?: string
 ): string {
   const rules = buildEpubThemeRules(
     settings,
@@ -710,7 +723,15 @@ export function buildEpubThemeCss(
       const declStr = Object.entries(declarations)
         .map(([prop, val]) => `  ${prop}: ${val};`)
         .join('\n');
-      return `${selector} {\n${declStr}\n}`;
+      let targetSelector = selector;
+      if (scopeSelector) {
+        if (selector === 'html' || selector === 'body') {
+          targetSelector = scopeSelector;
+        } else {
+          targetSelector = `${scopeSelector} ${selector}`;
+        }
+      }
+      return `${targetSelector} {\n${declStr}\n}`;
     })
     .join('\n\n');
 }
@@ -1738,6 +1759,32 @@ const EpubScrollReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             }
           }, { passive: true });
 
+          contentWindow?.addEventListener('pointerdown', (event: PointerEvent) => {
+            if (!isScrolled || readerZoomRef.current <= 1 || event.button !== 0) return;
+            const frame = contentWindow?.frameElement as HTMLIFrameElement | null;
+            const frameRect = frame?.getBoundingClientRect();
+            const clientX = (frameRect ? frameRect.left : 0) + event.clientX;
+            const clientY = (frameRect ? frameRect.top : 0) + event.clientY;
+            if (startViewerDrag(clientX, clientY)) {
+              event.preventDefault();
+            }
+          });
+
+          contentWindow?.addEventListener('pointermove', (event: PointerEvent) => {
+            const frame = contentWindow?.frameElement as HTMLIFrameElement | null;
+            const frameRect = frame?.getBoundingClientRect();
+            const clientX = (frameRect ? frameRect.left : 0) + event.clientX;
+            moveViewerDrag(clientX, event.buttons);
+          });
+
+          contentWindow?.addEventListener('pointerup', () => {
+            endViewerDrag();
+          });
+
+          contentWindow?.addEventListener('pointercancel', () => {
+            endViewerDrag();
+          });
+
           contentWindow?.addEventListener('wheel', (event: WheelEvent) => {
             if (!event.ctrlKey && !event.metaKey) return;
             event.preventDefault();
@@ -2271,6 +2318,56 @@ const EpubScrollReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
       }
     };
 
+    /**
+     * Initiates pointer drag for panning the continuous scroll viewer when zoomed in.
+     */
+    const startViewerDrag = (clientX: number, clientY: number): boolean => {
+      if (!isScrolled || readerZoomRef.current <= 1) return false;
+      isDraggingRef.current = true;
+      hasDraggedRef.current = false;
+      dragStartRef.current = { x: clientX, y: clientY };
+      panStartRef.current = zoomPanXRef.current;
+      return true;
+    };
+
+    /**
+     * Updates horizontal pan based on pointer movement while zoomed in.
+     */
+    const moveViewerDrag = (clientX: number, buttons: number) => {
+      updateHoverRatio(clientX);
+      if (!isDraggingRef.current || !isScrolled || readerZoomRef.current <= 1) return;
+      if (buttons === 0) {
+        isDraggingRef.current = false;
+        return;
+      }
+      const dx = clientX - dragStartRef.current.x;
+      if (Math.abs(dx) > 3) hasDraggedRef.current = true;
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      const view = viewer.querySelector<HTMLElement>('.epub-view');
+      const viewW = view?.clientWidth || canvasWidth;
+      const containerW = viewer.clientWidth || window.innerWidth;
+      const maxPan = Math.max(80, (viewW * readerZoomRef.current - containerW) / 2 + 100);
+      const newPan = Math.max(-maxPan, Math.min(maxPan, panStartRef.current + dx));
+      zoomPanXRef.current = newPan;
+      viewer.querySelectorAll<HTMLElement>('.epub-view').forEach((v) => {
+        v.style.setProperty('--epub-section-pan-x', `${newPan}px`);
+      });
+    };
+
+    /**
+     * Completes and releases pointer drag state.
+     */
+    const endViewerDrag = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      if (hasDraggedRef.current) {
+        setTimeout(() => {
+          hasDraggedRef.current = false;
+        }, 60);
+      }
+    };
+
     const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (!isPaginated) return;
       if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
@@ -2303,36 +2400,26 @@ const EpubScrollReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
             if (!isScrolled || readerZoomRef.current <= 1 || e.button !== 0) return;
             const target = e.target as HTMLElement;
             if (target.closest(`.${styles.navZone}`)) return;
-            isDraggingRef.current = true;
-            hasDraggedRef.current = false;
-            dragStartRef.current = { x: e.clientX, y: e.clientY };
-            panStartRef.current = zoomPanXRef.current;
+            if (startViewerDrag(e.clientX, e.clientY)) {
+              try {
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              } catch {}
+            }
           }}
           onPointerMove={(e) => {
-            updateHoverRatio(e.clientX);
-            if (!isDraggingRef.current || !isScrolled || readerZoomRef.current <= 1) return;
-            const dx = e.clientX - dragStartRef.current.x;
-            if (Math.abs(dx) > 3) hasDraggedRef.current = true;
-            const viewer = viewerRef.current;
-            if (!viewer) return;
-            const view = viewer.querySelector<HTMLElement>('.epub-view');
-            const viewW = view?.clientWidth || canvasWidth;
-            const containerW = viewer.clientWidth || window.innerWidth;
-            const maxPan = Math.max(80, (viewW * readerZoomRef.current - containerW) / 2 + 100);
-            const newPan = Math.max(-maxPan, Math.min(maxPan, panStartRef.current + dx));
-            zoomPanXRef.current = newPan;
-            viewer.querySelectorAll<HTMLElement>('.epub-view').forEach((v) => {
-              v.style.setProperty('--epub-section-pan-x', `${newPan}px`);
-            });
+            moveViewerDrag(e.clientX, e.buttons);
           }}
-          onPointerUp={() => {
-            if (!isDraggingRef.current) return;
-            isDraggingRef.current = false;
-            if (hasDraggedRef.current) {
-              setTimeout(() => {
-                hasDraggedRef.current = false;
-              }, 60);
-            }
+          onPointerUp={(e) => {
+            try {
+              (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+            } catch {}
+            endViewerDrag();
+          }}
+          onPointerCancel={(e) => {
+            try {
+              (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+            } catch {}
+            endViewerDrag();
           }}
           onDoubleClick={(e) => {
             if (!isScrolled) return;

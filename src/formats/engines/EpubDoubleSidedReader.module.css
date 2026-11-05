@@ -411,3 +411,18 @@
   left: 0;
   top: 0;
 }
+
+.flipBookMount {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.measureRoot {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  left: -99999px;
+  top: -99999px;
+  overflow: hidden;
+}
