@@ -33,7 +33,7 @@ import {
   AlertTriangle,
   ChevronLeft,
 } from 'lucide-react';
-import type { Book, Chapter } from '../../types/book';
+import type { Book, Chapter, ReadingMode } from '../../types/book';
 import type { EffectiveReaderSettings } from '../../hooks/useReaderSettings';
 import {
   parseZip,
@@ -83,7 +83,7 @@ export interface ArchiveReaderProps {
   initialSubPath?: string;
   initialPage?: number;
   initialProgressFraction?: number;
-  readingMode?: 'scroll' | 'paginated' | 'vertical';
+  readingMode?: ReadingMode;
   readerSettings: EffectiveReaderSettings;
   readerZoom?: number;
   zoomAnchor?: any;

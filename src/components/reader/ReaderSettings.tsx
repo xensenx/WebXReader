@@ -16,8 +16,8 @@ import {
   ArrowLeft,
   Maximize2,
   Minimize2,
-  MoveHorizontal,
   MoveVertical,
+  MoveHorizontal,
 } from 'lucide-react';
 import type { BookFormat } from '../../types/book';
 import { isFixedLayout, formatSupportsFeature } from '../../formats';
@@ -235,6 +235,18 @@ export function ReaderSettings({
                   <Scroll size={18} />
                   <span>Vertical Scroll</span>
                 </button>
+                {format === 'epub' && (
+                  <button
+                    className={`${styles.modeBtn} ${
+                      settings.readingMode === 'horizontal' ? styles.modeBtnActive : ''
+                    }`}
+                    onClick={() => onUpdate({ readingMode: 'horizontal' })}
+                    type="button"
+                  >
+                    <MoveHorizontal size={18} />
+                    <span>Horizontal Scroll</span>
+                  </button>
+                )}
                 {format !== 'epub' && (
                   <button
                     className={`${styles.modeBtn} ${

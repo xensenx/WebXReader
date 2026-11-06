@@ -493,9 +493,11 @@ export function ReaderView() {
         // vertical setting is rendered as a normal scrolled publication.
         readingMode: readerSettings.readingMode === 'vertical'
           ? 'vertical'
-          : readerSettings.readingMode === 'paginated'
-            ? 'paginated'
-            : 'scroll',
+          : readerSettings.readingMode === 'horizontal'
+            ? 'horizontal'
+            : readerSettings.readingMode === 'paginated'
+              ? 'paginated'
+              : 'scroll',
         lastUpdatedAt: Date.now(),
       });
     },
@@ -554,7 +556,7 @@ export function ReaderView() {
         const container = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
         if (!container) return;
         const fraction = Math.min(1, Math.max(0, bm.position));
-        if (readerSettings.readingMode === 'vertical') {
+        if (readerSettings.readingMode === 'vertical' || readerSettings.readingMode === 'horizontal') {
           container.scrollTo({ left: fraction * Math.max(0, container.scrollWidth - container.clientWidth), behavior: 'smooth' });
         } else if (readerSettings.readingMode === 'paginated') {
           container.scrollTo({ left: fraction * Math.max(0, container.scrollWidth - container.clientWidth), behavior: 'smooth' });

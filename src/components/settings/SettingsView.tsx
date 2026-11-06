@@ -242,6 +242,7 @@ export function SettingsView() {
               ariaLabel="Default Reading Mode"
               options={[
                 { value: 'scroll', label: 'Vertical Scroll' },
+                { value: 'horizontal', label: 'Horizontal Scroll' },
                 { value: 'paginated', label: 'Pages' },
                 { value: 'vertical', label: 'Double Sided' },
               ]}

@@ -1,0 +1,274 @@
+.container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  background-color: var(--reader-backdrop, #0f0f11);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.isZoomed {
+  cursor: grab;
+}
+
+.isPanning {
+  cursor: grabbing !important;
+}
+
+.horizontalTrack {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  padding: 0 var(--horizontal-track-pad, 48px);
+  transform: scale(var(--epub-reader-zoom, 1));
+  transform-origin: center center;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.horizontalTrack.isPanningTrack {
+  scroll-behavior: auto !important;
+  transition: none !important;
+}
+
+.horizontalTrack::-webkit-scrollbar {
+  height: 6px;
+}
+
+.horizontalTrack::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.horizontalTrack::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.horizontalTrack::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.pageSlot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: center;
+  scroll-snap-stop: normal;
+  margin-right: var(--page-gap, 24px);
+  position: relative;
+  box-sizing: border-box;
+}
+
+.pageSlot:last-child {
+  margin-right: 0;
+}
+
+.pageCard {
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 4px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+  background-color: var(--epub-sheet-bg, #ffffff);
+  color: var(--epub-sheet-color, #1a1a1a);
+  border: 1px solid var(--epub-sheet-border, rgba(0, 0, 0, 0.08));
+  transition: box-shadow 0.2s ease;
+  user-select: text;
+}
+
+.pageCard.pageActive {
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.pageInner {
+  box-sizing: border-box;
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  user-select: text;
+}
+
+.columnSlider {
+  box-sizing: border-box;
+  column-fill: auto;
+  overflow: visible;
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.columnSlider img,
+.columnSlider svg {
+  display: block;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  height: auto !important;
+  margin: 0.8em auto !important;
+  object-fit: contain;
+  break-inside: avoid;
+}
+
+.columnSlider p {
+  overflow-wrap: anywhere;
+  break-inside: auto;
+}
+
+.pageHeader {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  right: 0;
+  padding: 0 24px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--epub-sheet-color, #1a1a1a);
+  opacity: 0.4;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pageFooter {
+  position: absolute;
+  bottom: 12px;
+  left: 0;
+  right: 0;
+  padding: 0 24px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--epub-sheet-color, #1a1a1a);
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+  text-align: right;
+}
+
+.imageWrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.fullImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.pagePlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.15;
+}
+
+.navZone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: auto;
+  opacity: 0.35;
+  transition: opacity 0.2s ease;
+  cursor: pointer;
+  user-select: none;
+}
+
+.navZone:hover {
+  opacity: 0.95;
+}
+
+.navLeft {
+  left: 8px;
+}
+
+.navRight {
+  right: 8px;
+}
+
+.navButton {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(20, 20, 24, 0.65);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.navButton:hover {
+  transform: scale(1.08);
+  background: rgba(30, 30, 36, 0.85);
+}
+
+.loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background-color: var(--reader-backdrop, #0f0f11);
+  color: var(--color-text-secondary, #999999);
+  z-index: 20;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--color-primary, #6366f1);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.measureRoot {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  left: -99999px;
+  top: -99999px;
+  overflow: hidden;
+}

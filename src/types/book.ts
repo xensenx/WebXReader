@@ -10,7 +10,7 @@ export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf' | 'cbz' | 
 export type ReadingStatus = 'unread' | 'reading' | 'completed';
 
 /** Reading mode preference */
-export type ReadingMode = 'scroll' | 'paginated' | 'vertical';
+export type ReadingMode = 'scroll' | 'paginated' | 'vertical' | 'horizontal';
 
 /** Theme preference */
 export type ThemeName = 'light' | 'dark' | 'sepia';

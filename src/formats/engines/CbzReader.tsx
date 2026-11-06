@@ -35,7 +35,7 @@ import {
   openComicArchiveSession,
   type ComicArchiveSession,
 } from '../../core/parsing/sevenzip-extractor';
-import type { ComicReadingDirection, ComicFitMode } from '../../types/book';
+import type { ComicReadingDirection, ComicFitMode, ReadingMode } from '../../types/book';
 import styles from './CbzReader.module.css';
 
 export interface CbzZoomAnchor {
@@ -64,7 +64,7 @@ interface CbzReaderProps {
   fileData: ArrayBuffer;
   format?: 'cbz' | 'cbr' | 'cb7' | string;
   initialPage?: number;
-  readingMode?: 'scroll' | 'paginated' | 'vertical';
+  readingMode?: ReadingMode;
   readingDirection?: ComicReadingDirection;
   fitMode?: ComicFitMode;
   pageGap?: number;

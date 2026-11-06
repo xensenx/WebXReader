@@ -42,12 +42,14 @@ describe('EPUB Reader Settings Enhancements', () => {
         />
       );
 
-      // Primary reading modes for EPUB: Vertical Scroll and Double Sided only
+      // Primary reading modes for EPUB: Vertical Scroll, Double Sided, and Horizontal Scroll
       const scrollBtn = screen.getByRole('button', { name: /vertical scroll/i });
       const doubleSidedBtn = screen.getByRole('button', { name: /double sided/i });
+      const horizontalBtn = screen.getByRole('button', { name: /horizontal scroll/i });
 
       expect(scrollBtn).toBeInTheDocument();
       expect(doubleSidedBtn).toBeInTheDocument();
+      expect(horizontalBtn).toBeInTheDocument();
 
       // Pages mode is removed for EPUB
       expect(screen.queryByRole('button', { name: /^pages$/i })).not.toBeInTheDocument();
@@ -55,6 +57,10 @@ describe('EPUB Reader Settings Enhancements', () => {
       // Contracted Mode and Expanded Mode are removed for EPUB since Page Width slider is offered
       expect(screen.queryByRole('button', { name: /contracted mode/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /expanded mode/i })).not.toBeInTheDocument();
+
+      // Click Horizontal Scroll
+      fireEvent.click(horizontalBtn);
+      expect(handleUpdate).toHaveBeenCalledWith({ readingMode: 'horizontal' });
 
       // Click Double Sided
       fireEvent.click(doubleSidedBtn);
@@ -73,6 +79,23 @@ describe('EPUB Reader Settings Enhancements', () => {
       );
 
       expect(doubleSidedBtn.className).toMatch(/modeBtnActive/);
+      expect(scrollBtn.className).not.toMatch(/modeBtnActive/);
+      expect(horizontalBtn.className).not.toMatch(/modeBtnActive/);
+
+      // Rerender with readingMode: 'horizontal'
+      rerender(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={{ ...dummySettings, readingMode: 'horizontal' }}
+          onUpdate={handleUpdate}
+          onReset={vi.fn()}
+          format="epub"
+        />
+      );
+
+      expect(horizontalBtn.className).toMatch(/modeBtnActive/);
+      expect(doubleSidedBtn.className).not.toMatch(/modeBtnActive/);
       expect(scrollBtn.className).not.toMatch(/modeBtnActive/);
 
       // Click Vertical Scroll

@@ -18,6 +18,8 @@ export interface FormatCapabilities {
   paginated: boolean;
   /** Supports double-sided book spreads */
   doubleSided: boolean;
+  /** Supports continuous horizontal scrolling */
+  horizontalScroll?: boolean;
   /** Supports interactive zoom (compositor preview & anchor pivot) */
   zoom: boolean;
   /** Supports in-book full text search */
