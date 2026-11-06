@@ -280,14 +280,29 @@ describe('EPUB Horizontal Scroll Reader', () => {
       const targetPage = findTargetHorizontalPage(
         mockPages,
         undefined,
-        0.5,
         undefined,
-        null
+        undefined,
+        null,
+        undefined,
+        0.5
       );
       expect(targetPage).toBe(2);
     });
 
-    it('resolves target page from integer previous layout index', () => {
+    it('resolves 1.0 fraction to the last page, never page index 1', () => {
+      const targetPage = findTargetHorizontalPage(
+        mockPages,
+        undefined,
+        undefined,
+        undefined,
+        null,
+        undefined,
+        1.0
+      );
+      expect(targetPage).toBe(mockPages.length - 1);
+    });
+
+    it('resolves target page from integer previous layout index on relayout', () => {
       const targetPage = findTargetHorizontalPage(
         mockPages,
         undefined,
