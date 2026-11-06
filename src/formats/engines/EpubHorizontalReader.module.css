@@ -35,7 +35,7 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
   padding: 0 var(--horizontal-track-pad, 48px);
-  transform: scale(var(--epub-reader-zoom, 1));
+  transform: translate(var(--epub-pan-x, 0px), var(--epub-pan-y, 0px)) scale(var(--epub-reader-zoom, 1));
   transform-origin: center center;
   transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -72,6 +72,11 @@
   margin-right: var(--page-gap, 24px);
   position: relative;
   box-sizing: border-box;
+  background-color: var(--epub-sheet-bg, #ffffff);
+  border-radius: 4px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--epub-sheet-border, rgba(0, 0, 0, 0.08));
+  overflow: hidden;
 }
 
 .pageSlot:last-child {

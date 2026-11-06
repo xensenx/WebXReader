@@ -9,6 +9,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useCallback,
@@ -83,6 +84,8 @@ interface EpubHorizontalReaderProps {
   fileData: ArrayBuffer;
   settings: EffectiveReaderSettings;
   initialCfi?: string;
+  initialProgressFraction?: number;
+  initialHref?: string;
   onProgressUpdate: (cfi: string, progressFraction: number, href?: string) => void;
   onToggleControls?: () => void;
   readerZoom?: number;
@@ -93,16 +96,115 @@ interface EpubHorizontalReaderProps {
 
 const PAGE_GAP = 24;
 
+/**
+ * Robustly resolves the target page index when switching from another reading mode
+ * (e.g. Double Sided or Vertical Scroll) by testing CFI, spine index, chapter href,
+ * and fractional progress in order of specificity.
+ */
+export function findTargetHorizontalPage(
+  pages: HorizontalPageInfo[],
+  targetCfi?: string,
+  targetProgress?: number,
+  targetHref?: string,
+  book?: EpubResourceBook | null,
+  previousPages?: HorizontalPageInfo[]
+): number {
+  if (pages.length === 0) return 0;
+
+  // 1. Integer page index passed directly from re-layout of existing horizontal pages
+  if (
+    typeof targetProgress === 'number' &&
+    targetProgress >= 1 &&
+    targetProgress === Math.floor(targetProgress)
+  ) {
+    if (previousPages && previousPages[targetProgress]) {
+      const prevInfo = previousPages[targetProgress];
+      const matchIdx = pages.findIndex(
+        (p) =>
+          p.sectionIndex === prevInfo.sectionIndex &&
+          p.columnPageIndex === Math.min(p.totalSectionPages - 1, prevInfo.columnPageIndex)
+      );
+      if (matchIdx >= 0) return matchIdx;
+      const secIdx = pages.findIndex((p) => p.sectionIndex === prevInfo.sectionIndex);
+      if (secIdx >= 0) return secIdx;
+    }
+    return Math.min(pages.length - 1, Math.max(0, targetProgress));
+  }
+
+  // 2. Try CFI matching
+  if (targetCfi) {
+    // 2a. Fast extraction of spine index from EPUB CFI pattern /6/(even_number)
+    const spineMatch = targetCfi.match(/\/6\/(\d+)/);
+    if (spineMatch) {
+      const spineSecNum = parseInt(spineMatch[1], 10);
+      const spineIdx = Math.floor(spineSecNum / 2) - 1;
+      const matchIdx = pages.findIndex((p) => p.sectionIndex === spineIdx);
+      if (matchIdx >= 0) return matchIdx;
+    }
+
+    // 2b. Query epub.js spine index
+    if (book) {
+      try {
+        const spineSec = book.spine.get(targetCfi) as { index?: number; href?: string } | null;
+        if (spineSec && typeof spineSec.index === 'number') {
+          const matchIdx = pages.findIndex((p) => p.sectionIndex === spineSec.index);
+          if (matchIdx >= 0) return matchIdx;
+        }
+        if (spineSec?.href) {
+          const cleanHref = withoutFragment(spineSec.href).trim();
+          const matchIdx = pages.findIndex((p) =>
+            withoutFragment(p.sectionHref).includes(cleanHref) ||
+            cleanHref.includes(withoutFragment(p.sectionHref))
+          );
+          if (matchIdx >= 0) return matchIdx;
+        }
+      } catch {}
+    }
+
+    // 2c. Substring match against page CFI or sectionHref
+    const matchIdx = pages.findIndex(
+      (p) =>
+        (p.cfi && (targetCfi.includes(p.cfi) || p.cfi.includes(targetCfi))) ||
+        (p.sectionHref && (targetCfi.includes(p.sectionHref) || p.sectionHref.includes(targetCfi)))
+    );
+    if (matchIdx >= 0) return matchIdx;
+  }
+
+  // 3. Try chapter href matching
+  if (targetHref) {
+    const cleanHref = withoutFragment(targetHref).trim();
+    if (cleanHref) {
+      const matchIdx = pages.findIndex((p) =>
+        withoutFragment(p.sectionHref).includes(cleanHref) ||
+        cleanHref.includes(withoutFragment(p.sectionHref))
+      );
+      if (matchIdx >= 0) return matchIdx;
+    }
+  }
+
+  // 4. Try fractional targetProgress (e.g. 0.5 for 50% read)
+  if (typeof targetProgress === 'number' && targetProgress >= 0 && targetProgress <= 1) {
+    return Math.min(
+      pages.length - 1,
+      Math.max(0, Math.floor(targetProgress * (pages.length - 1)))
+    );
+  }
+
+  return 0;
+}
+
 export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalReaderProps>(
   function EpubHorizontalReader(
     {
       fileData,
       settings,
       initialCfi,
+      initialProgressFraction,
+      initialHref,
       onProgressUpdate,
       onToggleControls,
       readerZoom = 1,
-      zoomAnchor: _zoomAnchor,
+      zoomAnchor,
       onZoomGesture,
       onZoomTo,
     },
@@ -116,6 +218,7 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
     const [activePageIndex, setActivePageIndex] = useState(0);
     const [dimensions, setDimensions] = useState<FlipBookDimensions | null>(null);
     const [isPanning, setIsPanning] = useState(false);
+    const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
     const activePageIndexRef = useRef(0);
     activePageIndexRef.current = activePageIndex;
@@ -129,7 +232,26 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
     const bookRef = useRef<EpubResourceBook | null>(null);
     const parsedSectionsRef = useRef<ParsedSection[]>([]);
     const initialCfiRef = useRef(initialCfi);
+    const initialProgressFractionRef = useRef(initialProgressFraction);
+    const initialHrefRef = useRef(initialHref);
     const latestCfiRef = useRef(initialCfi);
+
+    // Initial transition & scroll synchronization refs
+    const pendingScrollPageRef = useRef<number | null>(null);
+    const isInitialLayoutRef = useRef<boolean>(true);
+
+    // Zoom & pan management refs
+    const currentZoomRef = useRef<number>(readerZoom);
+    currentZoomRef.current = readerZoom;
+
+    const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    panRef.current = pan;
+
+    const pointerPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
+    const dragStartRef = useRef<{ x: number; y: number; scrollLeft: number }>({ x: 0, y: 0, scrollLeft: 0 });
+    const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    const isMouseDownRef = useRef(false);
+    const hasDraggedRef = useRef(false);
 
     const settingsRef = useRef(settings);
     settingsRef.current = settings;
@@ -140,10 +262,6 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
     const epubSearchIndexRef = useRef<Promise<EpubSearchSectionIndex[]> | null>(null);
     const themeCssRef = useRef<string>('');
     const authorStylesRef = useRef<string>('');
-
-    const dragStartRef = useRef<{ x: number; scrollLeft: number }>({ x: 0, scrollLeft: 0 });
-    const isMouseDownRef = useRef(false);
-    const hasDraggedRef = useRef(false);
 
     const sheetColors = getEpubSheetColors(settings.readerSheetColor);
     const { sheetBg, sheetFg, sheetBorder } = sheetColors;
@@ -308,53 +426,26 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
         }
 
         const previousPages = pagesRef.current;
-        setPages(newPages);
-        pagesRef.current = newPages;
 
-        // Calculate starting page
-        let initialPage = 0;
-        if (typeof targetProgress === 'number' && newPages.length > 0) {
-          if (targetProgress >= 1 && targetProgress === Math.floor(targetProgress)) {
-            const prevPageInfo = previousPages[targetProgress];
-            if (prevPageInfo) {
-              const matchIdx = newPages.findIndex(
-                (p) =>
-                  p.sectionIndex === prevPageInfo.sectionIndex &&
-                  p.columnPageIndex === Math.min(p.totalSectionPages - 1, prevPageInfo.columnPageIndex)
-              );
-              if (matchIdx >= 0) {
-                initialPage = matchIdx;
-              } else {
-                const secMatchIdx = newPages.findIndex((p) => p.sectionIndex === prevPageInfo.sectionIndex);
-                initialPage = secMatchIdx >= 0 ? secMatchIdx : Math.min(newPages.length - 1, Math.max(0, targetProgress));
-              }
-            } else {
-              initialPage = Math.min(newPages.length - 1, Math.max(0, targetProgress));
-            }
-          } else if (targetProgress >= 0 && targetProgress <= 1) {
-            initialPage = Math.min(
-              newPages.length - 1,
-              Math.max(0, Math.floor(targetProgress * (newPages.length - 1)))
-            );
-          }
-        } else if (initialCfiRef.current && newPages.length > 0) {
-          const targetCfi = initialCfiRef.current;
-          let spineSec: { index: number; href: string } | null = null;
-          try {
-            spineSec = bookRef.current ? (bookRef.current.spine.get(targetCfi) as any) : null;
-          } catch {}
-
-          const matchedIndex = newPages.findIndex(
-            (p) =>
-              (spineSec && p.sectionIndex === spineSec.index) ||
-              (p.cfi && (targetCfi.includes(p.cfi) || p.cfi.includes(targetCfi))) ||
-              (p.sectionHref && (targetCfi.includes(p.sectionHref) || p.sectionHref.includes(targetCfi)))
-          );
-          if (matchedIndex >= 0) initialPage = matchedIndex;
-        }
+        // Calculate starting page accurately across mode changes
+        const initialPage = findTargetHorizontalPage(
+          newPages,
+          initialCfiRef.current,
+          typeof targetProgress === 'number'
+            ? targetProgress
+            : initialProgressFractionRef.current,
+          initialHrefRef.current,
+          bookRef.current,
+          previousPages
+        );
 
         activePageIndexRef.current = initialPage;
         setActivePageIndex(initialPage);
+        pendingScrollPageRef.current = initialPage;
+        isInitialLayoutRef.current = true;
+
+        setPages(newPages);
+        pagesRef.current = newPages;
 
         // Notify initial progress
         const initialInfo = newPages[initialPage];
@@ -370,20 +461,33 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
           initialFrac,
           initialInfo?.sectionHref
         );
-
-        // Scroll track to initial page
-        requestAnimationFrame(() => {
-          if (scrollTrackRef.current) {
-            const stride = dims.pageWidth + PAGE_GAP;
-            scrollTrackRef.current.scrollTo({
-              left: initialPage * stride,
-              behavior: 'auto',
-            });
-          }
-        });
       },
       []
     );
+
+    // Immediate scroll alignment after React commits page elements to DOM
+    useLayoutEffect(() => {
+      if (pages.length === 0 || !dimensionsRef.current) return;
+      const targetPage = pendingScrollPageRef.current;
+      if (targetPage === null) return;
+      pendingScrollPageRef.current = null;
+
+      const track = scrollTrackRef.current;
+      if (!track) return;
+
+      const stride = dimensionsRef.current.pageWidth + PAGE_GAP;
+      track.style.scrollSnapType = 'none';
+      track.style.scrollBehavior = 'auto';
+      track.scrollLeft = targetPage * stride;
+
+      requestAnimationFrame(() => {
+        if (track) {
+          track.style.scrollSnapType = 'x mandatory';
+          track.style.scrollBehavior = '';
+          isInitialLayoutRef.current = false;
+        }
+      });
+    }, [pages, dimensions]);
 
     /**
      * Parses publication spine sections once per fileData.
@@ -574,7 +678,7 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
           if (!isMounted) return;
 
           parsedSectionsRef.current = parsedList;
-          layoutPages(parsedList, dims, settingsRef.current);
+          layoutPages(parsedList, dims, settingsRef.current, initialProgressFractionRef.current);
         } catch (err) {
           console.error('Failed to parse EPUB publication in horizontal reader:', err);
         } finally {
@@ -666,6 +770,9 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
 
     // Track scroll listener to synchronize active page & progress
     const handleScroll = useCallback(() => {
+      if (isInitialLayoutRef.current || pendingScrollPageRef.current !== null) {
+        return;
+      }
       const track = scrollTrackRef.current;
       const dims = dimensionsRef.current;
       const currentPages = pagesRef.current;
@@ -695,7 +802,129 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
       }
     }, []);
 
-    // Translate vertical mouse wheel to horizontal track scroll
+    // Zoom & pan calculations for pointer-anchored zooming and 2D canvas pan
+    const calculateMaxPan = useCallback((zoomLevel: number) => {
+      const container = containerRef.current;
+      const dims = dimensionsRef.current;
+      if (!container || !dims || zoomLevel <= 1.001) {
+        return { maxX: 0, maxY: 0 };
+      }
+      const viewportW = container.clientWidth || window.innerWidth;
+      const viewportH = container.clientHeight || window.innerHeight;
+      const pageW = dims.pageWidth;
+      const pageH = dims.pageHeight;
+      const scaledW = pageW * zoomLevel;
+      const scaledH = pageH * zoomLevel;
+      const overflowX = Math.max(0, (scaledW - viewportW) / 2);
+      const overflowY = Math.max(0, (scaledH - viewportH) / 2);
+
+      const maxX = overflowX + (viewportW * (zoomLevel - 1)) / 2 + 100;
+      const maxY = Math.max(60, overflowY + 60);
+      return { maxX, maxY };
+    }, []);
+
+    const applyTransform = useCallback((panX: number, panY: number, zoom: number) => {
+      const track = scrollTrackRef.current;
+      if (!track) return;
+      track.style.setProperty('--epub-pan-x', `${panX}px`);
+      track.style.setProperty('--epub-pan-y', `${panY}px`);
+      track.style.setProperty('--epub-reader-zoom', String(zoom));
+    }, []);
+
+    const previewZoom = useCallback(
+      (zoom: number, anchor?: EpubZoomAnchor) => {
+        const container = containerRef.current;
+        const track = scrollTrackRef.current;
+        const prevZoom = currentZoomRef.current;
+
+        if (zoom <= 1.001) {
+          // Zoom out to 100% or less: reset to center and 0 pan
+          panRef.current = { x: 0, y: 0 };
+          setPan({ x: 0, y: 0 });
+          applyTransform(0, 0, zoom);
+          if (track) {
+            track.style.scrollSnapType = 'x mandatory';
+          }
+          currentZoomRef.current = zoom;
+          return;
+        }
+
+        if (track) {
+          track.style.scrollSnapType = 'none';
+        }
+
+        const { maxX, maxY } = calculateMaxPan(zoom);
+
+        if (zoom > prevZoom) {
+          // Zooming IN: anchor towards pointer position anywhere user points
+          let px = 0;
+          let py = 0;
+          let hasPoint = false;
+
+          if (container) {
+            const rect = container.getBoundingClientRect();
+            if (
+              anchor &&
+              typeof anchor.viewportX === 'number' &&
+              typeof anchor.viewportY === 'number'
+            ) {
+              px = rect.left + anchor.viewportX;
+              py = rect.top + anchor.viewportY;
+              hasPoint = true;
+            } else if (pointerPosRef.current) {
+              px = pointerPosRef.current.clientX;
+              py = pointerPosRef.current.clientY;
+              hasPoint = true;
+            }
+
+            if (hasPoint) {
+              const cx = rect.left + rect.width / 2;
+              const cy = rect.top + rect.height / 2;
+              const dx = px - cx;
+              const dy = py - cy;
+              const factor = zoom / Math.max(1, prevZoom) - 1;
+
+              const targetX = panRef.current.x - dx * factor;
+              const targetY = panRef.current.y - dy * factor;
+              const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
+              const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
+
+              panRef.current = { x: clampedX, y: clampedY };
+              setPan({ x: clampedX, y: clampedY });
+              applyTransform(clampedX, clampedY, zoom);
+            } else {
+              const clampedX = Math.max(-maxX, Math.min(maxX, panRef.current.x));
+              const clampedY = Math.max(-maxY, Math.min(maxY, panRef.current.y));
+              panRef.current = { x: clampedX, y: clampedY };
+              setPan({ x: clampedX, y: clampedY });
+              applyTransform(clampedX, clampedY, zoom);
+            }
+          } else {
+            applyTransform(0, 0, zoom);
+          }
+        } else {
+          // Zooming OUT (zoom < prevZoom): smoothly pull pan back towards (0, 0) center
+          const centerRatio = Math.max(0, (zoom - 1.0) / Math.max(0.01, prevZoom - 1.0));
+          const targetX = panRef.current.x * centerRatio;
+          const targetY = panRef.current.y * centerRatio;
+          const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
+          const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
+
+          panRef.current = { x: clampedX, y: clampedY };
+          setPan({ x: clampedX, y: clampedY });
+          applyTransform(clampedX, clampedY, zoom);
+        }
+
+        currentZoomRef.current = zoom;
+      },
+      [applyTransform, calculateMaxPan]
+    );
+
+    useEffect(() => {
+      previewZoom(readerZoom, zoomAnchor);
+    }, [readerZoom, zoomAnchor, previewZoom]);
+
+    // Translate vertical mouse wheel to horizontal track scroll or 2D pan
     const handleWheel = useCallback(
       (e: React.WheelEvent<HTMLDivElement>) => {
         if (e.ctrlKey || e.metaKey) {
@@ -703,6 +932,18 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
             e.preventDefault();
             onZoomGesture(e.deltaY, { x: e.clientX, y: e.clientY });
           }
+          return;
+        }
+
+        if (readerZoom > 1) {
+          // 2D Pan with mouse wheel / trackpad when zoomed in
+          e.preventDefault();
+          const { maxX, maxY } = calculateMaxPan(readerZoom);
+          const newX = Math.max(-maxX, Math.min(maxX, panRef.current.x - e.deltaX));
+          const newY = Math.max(-maxY, Math.min(maxY, panRef.current.y - e.deltaY));
+          panRef.current = { x: newX, y: newY };
+          setPan({ x: newX, y: newY });
+          applyTransform(newX, newY, readerZoom);
           return;
         }
 
@@ -715,10 +956,10 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
           track.scrollLeft += e.deltaY;
         }
       },
-      [onZoomGesture]
+      [readerZoom, onZoomGesture, calculateMaxPan, applyTransform]
     );
 
-    // Mouse drag-to-scroll handlers
+    // Mouse drag-to-scroll & 2D grab-to-pan handlers
     const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
@@ -729,13 +970,16 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
 
       isMouseDownRef.current = true;
       hasDraggedRef.current = false;
-      dragStartRef.current = { x: e.clientX, scrollLeft: track.scrollLeft };
+      dragStartRef.current = { x: e.clientX, y: e.clientY, scrollLeft: track.scrollLeft };
+      panStartRef.current = { ...panRef.current };
       try {
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       } catch {}
     }, []);
 
     const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+      pointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
+
       if (!isMouseDownRef.current) return;
       if (e.buttons === 0) {
         isMouseDownRef.current = false;
@@ -744,16 +988,28 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
       }
 
       const dx = e.clientX - dragStartRef.current.x;
-      if (Math.abs(dx) > 3) {
+      const dy = e.clientY - dragStartRef.current.y;
+
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
         hasDraggedRef.current = true;
         setIsPanning(true);
       }
 
-      const track = scrollTrackRef.current;
-      if (track) {
-        track.scrollLeft = dragStartRef.current.scrollLeft - dx;
+      if (readerZoom > 1) {
+        // 2D Pan when zoomed in: grab and move smoothly in both dimensions
+        const { maxX, maxY } = calculateMaxPan(readerZoom);
+        const newX = Math.max(-maxX, Math.min(maxX, panStartRef.current.x + dx));
+        const newY = Math.max(-maxY, Math.min(maxY, panStartRef.current.y + dy));
+        panRef.current = { x: newX, y: newY };
+        applyTransform(newX, newY, readerZoom);
+      } else {
+        // Horizontal scroll drag when at 100%
+        const track = scrollTrackRef.current;
+        if (track) {
+          track.scrollLeft = dragStartRef.current.scrollLeft - dx;
+        }
       }
-    }, []);
+    }, [readerZoom, calculateMaxPan, applyTransform]);
 
     const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
       if (!isMouseDownRef.current) return;
@@ -765,6 +1021,7 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
       } catch {}
 
       if (hasDraggedRef.current) {
+        setPan({ ...panRef.current });
         setTimeout(() => {
           hasDraggedRef.current = false;
         }, 80);
@@ -880,16 +1137,11 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
             turnToPage(pageIdx);
           }
         },
-        previewZoom: (zoom: number) => {
-          if (scrollTrackRef.current) {
-            scrollTrackRef.current.style.setProperty(
-              '--epub-reader-zoom',
-              String(zoom)
-            );
-          }
+        previewZoom: (zoom: number, anchor?: EpubZoomAnchor) => {
+          previewZoom(zoom, anchor);
         },
       }),
-      [turnToPage]
+      [turnToPage, previewZoom]
     );
 
     // Padding on sides of horizontal track to center pages comfortably
@@ -905,6 +1157,9 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
         className={`${styles.container} ${readerZoom > 1 ? styles.isZoomed : ''} ${isPanning ? styles.isPanning : ''}`}
         onKeyDown={handleKeyDown}
         onWheel={handleWheel}
+        onPointerMove={(e) => {
+          pointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
+        }}
         tabIndex={0}
         autoFocus
         style={
@@ -914,6 +1169,8 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
             '--epub-sheet-border': sheetBorder,
             '--horizontal-track-pad': `${trackPadding}px`,
             '--page-gap': `${PAGE_GAP}px`,
+            '--epub-pan-x': `${pan.x}px`,
+            '--epub-pan-y': `${pan.y}px`,
             '--epub-reader-zoom': String(readerZoom),
           } as CSSProperties
         }
@@ -951,8 +1208,12 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
         >
           {dimensions &&
             pages.map((page, idx) => {
-              // Virtualized render window: render full page if within active +/- 4 pages
-              const isRendered = Math.abs(idx - activePageIndex) <= 4;
+              // Virtualized render window: render full page if within active or scroll index +/- 5 pages
+              const stride = dimensions.pageWidth + PAGE_GAP;
+              const scrollIdx = scrollTrackRef.current
+                ? Math.max(0, Math.min(pages.length - 1, Math.round(scrollTrackRef.current.scrollLeft / Math.max(1, stride))))
+                : activePageIndex;
+              const isRendered = Math.abs(idx - activePageIndex) <= 5 || Math.abs(idx - scrollIdx) <= 5;
               const isActive = idx === activePageIndex;
 
               return (

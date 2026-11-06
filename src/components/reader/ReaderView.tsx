@@ -861,6 +861,8 @@ export function ReaderView() {
               fileData={content.originalFile!}
               settings={effectiveReaderSettings}
               initialCfi={restoreLocation?.epubCfi}
+              initialProgressFraction={restoreLocation?.overallProgress}
+              initialHref={restoreLocation?.chapterId}
               onProgressUpdate={handleEpubProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}

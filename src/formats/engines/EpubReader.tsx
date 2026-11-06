@@ -41,6 +41,8 @@ interface EpubReaderProps {
   fileData: ArrayBuffer;
   settings: EffectiveReaderSettings;
   initialCfi?: string;
+  initialProgressFraction?: number;
+  initialHref?: string;
   onProgressUpdate: (cfi: string, progressFraction: number, href?: string) => void;
   onToggleControls?: () => void;
   readerZoom?: number;

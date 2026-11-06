@@ -105,6 +105,8 @@ interface EpubDoubleSidedReaderProps {
   fileData: ArrayBuffer;
   settings: EffectiveReaderSettings;
   initialCfi?: string;
+  initialProgressFraction?: number;
+  initialHref?: string;
   onProgressUpdate: (cfi: string, progressFraction: number, href?: string) => void;
   onToggleControls?: () => void;
   readerZoom?: number;
@@ -119,6 +121,8 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
       fileData,
       settings,
       initialCfi,
+      initialProgressFraction,
+      initialHref,
       onProgressUpdate,
       onToggleControls,
       readerZoom = 1,
@@ -146,6 +150,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
     const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     panRef.current = pan;
 
+    const pointerPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
     const sideFocusRef = useRef<'left' | 'center' | 'right' | 'custom'>('center');
     sideFocusRef.current = sideFocus;
 
@@ -166,6 +171,8 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
     currentPageIndexRef.current = currentPageIndex;
 
     const initialCfiRef = useRef(initialCfi);
+    const initialProgressFractionRef = useRef(initialProgressFraction);
+    const initialHrefRef = useRef(initialHref);
     const latestCfiRef = useRef(initialCfi);
 
     const settingsRef = useRef(settings);
@@ -536,13 +543,43 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
             spineSec = bookRef.current ? (bookRef.current.spine.get(targetCfi) as any) : null;
           } catch {}
 
+          const spineMatch = targetCfi.match(/\/6\/(\d+)/);
+          const spineIdx = spineMatch ? Math.floor(parseInt(spineMatch[1], 10) / 2) - 1 : -1;
+
           const matchedIndex = pages.findIndex(
             (p) =>
               (spineSec && p.sectionIndex === spineSec.index) ||
+              (spineIdx >= 0 && p.sectionIndex === spineIdx) ||
               (p.cfi && (targetCfi.includes(p.cfi) || p.cfi.includes(targetCfi))) ||
               (p.sectionHref && (targetCfi.includes(p.sectionHref) || p.sectionHref.includes(targetCfi)))
           );
-          if (matchedIndex >= 0) initialPage = matchedIndex;
+          if (matchedIndex >= 0) {
+            initialPage = matchedIndex;
+          } else if (initialHrefRef.current) {
+            const cleanHref = withoutFragment(initialHrefRef.current).trim();
+            const hrefIdx = pages.findIndex((p) =>
+              withoutFragment(p.sectionHref).includes(cleanHref) ||
+              cleanHref.includes(withoutFragment(p.sectionHref))
+            );
+            if (hrefIdx >= 0) initialPage = hrefIdx;
+          }
+        } else if (initialHrefRef.current && pages.length > 0) {
+          const cleanHref = withoutFragment(initialHrefRef.current).trim();
+          if (cleanHref) {
+            const matchIdx = pages.findIndex((p) =>
+              withoutFragment(p.sectionHref).includes(cleanHref) ||
+              cleanHref.includes(withoutFragment(p.sectionHref))
+            );
+            if (matchIdx >= 0) initialPage = matchIdx;
+          }
+        } else if (typeof initialProgressFractionRef.current === 'number' && pages.length > 0) {
+          const frac = initialProgressFractionRef.current;
+          if (frac >= 0 && frac <= 1) {
+            initialPage = Math.min(
+              pages.length - 1,
+              Math.max(0, Math.floor(frac * (pages.length - 1)))
+            );
+          }
         }
 
         if (!dimensions.isPortrait && initialPage % 2 !== 0) {
@@ -832,7 +869,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
           if (!isMounted) return;
 
           parsedSectionsRef.current = parsedList;
-          layoutFlipBook(parsedList, dimensions, settingsRef.current);
+          layoutFlipBook(parsedList, dimensions, settingsRef.current, initialProgressFractionRef.current);
         } catch (err) {
           console.error('Failed to parse EPUB publication:', err);
         } finally {
@@ -1070,6 +1107,8 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
 
     const handlePointerMove = useCallback(
       (e: React.PointerEvent<HTMLDivElement>) => {
+        pointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
+
         if (!isMouseDownRef.current || readerZoom <= 1) return;
 
         const dx = e.clientX - dragStartRef.current.x;
@@ -1294,27 +1333,86 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
             turnToPage(pageIdx);
           }
         },
-        previewZoom: (zoom: number) => {
+        previewZoom: (zoom: number, anchor?: EpubZoomAnchor) => {
+          const prevZoom = readerZoomRef.current;
           if (bookStageRef.current) {
             bookStageRef.current.style.setProperty(
               '--epub-reader-zoom',
               String(zoom)
             );
           }
-          if (zoom <= 1) {
+          if (zoom <= 1.001) {
+            panRef.current = { x: 0, y: 0 };
+            setPan({ x: 0, y: 0 });
+            setSideFocus('center');
             if (bookStageRef.current) {
               bookStageRef.current.style.setProperty('--epub-pan-x', '0px');
               bookStageRef.current.style.setProperty('--epub-pan-y', '0px');
             }
+          } else if (zoom > prevZoom) {
+            // Zooming IN: anchor towards pointer if available
+            let px = 0;
+            let py = 0;
+            let hasPoint = false;
+            const container = containerRef.current;
+            if (container) {
+              const rect = container.getBoundingClientRect();
+              if (anchor && typeof anchor.viewportX === 'number' && typeof anchor.viewportY === 'number') {
+                px = rect.left + anchor.viewportX;
+                py = rect.top + anchor.viewportY;
+                hasPoint = true;
+              } else if (pointerPosRef.current) {
+                px = pointerPosRef.current.clientX;
+                py = pointerPosRef.current.clientY;
+                hasPoint = true;
+              }
+              if (hasPoint) {
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                const dx = px - cx;
+                const dy = py - cy;
+                const factor = zoom / Math.max(1, prevZoom) - 1;
+                const { maxX, maxY } = calculateMaxPan(zoom);
+                const targetX = panRef.current.x - dx * factor;
+                const targetY = panRef.current.y - dy * factor;
+                const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
+                const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
+                panRef.current = { x: clampedX, y: clampedY };
+                setPan({ x: clampedX, y: clampedY });
+                setSideFocus('custom');
+                if (bookStageRef.current) {
+                  bookStageRef.current.style.setProperty('--epub-pan-x', `${clampedX}px`);
+                  bookStageRef.current.style.setProperty('--epub-pan-y', `${clampedY}px`);
+                }
+              } else {
+                const { maxX, maxY } = calculateMaxPan(zoom);
+                const clampedX = Math.max(-maxX, Math.min(maxX, panRef.current.x));
+                const clampedY = Math.max(-maxY, Math.min(maxY, panRef.current.y));
+                panRef.current = { x: clampedX, y: clampedY };
+                setPan({ x: clampedX, y: clampedY });
+                if (bookStageRef.current) {
+                  bookStageRef.current.style.setProperty('--epub-pan-x', `${clampedX}px`);
+                  bookStageRef.current.style.setProperty('--epub-pan-y', `${clampedY}px`);
+                }
+              }
+            }
           } else {
+            // Zooming OUT (zoom < prevZoom): smoothly pull back to center (0, 0)
             const { maxX, maxY } = calculateMaxPan(zoom);
-            const clampedX = Math.max(-maxX, Math.min(maxX, panRef.current.x));
-            const clampedY = Math.max(-maxY, Math.min(maxY, panRef.current.y));
+            const centerRatio = Math.max(0, (zoom - 1.0) / Math.max(0.01, prevZoom - 1.0));
+            const targetX = panRef.current.x * centerRatio;
+            const targetY = panRef.current.y * centerRatio;
+            const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
+            const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
+            panRef.current = { x: clampedX, y: clampedY };
+            setPan({ x: clampedX, y: clampedY });
+            if (centerRatio < 0.1) setSideFocus('center');
             if (bookStageRef.current) {
               bookStageRef.current.style.setProperty('--epub-pan-x', `${clampedX}px`);
               bookStageRef.current.style.setProperty('--epub-pan-y', `${clampedY}px`);
             }
           }
+          readerZoomRef.current = zoom;
         },
       }),
       [flipPrev, flipNext, turnToPage, calculateMaxPan]
