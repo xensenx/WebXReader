@@ -493,9 +493,11 @@ export function ReaderView() {
         // vertical setting is rendered as a normal scrolled publication.
         readingMode: readerSettings.readingMode === 'vertical'
           ? 'vertical'
-          : readerSettings.readingMode === 'paginated'
-            ? 'paginated'
-            : 'scroll',
+          : readerSettings.readingMode === 'horizontal'
+            ? 'horizontal'
+            : readerSettings.readingMode === 'paginated'
+              ? 'paginated'
+              : 'scroll',
         lastUpdatedAt: Date.now(),
       });
     },
@@ -554,7 +556,7 @@ export function ReaderView() {
         const container = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
         if (!container) return;
         const fraction = Math.min(1, Math.max(0, bm.position));
-        if (readerSettings.readingMode === 'vertical') {
+        if (readerSettings.readingMode === 'vertical' || readerSettings.readingMode === 'horizontal') {
           container.scrollTo({ left: fraction * Math.max(0, container.scrollWidth - container.clientWidth), behavior: 'smooth' });
         } else if (readerSettings.readingMode === 'paginated') {
           container.scrollTo({ left: fraction * Math.max(0, container.scrollWidth - container.clientWidth), behavior: 'smooth' });
@@ -601,9 +603,15 @@ export function ReaderView() {
   }, [book, activeChapterId]);
 
   const isTxt = book?.sourceFormat === 'txt';
-  const effectiveReadingMode = isTxt ? 'scroll' : (isPdf && readerSettings.readingMode === 'vertical')
-      ? 'paginated'
-      : readerSettings.readingMode;
+  const effectiveReadingMode = (() => {
+    if (isTxt) return 'scroll';
+    if (isPdf && readerSettings.readingMode === 'vertical') return 'paginated';
+    if (!isEpub && readerSettings.readingMode === 'horizontal') {
+      if (isPdf || isCbz || isDjvu || isImage) return 'paginated';
+      return 'scroll';
+    }
+    return readerSettings.readingMode;
+  })();
   const effectiveReaderSettings = readerSettings.readingMode === effectiveReadingMode
     ? readerSettings
     : { ...readerSettings, readingMode: effectiveReadingMode };
@@ -658,6 +666,12 @@ export function ReaderView() {
     overallProgress: initialProgressRef.current.overallProgress,
     readingMode: initialProgressRef.current.readingMode,
   } : null);
+
+  const initialEpubHref = restoreLocation?.chapterId
+    ? (book.tableOfContents?.find(
+        (c) => c.id === restoreLocation.chapterId || c.href === restoreLocation.chapterId
+      )?.href ?? restoreLocation.chapterId)
+    : undefined;
 
   return (
     <div
@@ -859,6 +873,8 @@ export function ReaderView() {
               fileData={content.originalFile!}
               settings={effectiveReaderSettings}
               initialCfi={restoreLocation?.epubCfi}
+              initialProgressFraction={restoreLocation?.overallProgress}
+              initialHref={initialEpubHref}
               onProgressUpdate={handleEpubProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}

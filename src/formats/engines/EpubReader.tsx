@@ -15,6 +15,7 @@ import { getEpubImageSectionLayout } from './epub-image-layout';
 import type { EpubSectionImageInfo } from './epub-image-layout';
 import styles from './EpubReader.module.css';
 import { EpubDoubleSidedReader } from './EpubDoubleSidedReader';
+import { EpubHorizontalReader } from './EpubHorizontalReader';
 
 export interface EpubReaderHandle {
   goToHref: (href: string) => void;
@@ -40,6 +41,8 @@ interface EpubReaderProps {
   fileData: ArrayBuffer;
   settings: EffectiveReaderSettings;
   initialCfi?: string;
+  initialProgressFraction?: number;
+  initialHref?: string;
   onProgressUpdate: (cfi: string, progressFraction: number, href?: string) => void;
   onToggleControls?: () => void;
   readerZoom?: number;
@@ -2486,6 +2489,9 @@ export const EpubReader = forwardRef<EpubReaderHandle, EpubReaderProps>(
   function EpubReader(props, ref) {
     if (props.settings.readingMode === 'vertical' || props.settings.readingMode === 'paginated') {
       return <EpubDoubleSidedReader ref={ref} {...props} />;
+    }
+    if (props.settings.readingMode === 'horizontal') {
+      return <EpubHorizontalReader ref={ref} {...props} />;
     }
     return <EpubScrollReader ref={ref} {...props} />;
   }

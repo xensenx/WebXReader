@@ -209,6 +209,8 @@ describe('Format Registry & System', () => {
     expect(formatSupportsFeature('mobi', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('azw3', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('epub', 'doubleSided')).toBe(true);
+    expect(formatSupportsFeature('epub', 'horizontalScroll')).toBe(true);
+    expect(formatSupportsFeature('pdf', 'horizontalScroll')).toBe(false);
   });
 
   it('generates consistent accept attribute and MIME types', () => {
