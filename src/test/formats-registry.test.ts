@@ -202,7 +202,7 @@ describe('Format Registry & System', () => {
     expect(formatSupportsFeature('docx', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('doc', 'continuousScroll')).toBe(true);
     expect(formatSupportsFeature('djvu', 'continuousScroll')).toBe(true);
-    expect(formatSupportsFeature('pdf', 'doubleSided')).toBe(false);
+    expect(formatSupportsFeature('pdf', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('txt', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('rtf', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('fb2', 'doubleSided')).toBe(true);
@@ -210,7 +210,7 @@ describe('Format Registry & System', () => {
     expect(formatSupportsFeature('azw3', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('epub', 'doubleSided')).toBe(true);
     expect(formatSupportsFeature('epub', 'horizontalScroll')).toBe(true);
-    expect(formatSupportsFeature('pdf', 'horizontalScroll')).toBe(false);
+    expect(formatSupportsFeature('pdf', 'horizontalScroll')).toBe(true);
   });
 
   it('generates consistent accept attribute and MIME types', () => {

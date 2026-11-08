@@ -605,10 +605,12 @@ export function ReaderView() {
   const isTxt = book?.sourceFormat === 'txt';
   const effectiveReadingMode = (() => {
     if (isTxt) return 'scroll';
-    if (isPdf && readerSettings.readingMode === 'vertical') return 'paginated';
-    if (!isEpub && readerSettings.readingMode === 'horizontal') {
-      if (isPdf || isCbz || isDjvu || isImage) return 'paginated';
+    if (!isEpub && !isPdf && readerSettings.readingMode === 'horizontal') {
+      if (isCbz || isDjvu || isImage) return 'paginated';
       return 'scroll';
+    }
+    if (!isEpub && !isPdf && readerSettings.readingMode === 'vertical') {
+      return 'paginated';
     }
     return readerSettings.readingMode;
   })();
@@ -808,11 +810,12 @@ export function ReaderView() {
               ref={pdfReaderRef}
               fileData={content.originalFile!}
               initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
-              readingMode={readerSettings.readingMode === 'scroll' ? 'scroll' : 'paginated'}
+              readingMode={effectiveReaderSettings.readingMode}
               onProgressUpdate={handlePaginatedProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
+              onZoomGesture={(deltaY, point) => queueWheelZoom(deltaY, point)}
             />
           ) : isDjvu ? (
             <DjvuReader

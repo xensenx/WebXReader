@@ -16,7 +16,8 @@ export const pdfFormat: FormatDefinition = {
   capabilities: {
     continuousScroll: true,
     paginated: true,
-    doubleSided: false,
+    doubleSided: true,
+    horizontalScroll: true,
     zoom: true,
     search: true,
     customTypography: false,

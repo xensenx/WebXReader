@@ -235,7 +235,7 @@ export function ReaderSettings({
                   <Scroll size={18} />
                   <span>Vertical Scroll</span>
                 </button>
-                {format === 'epub' && (
+                {(format === 'epub' || format === 'pdf' || (format && formatSupportsFeature(format, 'horizontalScroll'))) && (
                   <button
                     className={`${styles.modeBtn} ${
                       settings.readingMode === 'horizontal' ? styles.modeBtnActive : ''
@@ -272,7 +272,7 @@ export function ReaderSettings({
                   title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
                   type="button"
                 >
-                  {format === 'epub' ? <BookOpen size={18} /> : <Pilcrow size={18} />}
+                  {format === 'epub' || format === 'pdf' ? <BookOpen size={18} /> : <Pilcrow size={18} />}
                   <span>Double Sided</span>
                 </button>
               </div>
