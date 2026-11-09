@@ -46,7 +46,15 @@
   cursor: grab;
 }
 
-.isPanning {
+.isHandTool,
+.isHandTool *,
+.isHandTool .textLayer,
+.isHandTool .textLayer :global(span) {
+  cursor: grab !important;
+}
+
+.isPanning,
+.isPanning * {
   cursor: grabbing !important;
 }
 
@@ -200,6 +208,7 @@
   transform-origin: 0 0;
   caret-color: CanvasText;
   z-index: 1;
+  cursor: text;
   --min-font-size: 1;
   --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
   --min-font-size-inv: calc(1 / var(--min-font-size));
@@ -210,9 +219,10 @@
   color: transparent;
   position: absolute;
   white-space: pre;
-  cursor: text;
+  cursor: text !important;
   transform-origin: 0% 0%;
-  user-select: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .textLayer :global(.markedContent) {

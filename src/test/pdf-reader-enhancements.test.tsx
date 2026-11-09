@@ -1,10 +1,13 @@
+import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, renderHook } from '@testing-library/react';
 import { ReaderSettings } from '../components/reader/ReaderSettings';
 import type { EffectiveReaderSettings } from '../hooks/useReaderSettings';
 import { getPdfDisplayScale } from '../formats/engines/PdfPageView';
 import { formatSupportsFeature } from '../formats';
+import { PdfReader, type PdfReaderHandle } from '../formats/engines/PdfReader';
+import { useReaderZoom } from '../components/reader/hooks/useReaderZoom';
 
 describe('PDF Reader Enhancements', () => {
   const dummySettings: EffectiveReaderSettings = {
@@ -192,6 +195,258 @@ describe('PDF Reader Enhancements', () => {
       const baseScale = getPdfDisplayScale(612, 800, 1.0, 'scroll', 792, 1000);
       const zoomedScale = getPdfDisplayScale(612, 800, 1.5, 'scroll', 792, 1000);
       expect(zoomedScale).toBeCloseTo(baseScale * 1.5, 2);
+    });
+  });
+
+  describe('PdfReader Zoom Anchoring and Text Selection vs Grab-and-Pan', () => {
+    const dummyBuffer = new ArrayBuffer(8);
+
+    it('exercises previewZoom to anchor zoom-in to pointer and zoom-out smoothly to center', () => {
+      const readerRef = React.createRef<PdfReaderHandle>();
+      const { container } = render(
+        <PdfReader
+          ref={readerRef}
+          fileData={dummyBuffer}
+          readingMode="scroll"
+          readerZoom={1.0}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      const viewport = container.querySelector('[class*="viewport"]') as HTMLElement;
+      expect(viewport).toBeInTheDocument();
+
+      const pageStack = document.createElement('div');
+      pageStack.className = 'pageStack';
+      const pageShell = document.createElement('div');
+      pageShell.className = 'pageShell';
+      pageShell.setAttribute('data-pdf-page', '1');
+      pageStack.appendChild(pageShell);
+      viewport.appendChild(pageStack);
+
+      // Zoom in to 2.0x anchored at pointer (150, 200)
+      act(() => {
+        readerRef.current?.previewZoom(2.0, {
+          id: 1,
+          viewportX: 150,
+          viewportY: 200,
+          scrollRatioX: 0.25,
+          scrollRatioY: 0.35,
+          pageX: 0.25,
+          pageY: 0.35,
+          pageNumber: 1,
+        });
+      });
+
+      expect(pageStack.style.transform).toContain('matrix(2');
+
+      // Zoom out to 1.0x: clears transform matrix to center cleanly
+      act(() => {
+        readerRef.current?.previewZoom(1.0, {
+          id: 2,
+          viewportX: 400,
+          viewportY: 300,
+          scrollRatioX: 0.5,
+          scrollRatioY: 0.5,
+          pageX: 0.5,
+          pageY: 0.5,
+          pageNumber: 1,
+        });
+      });
+
+      expect(pageStack.style.transform).toBe('');
+      expect(pageStack.style.transformOrigin).toBe('');
+    });
+
+    it('allows text selection when clicking on text spans while zoomed in, without grabbing', () => {
+      const { container } = render(
+        <PdfReader
+          fileData={dummyBuffer}
+          readingMode="scroll"
+          readerZoom={2.0}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      const rootContainer = container.firstChild as HTMLElement;
+      expect(rootContainer.className).toMatch(/isZoomed/);
+
+      const viewport = container.querySelector('[class*="viewport"]') as HTMLElement;
+      viewport.scrollLeft = 100;
+      viewport.scrollTop = 150;
+
+      // Create a page shell with textLayer and span
+      const pageShell = document.createElement('div');
+      pageShell.className = 'pageShell';
+      const textLayer = document.createElement('div');
+      textLayer.className = 'textLayer';
+      const textSpan = document.createElement('span');
+      textSpan.textContent = 'Selectable PDF sentence';
+      textLayer.appendChild(textSpan);
+      pageShell.appendChild(textLayer);
+      viewport.appendChild(pageShell);
+
+      // Click down on the text span
+      fireEvent.pointerDown(textSpan, { button: 0, clientX: 200, clientY: 200 });
+
+      // Drag 20px across text
+      fireEvent.pointerMove(rootContainer, { buttons: 1, clientX: 220, clientY: 200 });
+
+      // Should NOT enter isPanning because target was selectable text
+      expect(rootContainer.className).not.toMatch(/isPanning/);
+      expect(viewport.scrollLeft).toBe(100);
+      expect(viewport.scrollTop).toBe(150);
+    });
+
+    it('enables grab-and-pan when dragging on non-text areas (viewport/margins) while zoomed in', () => {
+      const { container } = render(
+        <PdfReader
+          fileData={dummyBuffer}
+          readingMode="scroll"
+          readerZoom={2.0}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      const rootContainer = container.firstChild as HTMLElement;
+      const viewport = container.querySelector('[class*="viewport"]') as HTMLElement;
+      viewport.scrollLeft = 100;
+      viewport.scrollTop = 150;
+
+      // Click down on the empty viewport background
+      fireEvent.pointerDown(viewport, { button: 0, clientX: 200, clientY: 200 });
+
+      // Drag 30px
+      fireEvent.pointerMove(rootContainer, { buttons: 1, clientX: 170, clientY: 160 });
+
+      // Should enter isPanning and update scroll position
+      expect(rootContainer.className).toMatch(/isPanning/);
+      expect(viewport.scrollLeft).toBe(130);
+      expect(viewport.scrollTop).toBe(190);
+
+      // Release mouse
+      fireEvent.pointerUp(rootContainer, { button: 0, clientX: 170, clientY: 160 });
+      expect(rootContainer.className).not.toMatch(/isPanning/);
+    });
+
+    it('activates hand tool mode and allows panning anywhere when Space key is held down', () => {
+      const { container } = render(
+        <PdfReader
+          fileData={dummyBuffer}
+          readingMode="scroll"
+          readerZoom={2.0}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      const rootContainer = container.firstChild as HTMLElement;
+      const viewport = container.querySelector('[class*="viewport"]') as HTMLElement;
+      viewport.scrollLeft = 50;
+      viewport.scrollTop = 50;
+
+      const textSpan = document.createElement('span');
+      textSpan.textContent = 'Text';
+      viewport.appendChild(textSpan);
+
+      // Press Space down
+      fireEvent.keyDown(rootContainer, { key: ' ', code: 'Space' });
+      expect(rootContainer.className).toMatch(/isHandTool/);
+
+      // Drag with Space held down over text span
+      fireEvent.pointerDown(textSpan, { button: 0, clientX: 100, clientY: 100 });
+      fireEvent.pointerMove(rootContainer, { buttons: 1, clientX: 80, clientY: 70 });
+
+      expect(rootContainer.className).toMatch(/isPanning/);
+      expect(viewport.scrollLeft).toBe(70);
+      expect(viewport.scrollTop).toBe(80);
+
+      // Release mouse and Space
+      fireEvent.pointerUp(rootContainer, { button: 0, clientX: 80, clientY: 70 });
+      fireEvent.keyUp(rootContainer, { key: ' ', code: 'Space' });
+      expect(rootContainer.className).not.toMatch(/isHandTool/);
+      expect(rootContainer.className).not.toMatch(/isPanning/);
+    });
+
+    it('allows middle-click drag to pan even over text', () => {
+      const { container } = render(
+        <PdfReader
+          fileData={dummyBuffer}
+          readingMode="scroll"
+          readerZoom={2.0}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      const rootContainer = container.firstChild as HTMLElement;
+      const viewport = container.querySelector('[class*="viewport"]') as HTMLElement;
+      viewport.scrollLeft = 100;
+      viewport.scrollTop = 100;
+
+      const textSpan = document.createElement('span');
+      textSpan.textContent = 'Text';
+      viewport.appendChild(textSpan);
+
+      // Middle click (button 1)
+      fireEvent.pointerDown(textSpan, { button: 1, clientX: 100, clientY: 100 });
+      fireEvent.pointerMove(rootContainer, { buttons: 4, clientX: 70, clientY: 60 });
+
+      expect(rootContainer.className).toMatch(/isPanning/);
+      expect(viewport.scrollLeft).toBe(130);
+      expect(viewport.scrollTop).toBe(140);
+
+      fireEvent.pointerUp(rootContainer, { button: 1, clientX: 70, clientY: 60 });
+      expect(rootContainer.className).not.toMatch(/isPanning/);
+    });
+
+    it('anchors zoomBy to center when zooming out', () => {
+      vi.useFakeTimers();
+      try {
+        const stageElement = document.createElement('div');
+        const viewportElement = document.createElement('div');
+        viewportElement.setAttribute('data-reader-viewport', 'pdf-vertical-scroll');
+        Object.defineProperty(viewportElement, 'clientWidth', { value: 800, configurable: true });
+        Object.defineProperty(viewportElement, 'clientHeight', { value: 600, configurable: true });
+        Object.defineProperty(viewportElement, 'scrollWidth', { value: 1600, configurable: true });
+        Object.defineProperty(viewportElement, 'scrollHeight', { value: 2400, configurable: true });
+        viewportElement.getBoundingClientRect = () => ({
+          top: 0,
+          left: 0,
+          right: 800,
+          bottom: 600,
+          width: 800,
+          height: 600,
+          x: 0,
+          y: 0,
+          toJSON: () => {},
+        });
+        stageElement.appendChild(viewportElement);
+        const stageRef = { current: stageElement };
+
+        const { result } = renderHook(() =>
+          useReaderZoom({
+            sourceFormat: 'pdf',
+            readerStageRef: stageRef,
+          })
+        );
+
+        // Initial zoom in to 2.0 with pointer
+        act(() => {
+          result.current.zoomTo(2.0, { x: 200, y: 150 });
+          vi.advanceTimersByTime(150);
+        });
+
+        // Zoom out to 1.5 with factor < 1
+        act(() => {
+          result.current.zoomBy(0.75);
+          vi.advanceTimersByTime(150);
+        });
+
+        expect(result.current.readerZoom).toBeCloseTo(1.5, 2);
+        expect(result.current.zoomAnchor?.scrollRatioX).toBe(0.5);
+        expect(result.current.zoomAnchor?.pageX).toBe(0.5);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

@@ -104,24 +104,33 @@ export function useReaderZoom({
   const touchZoomFrameRef = useRef<number | null>(null);
   const lastTouchZoomAtRef = useRef(0);
 
-  const captureZoomAnchor = useCallback((clientX?: number, clientY?: number) => {
+  const captureZoomAnchor = useCallback((clientX?: number, clientY?: number, forceCenter = false) => {
     const stage = readerStageRef.current;
     const viewport = stage?.querySelector<HTMLElement>('[data-reader-viewport]');
     if (!stage || !viewport) return undefined;
 
     const viewportRect = viewport.getBoundingClientRect();
-    const x = clientX ?? viewportRect.left + viewportRect.width / 2;
-    const y = clientY ?? viewportRect.top + viewportRect.height / 2;
+    const x = forceCenter || clientX === undefined
+      ? viewportRect.left + viewportRect.width / 2
+      : clientX;
+    const y = forceCenter || clientY === undefined
+      ? viewportRect.top + viewportRect.height / 2
+      : clientY;
     const viewportX = Math.max(0, Math.min(viewport.clientWidth, x - viewportRect.left));
     const viewportY = Math.max(0, Math.min(viewport.clientHeight, y - viewportRect.top));
-    const hitPage = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>(
+    const hitPage = (
+      typeof document.elementFromPoint === 'function'
+        ? (document.elementFromPoint(x, y) as HTMLElement | null)
+        : null
+    )?.closest<HTMLElement>(
       '[data-pdf-page], [data-cbz-page], [data-djvu-page], [data-image-page]'
     );
     const page = hitPage && stage.contains(hitPage) ? hitPage : null;
     const pageRect = page?.getBoundingClientRect();
-    const hitSection = sourceFormat === 'epub'
-      ? (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-epub-section-index]')
-      : null;
+    const hitSection =
+      sourceFormat === 'epub' && typeof document.elementFromPoint === 'function'
+        ? (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-epub-section-index]')
+        : null;
     const section = hitSection && stage.contains(hitSection) ? hitSection : null;
     const sectionRect = section?.getBoundingClientRect();
 
@@ -130,14 +139,32 @@ export function useReaderZoom({
       pageNumber: page
         ? Number(page.dataset.pdfPage || page.dataset.cbzPage || page.dataset.djvuPage || page.dataset.imagePage)
         : undefined,
-      pageX: pageRect?.width ? Math.max(0, Math.min(1, (x - pageRect.left) / pageRect.width)) : undefined,
-      pageY: pageRect?.height ? Math.max(0, Math.min(1, (y - pageRect.top) / pageRect.height)) : undefined,
+      pageX: forceCenter
+        ? 0.5
+        : pageRect?.width
+          ? Math.max(0, Math.min(1, (x - pageRect.left) / pageRect.width))
+          : undefined,
+      pageY: forceCenter
+        ? 0.5
+        : pageRect?.height
+          ? Math.max(0, Math.min(1, (y - pageRect.top) / pageRect.height))
+          : undefined,
       epubSectionIndex: section ? Number(section.dataset.epubSectionIndex) : undefined,
-      epubSectionX: sectionRect?.width ? Math.max(0, Math.min(1, (x - sectionRect.left) / sectionRect.width)) : undefined,
-      epubSectionY: sectionRect?.height ? Math.max(0, Math.min(1, (y - sectionRect.top) / sectionRect.height)) : undefined,
+      epubSectionX: forceCenter
+        ? 0.5
+        : sectionRect?.width
+          ? Math.max(0, Math.min(1, (x - sectionRect.left) / sectionRect.width))
+          : undefined,
+      epubSectionY: forceCenter
+        ? 0.5
+        : sectionRect?.height
+          ? Math.max(0, Math.min(1, (y - sectionRect.top) / sectionRect.height))
+          : undefined,
       viewportX,
       viewportY,
-      scrollRatioX: (viewport.scrollLeft + viewportX) / Math.max(1, viewport.scrollWidth),
+      scrollRatioX: forceCenter
+        ? 0.5
+        : (viewport.scrollLeft + viewportX) / Math.max(1, viewport.scrollWidth),
       scrollRatioY: (viewport.scrollTop + viewportY) / Math.max(1, viewport.scrollHeight),
     } satisfies ReaderZoomAnchor;
   }, [readerStageRef, sourceFormat]);
@@ -180,16 +207,30 @@ export function useReaderZoom({
   }, [captureZoomAnchor, previewRefs, sourceFormat]);
 
   const zoomBy = useCallback((factor: number, point?: { x: number; y: number }) => {
-    const anchor = captureZoomAnchor(point?.x, point?.y);
+    const isZoomingOut = factor < 1;
+    const stage = readerStageRef.current;
+    const viewport = stage?.querySelector<HTMLElement>('[data-reader-viewport]');
+    const viewportRect = viewport?.getBoundingClientRect();
+    const effectivePoint = isZoomingOut && viewportRect
+      ? { x: viewportRect.left + viewportRect.width / 2, y: viewportRect.top + viewportRect.height / 2 }
+      : point;
+    const anchor = captureZoomAnchor(effectivePoint?.x, effectivePoint?.y, isZoomingOut);
     const fixedLayout = isFixedLayout(sourceFormat);
     updateZoom(clampReaderZoom(readerZoomRef.current * factor, fixedLayout, sourceFormat === 'epub'), fixedLayout, anchor);
-  }, [sourceFormat, captureZoomAnchor, updateZoom]);
+  }, [sourceFormat, captureZoomAnchor, updateZoom, readerStageRef]);
 
   const zoomTo = useCallback((targetZoom: number, point?: { x: number; y: number }) => {
-    const anchor = captureZoomAnchor(point?.x, point?.y);
+    const isZoomingOut = targetZoom < readerZoomRef.current;
+    const stage = readerStageRef.current;
+    const viewport = stage?.querySelector<HTMLElement>('[data-reader-viewport]');
+    const viewportRect = viewport?.getBoundingClientRect();
+    const effectivePoint = isZoomingOut && viewportRect
+      ? { x: viewportRect.left + viewportRect.width / 2, y: viewportRect.top + viewportRect.height / 2 }
+      : point;
+    const anchor = captureZoomAnchor(effectivePoint?.x, effectivePoint?.y, isZoomingOut);
     const fixedLayout = isFixedLayout(sourceFormat);
     updateZoom(clampReaderZoom(targetZoom, fixedLayout, sourceFormat === 'epub'), fixedLayout, anchor);
-  }, [sourceFormat, captureZoomAnchor, updateZoom]);
+  }, [sourceFormat, captureZoomAnchor, updateZoom, readerStageRef]);
 
   const resetZoom = useCallback(() => {
     const epubAnchor = sourceFormat === 'epub' ? captureZoomAnchor() : undefined;
@@ -313,10 +354,16 @@ export function useReaderZoom({
 
       event.preventDefault();
       event.stopPropagation();
-      queueWheelZoom(getWheelDeltaPixels(event, stage.querySelector<HTMLElement>('[data-reader-viewport]')), {
-        x: event.clientX,
-        y: event.clientY,
-      });
+      const viewport = stage.querySelector<HTMLElement>('[data-reader-viewport]');
+      const viewportRect = viewport?.getBoundingClientRect();
+      const isZoomingIn = event.deltaY < 0;
+      const point = isZoomingIn || !viewportRect
+        ? { x: event.clientX, y: event.clientY }
+        : {
+            x: viewportRect.left + viewportRect.width / 2,
+            y: viewportRect.top + viewportRect.height / 2,
+          };
+      queueWheelZoom(getWheelDeltaPixels(event, viewport), point);
     };
 
     stage.addEventListener('wheel', handleNativeWheel, { capture: true, passive: false });
@@ -343,7 +390,17 @@ export function useReaderZoom({
       if (!gesture) return;
       if (event.cancelable) event.preventDefault();
       event.stopPropagation();
-      queueTouchZoom(start.zoom * gesture.distance / start.distance, gesture.point);
+      const nextZoom = (start.zoom * gesture.distance) / start.distance;
+      const isZoomingIn = nextZoom > readerZoomRef.current;
+      const viewport = stage.querySelector<HTMLElement>('[data-reader-viewport]');
+      const viewportRect = viewport?.getBoundingClientRect();
+      const point = isZoomingIn || !viewportRect
+        ? gesture.point
+        : {
+            x: viewportRect.left + viewportRect.width / 2,
+            y: viewportRect.top + viewportRect.height / 2,
+          };
+      queueTouchZoom(nextZoom, point);
     };
 
     const handleTouchEnd = (event: TouchEvent) => {

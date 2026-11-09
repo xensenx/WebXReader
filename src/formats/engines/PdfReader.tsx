@@ -69,6 +69,23 @@ interface PdfZoomPreviewTransform {
   translateY: number;
 }
 
+/**
+ * Determines whether a pointer event target resides within selectable PDF text spans.
+ *
+ * @param target Candidate DOM element receiving pointer interaction.
+ * @returns True if target is a text span or text run inside the PDF text layer.
+ */
+const isTextSpan = (target: HTMLElement | null): boolean => {
+  if (!target) return false;
+  if (
+    target.tagName === 'SPAN' &&
+    (target.closest(`.${styles.textLayer}`) || target.closest(`.${styles.pageShell}`))
+  ) {
+    return true;
+  }
+  return Boolean(target.closest(`.${styles.textLayer} span`));
+};
+
 export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function PdfReader(
   {
     fileData,
@@ -96,6 +113,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   const [pageLayoutReady, setPageLayoutReady] = useState(false);
   const [layoutVersion, setLayoutVersion] = useState(0);
   const [isPanning, setIsPanning] = useState(false);
+  const [isSpaceDown, setIsSpaceDown] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const pageStackRef = useRef<HTMLDivElement>(null);
@@ -109,6 +127,8 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   const doubleSidedRef = useRef<PdfReaderHandle>(null);
 
   const isMouseDownRef = useRef(false);
+  const isSpaceDownRef = useRef(false);
+  const spaceDraggedRef = useRef(false);
   const dragStartRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number }>({
     x: 0,
     y: 0,
@@ -156,12 +176,25 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       }
 
       const viewport = viewportRef.current;
-      const pageStack = pageStackRef.current;
+      const pageStack = pageStackRef.current ?? viewport?.querySelector<HTMLElement>('[class*="Stack"]');
       if (!viewport || !pageStack) return;
 
+      const isZoomingOut = nextZoom < readerZoom;
+      if (nextZoom <= 1.001) {
+        pageStack.style.transform = '';
+        pageStack.style.transformOrigin = '';
+        previewTransformRef.current = null;
+        lastZoomAnchorRef.current = anchor;
+        return;
+      }
+
       const viewportRect = viewport.getBoundingClientRect();
-      const pointerX = viewportRect.left + anchor.viewportX;
-      const pointerY = viewportRect.top + anchor.viewportY;
+      const pointerX = isZoomingOut
+        ? viewportRect.left + viewport.clientWidth / 2
+        : viewportRect.left + anchor.viewportX;
+      const pointerY = isZoomingOut
+        ? viewportRect.top + viewport.clientHeight / 2
+        : viewportRect.top + anchor.viewportY;
       const previous = previewTransformRef.current ?? {
         baseLeft: pageStack.getBoundingClientRect().left,
         baseTop: pageStack.getBoundingClientRect().top,
@@ -173,8 +206,13 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
 
       const documentX = (pointerX - previous.baseLeft - previous.translateX) / previous.scale;
       const documentY = (pointerY - previous.baseTop - previous.translateY) / previous.scale;
-      const translateX = pointerX - previous.baseLeft - scale * documentX;
-      const translateY = pointerY - previous.baseTop - scale * documentY;
+      let translateX = pointerX - previous.baseLeft - scale * documentX;
+      let translateY = pointerY - previous.baseTop - scale * documentY;
+
+      if (isZoomingOut) {
+        const centerWeight = Math.max(0, Math.min(1, (nextZoom - 1.0) / Math.max(0.01, readerZoom - 1.0)));
+        translateX = translateX * centerWeight;
+      }
 
       lastZoomAnchorRef.current = anchor;
       pageStack.style.transformOrigin = '0 0';
@@ -340,6 +378,11 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     setPageSizes({});
     setPageLayoutReady(false);
 
+    if (!fileData || fileData.byteLength < 32) {
+      setLoading(false);
+      return;
+    }
+
     const loadingTask = pdfjsLib.getDocument({
       data: new Uint8Array(fileData.slice(0)),
       useSystemFonts: true,
@@ -425,6 +468,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
 
   useLayoutEffect(() => {
     if (previousReaderZoomRef.current === readerZoom) return;
+    const wasZoomingOut = readerZoom < previousReaderZoomRef.current;
     previousReaderZoomRef.current = readerZoom;
 
     const pageStack = pageStackRef.current;
@@ -437,8 +481,45 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     const viewport = viewportRef.current;
     const activeAnchor = zoomAnchor ?? lastZoomAnchorRef.current;
     lastZoomAnchorRef.current = undefined;
-    if (!viewport || !activeAnchor) return;
+    if (!viewport) return;
 
+    if (readerZoom <= 1.0) {
+      const maxScrollX = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      viewport.scrollTo({
+        left: Math.round(maxScrollX / 2),
+        behavior: 'auto',
+      });
+      return;
+    }
+
+    if (!activeAnchor) return;
+
+    if (wasZoomingOut) {
+      const page = activeAnchor.pageNumber
+        ? pageStackRef.current?.querySelector<HTMLElement>(`[data-pdf-page="${activeAnchor.pageNumber}"]`)
+        : null;
+      if (page) {
+        const viewportRect = viewport.getBoundingClientRect();
+        const pageRect = page.getBoundingClientRect();
+        const pageDocLeft = viewport.scrollLeft + pageRect.left - viewportRect.left;
+        const left = pageDocLeft + pageRect.width / 2 - viewport.clientWidth / 2;
+        const top =
+          viewport.scrollTop +
+          pageRect.top -
+          viewportRect.top +
+          pageRect.height * (activeAnchor.pageY ?? 0.5) -
+          viewport.clientHeight / 2;
+        viewport.scrollTo({ left: Math.max(0, left), top: Math.max(0, top), behavior: 'auto' });
+        return;
+      }
+
+      const left = Math.max(0, 0.5 * viewport.scrollWidth - viewport.clientWidth / 2);
+      const top = Math.max(0, activeAnchor.scrollRatioY * viewport.scrollHeight - viewport.clientHeight / 2);
+      viewport.scrollTo({ left, top, behavior: 'auto' });
+      return;
+    }
+
+    // Zooming IN anchored to pointer coordinates
     const page = activeAnchor.pageNumber
       ? pageStackRef.current?.querySelector<HTMLElement>(`[data-pdf-page="${activeAnchor.pageNumber}"]`)
       : null;
@@ -545,6 +626,18 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
   }, []);
 
+  useEffect(() => {
+    const handleBlur = () => {
+      isSpaceDownRef.current = false;
+      spaceDraggedRef.current = false;
+      setIsSpaceDown(false);
+      isMouseDownRef.current = false;
+      setIsPanning(false);
+    };
+    window.addEventListener('blur', handleBlur);
+    return () => window.removeEventListener('blur', handleBlur);
+  }, []);
+
   // Native wheel listener for 2D pan, Ctrl+wheel gesture zoom, and horizontal wheel conversion
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -554,7 +647,15 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       if (e.ctrlKey || e.metaKey) {
         if (onZoomGesture) {
           e.preventDefault();
-          onZoomGesture(e.deltaY, { x: e.clientX, y: e.clientY });
+          const isZoomingIn = e.deltaY < 0;
+          const viewportRect = viewport.getBoundingClientRect();
+          const point = isZoomingIn
+            ? { x: e.clientX, y: e.clientY }
+            : {
+                x: viewportRect.left + viewportRect.width / 2,
+                y: viewportRect.top + viewportRect.height / 2,
+              };
+          onZoomGesture(e.deltaY, point);
         }
         return;
       }
@@ -583,12 +684,26 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   }, [readerZoom, isHorizontal, onZoomGesture]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest(`.${styles.navZone}`)) return;
+    if (e.button !== 0 && e.button !== 1) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest(`.${styles.navZone}`)) return;
 
     const viewport = viewportRef.current;
     if (!viewport) return;
+
+    const isMiddleClick = e.button === 1;
+    const isSpaceActive = isSpaceDownRef.current;
+
+    // Check if user is clicking on selectable text spans
+    if (!isMiddleClick && !isSpaceActive && isTextSpan(target)) {
+      // Allow browser native text selection to proceed without pan hijacking
+      isMouseDownRef.current = false;
+      return;
+    }
+
+    if (isMiddleClick) {
+      e.preventDefault();
+    }
 
     isMouseDownRef.current = true;
     hasDraggedRef.current = false;
@@ -609,12 +724,30 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         return;
       }
 
+      // If text selection is active, release pan grab
+      const selection = window.getSelection();
+      if (
+        selection &&
+        !selection.isCollapsed &&
+        selection.toString().length > 0 &&
+        !isSpaceDownRef.current &&
+        e.button !== 1
+      ) {
+        isMouseDownRef.current = false;
+        setIsPanning(false);
+        return;
+      }
+
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
+      const canPan = readerZoom > 1 || isSpaceDownRef.current || e.button === 1;
 
       if (!hasDraggedRef.current && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
         hasDraggedRef.current = true;
-        if (readerZoom > 1) {
+        if (isSpaceDownRef.current) {
+          spaceDraggedRef.current = true;
+        }
+        if (canPan) {
           setIsPanning(true);
           try {
             (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -622,7 +755,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         }
       }
 
-      if (hasDraggedRef.current && readerZoom > 1) {
+      if (hasDraggedRef.current && canPan) {
         const viewport = viewportRef.current;
         if (viewport) {
           viewport.scrollLeft = dragStartRef.current.scrollLeft - dx;
@@ -655,11 +788,28 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     const viewport = viewportRef.current;
     if (!viewport) return;
 
+    if (event.key === ' ' || event.code === 'Space') {
+      const activeElement = document.activeElement;
+      const isInput =
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement?.getAttribute('contenteditable') === 'true';
+      if (!isInput) {
+        event.preventDefault();
+        if (!isSpaceDownRef.current) {
+          isSpaceDownRef.current = true;
+          spaceDraggedRef.current = false;
+          setIsSpaceDown(true);
+        }
+        return;
+      }
+    }
+
     if (isHorizontal || isPaginated) {
       if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
         event.preventDefault();
         goToPage(currentPage - 1);
-      } else if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
+      } else if (event.key === 'ArrowRight' || event.key === 'PageDown') {
         event.preventDefault();
         goToPage(currentPage + 1);
       } else if (event.key === 'Home') {
@@ -672,7 +822,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       return;
     }
 
-    if (event.key === 'PageDown' || event.key === 'ArrowDown' || event.key === ' ') {
+    if (event.key === 'PageDown' || event.key === 'ArrowDown') {
       event.preventDefault();
       viewport.scrollBy({ top: Math.max(160, viewport.clientHeight * 0.88), behavior: 'smooth' });
     } else if (event.key === 'PageUp' || event.key === 'ArrowUp') {
@@ -684,6 +834,26 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     } else if (event.key === 'End') {
       event.preventDefault();
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+    }
+  };
+
+  const handleKeyUp = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === ' ' || event.code === 'Space') {
+      const wasDown = isSpaceDownRef.current;
+      const hadDragged = spaceDraggedRef.current;
+      isSpaceDownRef.current = false;
+      spaceDraggedRef.current = false;
+      setIsSpaceDown(false);
+
+      if (wasDown && !hadDragged) {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        if (isHorizontal || isPaginated) {
+          goToPage(currentPage + 1);
+        } else {
+          viewport.scrollBy({ top: Math.max(160, viewport.clientHeight * 0.88), behavior: 'smooth' });
+        }
+      }
     }
   };
 
@@ -726,8 +896,9 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
 
   return (
     <div
-      className={`${styles.container} ${invertColors ? styles.containerInverted : ''} ${readerZoom > 1 ? styles.isZoomed : ''} ${isPanning ? styles.isPanning : ''}`}
+      className={`${styles.container} ${invertColors ? styles.containerInverted : ''} ${readerZoom > 1 ? styles.isZoomed : ''} ${isPanning ? styles.isPanning : ''} ${isSpaceDown ? styles.isHandTool : ''}`}
       onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -750,6 +921,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         onScroll={handleScroll}
         onClick={(event) => {
           if (hasDraggedRef.current) return;
+          if (window.getSelection()?.toString()) return;
           if (event.target === viewportRef.current) onToggleControls?.();
         }}
       >
