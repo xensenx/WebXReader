@@ -53,6 +53,7 @@ export interface PdfReaderProps {
   readerZoom?: number;
   zoomAnchor?: PdfZoomAnchor;
   onZoomGesture?: (deltaY: number, point?: { x: number; y: number }) => void;
+  invertColors?: boolean;
 }
 
 interface PdfSearchPage {
@@ -78,6 +79,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     readerZoom = 1,
     zoomAnchor,
     onZoomGesture,
+    invertColors = false,
   },
   ref
 ) {
@@ -701,6 +703,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         onZoomGesture={onZoomGesture}
         searchPdf={searchPdf}
         goToSearchMatch={goToSearchMatch}
+        invertColors={invertColors}
       />
     );
   }
@@ -723,7 +726,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
 
   return (
     <div
-      className={`${styles.container} ${readerZoom > 1 ? styles.isZoomed : ''} ${isPanning ? styles.isPanning : ''}`}
+      className={`${styles.container} ${invertColors ? styles.containerInverted : ''} ${readerZoom > 1 ? styles.isZoomed : ''} ${isPanning ? styles.isPanning : ''}`}
       onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -778,6 +781,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
                 initiallyVisible={Math.abs(pageNumber - currentPage) <= 1}
                 onPageSize={setPageSize}
                 layoutMode={currentLayoutMode}
+                invertColors={invertColors}
               />
             ))}
           </div>

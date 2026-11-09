@@ -41,6 +41,7 @@ export interface EffectiveReaderSettings {
   rtfPreserveAlignment?: boolean;
   readerSheetColor: ReaderSheetColor;
   expandContent: boolean;
+  invertColors?: boolean;
 }
 
 /** Fields that can be overridden per-book */
@@ -137,6 +138,10 @@ function mergeSettings(
       (hasCustom && bookOverrides?.expandContent !== undefined)
         ? bookOverrides.expandContent
         : (fmt?.expandContent ?? global.expandContent ?? false),
+    invertColors:
+      (hasCustom && bookOverrides?.invertColors !== undefined)
+        ? Boolean(bookOverrides.invertColors)
+        : Boolean(fmt?.invertColors ?? global.invertColors ?? false),
   };
 }
 

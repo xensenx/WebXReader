@@ -16,14 +16,13 @@
   color: #1f2937;
 }
 
-[data-theme='sepia'] .container {
-  background-color: #eeddbb;
-  color: #4a3f35;
-}
-
 [data-theme='dark'] .container {
   background-color: #1a1a1a;
   color: #e4e4e7;
+}
+
+.containerInverted {
+  background-color: #121214 !important;
 }
 
 /* The PDF document itself is the scroll surface. Pages remain in normal flow
@@ -168,6 +167,11 @@
   scroll-margin-block: 16px;
   overflow: hidden;
   user-select: text;
+  transition: filter 0.2s ease;
+}
+
+.pageInverted {
+  filter: invert(1) hue-rotate(180deg);
 }
 
 .pdfCanvas {

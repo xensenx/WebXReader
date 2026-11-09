@@ -34,6 +34,7 @@ export interface PdfDoubleSidedReaderProps {
   onZoomGesture?: (deltaY: number, point?: { x: number; y: number }) => void;
   searchPdf?: (query: string) => Promise<ReaderSearchResult[]>;
   goToSearchMatch?: (pageNumber: number, query: string, matchIndex: number) => Promise<void>;
+  invertColors?: boolean;
 }
 
 export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedReaderProps>(
@@ -49,6 +50,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
       onZoomGesture,
       searchPdf,
       goToSearchMatch,
+      invertColors = false,
     },
     ref
   ) {
@@ -243,6 +245,9 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
       const mountEl = document.createElement('div');
       mountEl.style.width = `${dims.isPortrait ? dims.pageWidth : dims.pageWidth * 2}px`;
       mountEl.style.height = `${dims.pageHeight}px`;
+      if (invertColors) {
+        mountEl.classList.add(styles.pageInverted);
+      }
       pageFlipMountRef.current = mountEl;
       bookContainer.appendChild(mountEl);
 
@@ -337,6 +342,17 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
         }
       }
     }, [readerZoom]);
+
+    // Apply color inversion to mounted PageFlip spread
+    useEffect(() => {
+      if (pageFlipMountRef.current) {
+        if (invertColors) {
+          pageFlipMountRef.current.classList.add(styles.pageInverted);
+        } else {
+          pageFlipMountRef.current.classList.remove(styles.pageInverted);
+        }
+      }
+    }, [invertColors]);
 
     // Native wheel listener for 2D pan and Ctrl+wheel zooming
     useEffect(() => {
@@ -526,7 +542,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
     return (
       <div
         ref={containerRef}
-        className={`${styles.container} ${readerZoom > 1 ? styles.isZoomed : ''} ${isPanning ? styles.isPanning : ''}`}
+        className={`${styles.container} ${invertColors ? styles.containerInverted : ''} ${readerZoom > 1 ? styles.isZoomed : ''} ${isPanning ? styles.isPanning : ''}`}
         onKeyDown={handleKeyDown}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

@@ -816,6 +816,7 @@ export function ReaderView() {
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
               onZoomGesture={(deltaY, point) => queueWheelZoom(deltaY, point)}
+              invertColors={effectiveReaderSettings.invertColors}
             />
           ) : isDjvu ? (
             <DjvuReader

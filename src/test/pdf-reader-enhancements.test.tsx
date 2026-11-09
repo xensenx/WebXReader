@@ -115,6 +115,51 @@ describe('PDF Reader Enhancements', () => {
       expect(horizontalBtn.className).not.toMatch(/modeBtnActive/);
       expect(scrollBtn.className).not.toMatch(/modeBtnActive/);
     });
+
+    it('renders Invert Colors toggle switch for PDF and removes Paper White, Archive Gold, and Dark canvas options', () => {
+      const handleUpdate = vi.fn();
+      const { rerender } = render(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={{ ...dummySettings, invertColors: false }}
+          onUpdate={handleUpdate}
+          onReset={vi.fn()}
+          format="pdf"
+          fixedLayout
+        />
+      );
+
+      // Invert Colors toggle switch should be present for PDF
+      const invertToggle = screen.getByRole('switch', { name: /invert colors/i });
+      expect(invertToggle).toBeInTheDocument();
+      expect(invertToggle).toHaveAttribute('aria-checked', 'false');
+
+      // The old Page Canvas options (Paper White, Archive Gold, Dark) must NOT be rendered for PDF
+      expect(screen.queryByRole('button', { name: /paper white/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /archive gold/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^dark$/i })).not.toBeInTheDocument();
+
+      // Clicking the toggle calls onUpdate with invertColors: true
+      fireEvent.click(invertToggle);
+      expect(handleUpdate).toHaveBeenCalledWith({ invertColors: true });
+
+      // Rerender with invertColors: true
+      rerender(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={{ ...dummySettings, invertColors: true }}
+          onUpdate={handleUpdate}
+          onReset={vi.fn()}
+          format="pdf"
+          fixedLayout
+        />
+      );
+
+      const updatedToggle = screen.getByRole('switch', { name: /invert colors/i });
+      expect(updatedToggle).toHaveAttribute('aria-checked', 'true');
+    });
   });
 
   describe('getPdfDisplayScale responsive geometry', () => {

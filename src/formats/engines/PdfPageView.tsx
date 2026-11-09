@@ -84,6 +84,7 @@ export interface PdfPageViewProps {
   customWidth?: number;
   customHeight?: number;
   className?: string;
+  invertColors?: boolean;
 }
 
 /**
@@ -103,6 +104,7 @@ export function PdfPageView({
   customWidth,
   customHeight,
   className,
+  invertColors = false,
 }: PdfPageViewProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -315,7 +317,7 @@ export function PdfPageView({
   return (
     <div
       ref={shellRef}
-      className={`${styles.pageShell} ${className ?? ''}`}
+      className={`${styles.pageShell} ${invertColors ? styles.pageInverted : ''} ${className ?? ''}`}
       data-pdf-page={pageNumber}
       style={shellStyle}
       aria-label={`PDF page ${pageNumber}`}

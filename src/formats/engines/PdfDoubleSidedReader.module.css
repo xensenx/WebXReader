@@ -15,12 +15,12 @@
   background-color: #d1d5db;
 }
 
-[data-theme='sepia'] .container {
-  background-color: #d8c29d;
-}
-
 [data-theme='dark'] .container {
   background-color: #121214;
+}
+
+.containerInverted {
+  background-color: #121214 !important;
 }
 
 .isZoomed {
@@ -67,6 +67,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.pageInverted {
+  filter: invert(1) hue-rotate(180deg);
+  transition: filter 0.2s ease;
 }
 
 .pageSheet canvas {

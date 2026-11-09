@@ -61,6 +61,7 @@ export interface FormatSettings {
   rtfPreserveAlignment?: boolean;
   readerSheetColor?: ReaderSheetColor;
   expandContent?: boolean;
+  invertColors?: boolean;
 }
 
 /**
@@ -333,6 +334,8 @@ export interface UserSettings {
   fb2IncludeNotes?: boolean;
   /** Import size warning threshold in MB */
   importSizeWarningMB: number;
+  /** Invert page canvas colors */
+  invertColors?: boolean;
   /** Last updated */
   updatedAt: number;
 }
@@ -375,6 +378,8 @@ export interface BookSettings {
   comicFitMode?: ComicFitMode;
   /** Override whether RTF document alignments are preserved */
   rtfPreserveAlignment?: boolean;
+  /** Override whether page canvas colors are inverted */
+  invertColors?: boolean;
   /** Last updated */
   updatedAt: number;
 }
@@ -435,5 +440,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
   autoDetectChaptersDocx: true,
   autoDetectChaptersDoc: true,
   importSizeWarningMB: 50,
+  invertColors: false,
   updatedAt: Date.now(),
 };
