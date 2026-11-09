@@ -42,7 +42,7 @@
   scroll-behavior: auto;
 }
 
-.isZoomed {
+.isZoomed .viewport {
   cursor: grab;
 }
 
@@ -175,6 +175,7 @@
   scroll-margin-block: 16px;
   overflow: hidden;
   user-select: text;
+  cursor: text;
   transition: filter 0.2s ease;
 }
 

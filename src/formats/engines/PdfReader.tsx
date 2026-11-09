@@ -73,17 +73,15 @@ interface PdfZoomPreviewTransform {
  * Determines whether a pointer event target resides within selectable PDF text spans.
  *
  * @param target Candidate DOM element receiving pointer interaction.
- * @returns True if target is a text span or text run inside the PDF text layer.
+ * @returns True if target is a text span, textLayer container, or page text content.
  */
-const isTextSpan = (target: HTMLElement | null): boolean => {
+const isTextTarget = (target: HTMLElement | null): boolean => {
   if (!target) return false;
-  if (
-    target.tagName === 'SPAN' &&
-    (target.closest(`.${styles.textLayer}`) || target.closest(`.${styles.pageShell}`))
-  ) {
-    return true;
-  }
-  return Boolean(target.closest(`.${styles.textLayer} span`));
+  return Boolean(
+    target.closest(`.${styles.textLayer}`) ||
+    target.tagName === 'SPAN' ||
+    target.closest('span')
+  );
 };
 
 export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function PdfReader(
@@ -179,8 +177,8 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       const pageStack = pageStackRef.current ?? viewport?.querySelector<HTMLElement>('[class*="Stack"]');
       if (!viewport || !pageStack) return;
 
-      const isZoomingOut = nextZoom < readerZoom;
-      if (nextZoom <= 1.001) {
+      const scale = nextZoom / readerZoom;
+      if (Math.abs(scale - 1) < 0.005 || nextZoom <= 1.001) {
         pageStack.style.transform = '';
         pageStack.style.transformOrigin = '';
         previewTransformRef.current = null;
@@ -188,38 +186,25 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         return;
       }
 
-      const viewportRect = viewport.getBoundingClientRect();
-      const pointerX = isZoomingOut
-        ? viewportRect.left + viewport.clientWidth / 2
-        : viewportRect.left + anchor.viewportX;
-      const pointerY = isZoomingOut
-        ? viewportRect.top + viewport.clientHeight / 2
-        : viewportRect.top + anchor.viewportY;
-      const previous = previewTransformRef.current ?? {
-        baseLeft: pageStack.getBoundingClientRect().left,
-        baseTop: pageStack.getBoundingClientRect().top,
-        scale: 1,
-        translateX: 0,
-        translateY: 0,
-      };
-      const scale = nextZoom / readerZoom;
+      const isZoomingOut = nextZoom < readerZoom;
+      const targetViewportX = isZoomingOut
+        ? viewport.clientWidth / 2
+        : Math.max(0, Math.min(viewport.clientWidth, anchor.viewportX));
+      const targetViewportY = isZoomingOut
+        ? viewport.clientHeight / 2
+        : Math.max(0, Math.min(viewport.clientHeight, anchor.viewportY));
 
-      const documentX = (pointerX - previous.baseLeft - previous.translateX) / previous.scale;
-      const documentY = (pointerY - previous.baseTop - previous.translateY) / previous.scale;
-      let translateX = pointerX - previous.baseLeft - scale * documentX;
-      let translateY = pointerY - previous.baseTop - scale * documentY;
-
-      if (isZoomingOut) {
-        const centerWeight = Math.max(0, Math.min(1, (nextZoom - 1.0) / Math.max(0.01, readerZoom - 1.0)));
-        translateX = translateX * centerWeight;
-      }
+      const stackX = viewport.scrollLeft + targetViewportX - pageStack.offsetLeft;
+      const stackY = viewport.scrollTop + targetViewportY - pageStack.offsetTop;
+      const translateX = Math.round(stackX * (1 - scale));
+      const translateY = Math.round(stackY * (1 - scale));
 
       lastZoomAnchorRef.current = anchor;
       pageStack.style.transformOrigin = '0 0';
       pageStack.style.transform = `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`;
       previewTransformRef.current = {
-        baseLeft: previous.baseLeft,
-        baseTop: previous.baseTop,
+        baseLeft: pageStack.offsetLeft,
+        baseTop: pageStack.offsetTop,
         scale,
         translateX,
         translateY,
@@ -468,10 +453,11 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
 
   useLayoutEffect(() => {
     if (previousReaderZoomRef.current === readerZoom) return;
-    const wasZoomingOut = readerZoom < previousReaderZoomRef.current;
+    const prevZoom = previousReaderZoomRef.current;
+    const wasZoomingOut = readerZoom < prevZoom;
     previousReaderZoomRef.current = readerZoom;
 
-    const pageStack = pageStackRef.current;
+    const pageStack = pageStackRef.current ?? viewportRef.current?.querySelector<HTMLElement>('[class*="Stack"]');
     if (pageStack) {
       pageStack.style.transform = '';
       pageStack.style.transformOrigin = '';
@@ -479,11 +465,10 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     previewTransformRef.current = null;
 
     const viewport = viewportRef.current;
-    const activeAnchor = zoomAnchor ?? lastZoomAnchorRef.current;
-    lastZoomAnchorRef.current = undefined;
     if (!viewport) return;
 
     if (readerZoom <= 1.0) {
+      // Zoomed out to <= 100%: reset horizontal scroll to center and clear transform
       const maxScrollX = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
       viewport.scrollTo({
         left: Math.round(maxScrollX / 2),
@@ -492,62 +477,69 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       return;
     }
 
-    if (!activeAnchor) return;
+    const activeAnchor = zoomAnchor ?? lastZoomAnchorRef.current;
+    lastZoomAnchorRef.current = undefined;
 
-    if (wasZoomingOut) {
-      const page = activeAnchor.pageNumber
-        ? pageStackRef.current?.querySelector<HTMLElement>(`[data-pdf-page="${activeAnchor.pageNumber}"]`)
-        : null;
-      if (page) {
-        const viewportRect = viewport.getBoundingClientRect();
-        const pageRect = page.getBoundingClientRect();
-        const pageDocLeft = viewport.scrollLeft + pageRect.left - viewportRect.left;
-        const left = pageDocLeft + pageRect.width / 2 - viewport.clientWidth / 2;
-        const top =
-          viewport.scrollTop +
-          pageRect.top -
-          viewportRect.top +
-          pageRect.height * (activeAnchor.pageY ?? 0.5) -
-          viewport.clientHeight / 2;
-        viewport.scrollTo({ left: Math.max(0, left), top: Math.max(0, top), behavior: 'auto' });
-        return;
-      }
+    const targetViewportX = wasZoomingOut
+      ? viewport.clientWidth / 2
+      : (activeAnchor?.viewportX ?? viewport.clientWidth / 2);
+    const targetViewportY = wasZoomingOut
+      ? viewport.clientHeight / 2
+      : (activeAnchor?.viewportY ?? viewport.clientHeight / 2);
 
-      const left = Math.max(0, 0.5 * viewport.scrollWidth - viewport.clientWidth / 2);
-      const top = Math.max(0, activeAnchor.scrollRatioY * viewport.scrollHeight - viewport.clientHeight / 2);
-      viewport.scrollTo({ left, top, behavior: 'auto' });
-      return;
-    }
-
-    // Zooming IN anchored to pointer coordinates
-    const page = activeAnchor.pageNumber
-      ? pageStackRef.current?.querySelector<HTMLElement>(`[data-pdf-page="${activeAnchor.pageNumber}"]`)
+    const page = activeAnchor?.pageNumber
+      ? pageStack?.querySelector<HTMLElement>(`[data-pdf-page="${activeAnchor.pageNumber}"]`)
       : null;
-    if (page) {
+    const pageRect = page?.getBoundingClientRect();
+    const hasRenderedPage = Boolean(page && pageRect && (pageRect.height > 0 || pageRect.width > 0));
+
+    if (hasRenderedPage && page && pageRect) {
       const viewportRect = viewport.getBoundingClientRect();
-      const pageRect = page.getBoundingClientRect();
-      const left =
-        viewport.scrollLeft +
-        pageRect.left -
-        viewportRect.left +
-        pageRect.width * (activeAnchor.pageX ?? 0.5) -
-        activeAnchor.viewportX;
-      const top =
-        viewport.scrollTop +
-        pageRect.top -
-        viewportRect.top +
-        pageRect.height * (activeAnchor.pageY ?? 0.5) -
-        activeAnchor.viewportY;
-      viewport.scrollTo({ left: Math.max(0, left), top: Math.max(0, top), behavior: 'auto' });
+      const anchorPageX = wasZoomingOut ? 0.5 : (activeAnchor?.pageX ?? 0.5);
+      const anchorPageY = wasZoomingOut ? 0.5 : (activeAnchor?.pageY ?? 0.5);
+
+      const currentAnchorViewportX = pageRect.left - viewportRect.left + pageRect.width * anchorPageX;
+      const currentAnchorViewportY = pageRect.top - viewportRect.top + pageRect.height * anchorPageY;
+
+      const deltaX = currentAnchorViewportX - targetViewportX;
+      const deltaY = currentAnchorViewportY - targetViewportY;
+
+      const nextScrollLeft = wasZoomingOut && !isHorizontal
+        ? Math.max(0, Math.round((viewport.scrollWidth - viewport.clientWidth) / 2))
+        : Math.max(0, Math.round(viewport.scrollLeft + deltaX));
+      const nextScrollTop = Math.max(0, Math.round(viewport.scrollTop + deltaY));
+
+      viewport.scrollTo({
+        left: nextScrollLeft,
+        top: nextScrollTop,
+        behavior: 'auto',
+      });
       return;
     }
+
+    const zoomRatio = prevZoom > 0 ? readerZoom / prevZoom : 1;
+    const docX = viewport.scrollLeft + targetViewportX;
+    const docY = viewport.scrollTop + targetViewportY;
+
+    if (isHorizontal) {
+      const nextScrollLeft = Math.max(0, Math.round(docX * zoomRatio - targetViewportX));
+      const nextScrollTop = Math.max(0, Math.round((viewport.scrollHeight - viewport.clientHeight) / 2));
+      viewport.scrollTo({ left: nextScrollLeft, top: nextScrollTop, behavior: 'auto' });
+      return;
+    }
+
+    // Continuous vertical scroll: smoothly maintain the reading line without jumping
+    const nextScrollTop = Math.max(0, Math.round(docY * zoomRatio - targetViewportY));
+    const nextScrollLeft = wasZoomingOut
+      ? Math.max(0, Math.round((viewport.scrollWidth - viewport.clientWidth) / 2))
+      : Math.max(0, Math.round(docX * zoomRatio - targetViewportX));
 
     viewport.scrollTo({
-      left: Math.max(0, activeAnchor.scrollRatioX * viewport.scrollWidth - activeAnchor.viewportX),
-      top: Math.max(0, activeAnchor.scrollRatioY * viewport.scrollHeight - activeAnchor.viewportY),
+      left: nextScrollLeft,
+      top: nextScrollTop,
       behavior: 'auto',
     });
-  }, [readerZoom, zoomAnchor]);
+  }, [readerZoom, zoomAnchor, isHorizontal]);
 
   // Keep single page centered on page switch in paginated mode
   useEffect(() => {
@@ -647,6 +639,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       if (e.ctrlKey || e.metaKey) {
         if (onZoomGesture) {
           e.preventDefault();
+          e.stopPropagation();
           const isZoomingIn = e.deltaY < 0;
           const viewportRect = viewport.getBoundingClientRect();
           const point = isZoomingIn
@@ -657,14 +650,6 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
               };
           onZoomGesture(e.deltaY, point);
         }
-        return;
-      }
-
-      if (readerZoom > 1) {
-        // 2D Pan when zoomed in
-        e.preventDefault();
-        viewport.scrollLeft += e.deltaX;
-        viewport.scrollTop += e.deltaY;
         return;
       }
 
@@ -681,7 +666,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     return () => {
       viewport.removeEventListener('wheel', handleWheelNative);
     };
-  }, [readerZoom, isHorizontal, onZoomGesture]);
+  }, [isHorizontal, onZoomGesture]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.button !== 1) return;
@@ -695,7 +680,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     const isSpaceActive = isSpaceDownRef.current;
 
     // Check if user is clicking on selectable text spans
-    if (!isMiddleClick && !isSpaceActive && isTextSpan(target)) {
+    if (!isMiddleClick && !isSpaceActive && isTextTarget(target)) {
       // Allow browser native text selection to proceed without pan hijacking
       isMouseDownRef.current = false;
       return;

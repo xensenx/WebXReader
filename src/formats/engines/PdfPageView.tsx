@@ -134,11 +134,11 @@ export function PdfPageView({
         if (entries.some((entry) => entry.isIntersecting)) {
           setShouldRender(true);
         } else if (!initiallyVisible) {
-          // Keep only nearby pages rasterized to conserve GPU/canvas memory
+          // Keep only pages within 2000px margin rendered to conserve GPU/canvas memory
           setShouldRender(false);
         }
       },
-      { root, rootMargin: '1200px 1200px' }
+      { root, rootMargin: '2000px 2000px' }
     );
     observer.observe(shell);
     return () => observer.disconnect();
@@ -146,18 +146,18 @@ export function PdfPageView({
 
   useEffect(() => {
     if (shouldRender) return;
+    // When deeply scrolled away, free up canvas memory without resetting hasRendered,
+    // avoiding white flashing or shimmer flicker when scrolling back into view.
     if (canvasRef.current) {
       canvasRef.current.width = 0;
       canvasRef.current.height = 0;
     }
     textLayerContainerRef.current?.replaceChildren();
-    setHasRendered(false);
   }, [shouldRender]);
 
   useEffect(() => {
     if (!shouldRender || !canvasRef.current || !textLayerContainerRef.current) return;
     let active = true;
-    let stagedTextLayer: HTMLDivElement | null = null;
 
     const render = async () => {
       try {
@@ -183,12 +183,12 @@ export function PdfPageView({
         );
         const viewport = page.getViewport({ scale });
         const stagingCanvas = document.createElement('canvas');
-        const maxPixelCount = 16_000_000;
+        const maxPixelCount = 6_000_000;
         const dpr = Math.min(
           window.devicePixelRatio || 1,
-          2.5,
-          8192 / Math.max(1, viewport.width),
-          8192 / Math.max(1, viewport.height),
+          2.0,
+          4096 / Math.max(1, viewport.width),
+          4096 / Math.max(1, viewport.height),
           Math.sqrt(maxPixelCount / Math.max(1, viewport.width * viewport.height))
         );
 
@@ -208,16 +208,12 @@ export function PdfPageView({
         }
         if (!active || !textLayerContainerRef.current) return;
 
-        stagedTextLayer = document.createElement('div');
+        // Render textLayer in offscreen container without mutating document.body
+        const stagedTextLayer = document.createElement('div');
         stagedTextLayer.className = styles.textLayer;
-        stagedTextLayer.style.position = 'fixed';
-        stagedTextLayer.style.inset = 'auto';
-        stagedTextLayer.style.left = '-10000px';
-        stagedTextLayer.style.top = '0';
         stagedTextLayer.style.width = `${Math.floor(viewport.width)}px`;
         stagedTextLayer.style.height = `${Math.floor(viewport.height)}px`;
         stagedTextLayer.style.setProperty('--total-scale-factor', String(viewport.scale));
-        document.body.appendChild(stagedTextLayer);
 
         const textLayer = new pdfjsLib.TextLayer({
           textContentSource: textContent,
@@ -250,13 +246,14 @@ export function PdfPageView({
         const textLayerContainer = textLayerContainerRef.current;
         if (!canvas || !textLayerContainer) return;
 
-        // Double-buffering prevents blank flicker during zoom or pan
+        // Double-buffering: atomic copy onto visible canvas prevents blank flicker
         canvas.width = stagingCanvas.width;
         canvas.height = stagingCanvas.height;
         const visibleContext = canvas.getContext('2d', { alpha: false });
         if (!visibleContext) return;
         visibleContext.drawImage(stagingCanvas, 0, 0);
-        if (textLayerReady && stagedTextLayer) {
+
+        if (textLayerReady) {
           textLayerContainer.style.setProperty('--total-scale-factor', String(viewport.scale));
           textLayerContainer.replaceChildren(...Array.from(stagedTextLayer.childNodes));
         }
@@ -266,12 +263,10 @@ export function PdfPageView({
           return;
         }
         console.error(`Failed to render PDF page ${pageNumber}:`, error);
-      } finally {
-        stagedTextLayer?.remove();
       }
     };
 
-    const timer = window.setTimeout(() => void render(), 40);
+    const timer = window.setTimeout(() => void render(), 80);
     return () => {
       active = false;
       window.clearTimeout(timer);
