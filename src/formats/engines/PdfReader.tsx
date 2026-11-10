@@ -467,16 +467,6 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     const viewport = viewportRef.current;
     if (!viewport) return;
 
-    if (readerZoom <= 1.0) {
-      // Zoomed out to <= 100%: reset horizontal scroll to center and clear transform
-      const maxScrollX = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
-      viewport.scrollTo({
-        left: Math.round(maxScrollX / 2),
-        behavior: 'auto',
-      });
-      return;
-    }
-
     const activeAnchor = zoomAnchor ?? lastZoomAnchorRef.current;
     lastZoomAnchorRef.current = undefined;
 
@@ -491,10 +481,10 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       ? pageStack?.querySelector<HTMLElement>(`[data-pdf-page="${activeAnchor.pageNumber}"]`)
       : null;
     const pageRect = page?.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
     const hasRenderedPage = Boolean(page && pageRect && (pageRect.height > 0 || pageRect.width > 0));
 
     if (hasRenderedPage && page && pageRect) {
-      const viewportRect = viewport.getBoundingClientRect();
       const anchorPageX = wasZoomingOut ? 0.5 : (activeAnchor?.pageX ?? 0.5);
       const anchorPageY = wasZoomingOut ? 0.5 : (activeAnchor?.pageY ?? 0.5);
 
@@ -512,6 +502,17 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       viewport.scrollTo({
         left: nextScrollLeft,
         top: nextScrollTop,
+        behavior: 'auto',
+      });
+      return;
+    }
+
+    if (readerZoom <= 1.0) {
+      // Zoomed out to <= 100%: reset horizontal scroll to center and preserve vertical scroll
+      const maxScrollX = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      viewport.scrollTo({
+        left: Math.round(maxScrollX / 2),
+        top: viewport.scrollTop,
         behavior: 'auto',
       });
       return;

@@ -125,7 +125,24 @@ export function useReaderZoom({
     )?.closest<HTMLElement>(
       '[data-pdf-page], [data-cbz-page], [data-djvu-page], [data-image-page]'
     );
-    const page = hitPage && stage.contains(hitPage) ? hitPage : null;
+    let page = hitPage && stage.contains(hitPage) ? hitPage : null;
+    if (!page && viewport) {
+      const pages = Array.from(viewport.querySelectorAll<HTMLElement>('[data-pdf-page], [data-cbz-page], [data-djvu-page], [data-image-page]'));
+      for (const p of pages) {
+        const rect = p.getBoundingClientRect();
+        if (y >= rect.top && y <= rect.bottom) {
+          page = p;
+          break;
+        }
+      }
+      if (!page && pages.length > 0) {
+        page = pages.reduce((closest, curr) => {
+          const currDist = Math.abs(curr.getBoundingClientRect().top - y);
+          const closestDist = Math.abs(closest.getBoundingClientRect().top - y);
+          return currDist < closestDist ? curr : closest;
+        }, pages[0]);
+      }
+    }
     const pageRect = page?.getBoundingClientRect();
     const hitSection =
       sourceFormat === 'epub' && typeof document.elementFromPoint === 'function'
@@ -172,12 +189,20 @@ export function useReaderZoom({
   const updateZoom = useCallback((nextZoom: number, fixedLayout: boolean, anchor?: ReaderZoomAnchor) => {
     if (Math.abs(nextZoom - readerZoomRef.current) < 1e-7) return;
     readerZoomRef.current = nextZoom;
-    if (!fixedLayout) {
-      if (anchor) setZoomAnchor(anchor);
+    if (!fixedLayout || sourceFormat === 'pdf') {
+      if (anchor) {
+        pdfZoomAnchorRef.current = anchor;
+        setZoomAnchor(anchor);
+      }
       if (sourceFormat === 'epub') {
         previewRefs?.epubReaderRef?.current?.previewZoom(nextZoom, anchor ?? captureZoomAnchor());
       }
       setReaderZoom(nextZoom);
+      if (zoomLabelRef.current) {
+        const percent = Math.round(nextZoom * 100);
+        zoomLabelRef.current.textContent = `${percent}%`;
+        zoomLabelRef.current.setAttribute('aria-label', `Book zoom ${percent} percent`);
+      }
       return;
     }
 
@@ -266,14 +291,14 @@ export function useReaderZoom({
   }, [captureZoomAnchor, previewRefs, sourceFormat]);
 
   const queueWheelZoom = useCallback((deltaY: number, point?: { x: number; y: number }) => {
-    const fixedLayout = isFixedLayout(sourceFormat);
+    const isBufferedFormat = sourceFormat !== 'pdf' && isFixedLayout(sourceFormat);
     wheelZoomDeltaRef.current += deltaY;
     if (point) wheelZoomPointRef.current = point;
     if (wheelZoomFrameRef.current !== null) return;
 
     const applyPendingZoom = () => {
       const elapsed = performance.now() - lastWheelZoomAtRef.current;
-      if (!fixedLayout && wheelZoomDeltaRef.current !== 0 && elapsed < 50) {
+      if (!isBufferedFormat && wheelZoomDeltaRef.current !== 0 && elapsed < 50) {
         wheelZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
         return;
       }
@@ -284,7 +309,7 @@ export function useReaderZoom({
       wheelZoomDeltaRef.current = 0;
       wheelZoomPointRef.current = undefined;
       if (delta !== 0) {
-        if (!fixedLayout) lastWheelZoomAtRef.current = performance.now();
+        if (!isBufferedFormat) lastWheelZoomAtRef.current = performance.now();
         zoomBy(Math.exp(-delta * 0.0008), latestPoint);
       }
     };
