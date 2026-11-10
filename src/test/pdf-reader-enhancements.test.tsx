@@ -551,5 +551,67 @@ describe('PDF Reader Enhancements', () => {
         fireEvent.keyDown(root, { key: 'End' });
       }).not.toThrow();
     });
+
+    it('anchors double-sided previewZoom to pointer when zooming in and pulls back to center when zooming out', () => {
+      const readerRef = React.createRef<PdfReaderHandle>();
+      const { container } = render(
+        <PdfDoubleSidedReader
+          ref={readerRef}
+          pdfDoc={mockPdfDoc}
+          totalPages={4}
+          pageSizes={{ 1: { width: 612, height: 792 } }}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      const bookStage = container.querySelector('[class*="bookStage"]') as HTMLElement;
+      expect(bookStage).toBeInTheDocument();
+
+      // Pointer zoom in to 1.8x anchored at (600, 300)
+      act(() => {
+        readerRef.current?.previewZoom(1.8, {
+          id: 1,
+          viewportX: 600,
+          viewportY: 300,
+          scrollRatioX: 0.5,
+          scrollRatioY: 0.5,
+          pageNumber: 2,
+        });
+      });
+
+      expect(bookStage.style.getPropertyValue('--pdf-reader-zoom')).toBe('1.8');
+      expect(bookStage.style.getPropertyValue('--pdf-pan-x')).not.toBe('');
+
+      // Zoom out towards 1.0 pulls pan back to center (0px, 0px)
+      act(() => {
+        readerRef.current?.previewZoom(1.0);
+      });
+
+      expect(bookStage.style.getPropertyValue('--pdf-reader-zoom')).toBe('1');
+      expect(bookStage.style.getPropertyValue('--pdf-pan-x')).toBe('0px');
+      expect(bookStage.style.getPropertyValue('--pdf-pan-y')).toBe('0px');
+    });
+
+    it('allows drag-to-pan in double-sided mode when zoomed in', () => {
+      const { container } = render(
+        <PdfDoubleSidedReader
+          pdfDoc={mockPdfDoc}
+          totalPages={4}
+          pageSizes={{ 1: { width: 612, height: 792 } }}
+          onProgressUpdate={vi.fn()}
+          readerZoom={2.0}
+        />
+      );
+
+      const root = container.firstElementChild as HTMLElement;
+      const bookStage = container.querySelector('[class*="bookStage"]') as HTMLElement;
+
+      fireEvent.pointerDown(root, { button: 0, clientX: 200, clientY: 200 });
+      fireEvent.pointerMove(root, { buttons: 1, clientX: 160, clientY: 150 });
+
+      expect(bookStage.style.getPropertyValue('--pdf-pan-x')).not.toBe('0px');
+
+      fireEvent.pointerUp(root, { button: 0, clientX: 160, clientY: 150 });
+    });
   });
 });

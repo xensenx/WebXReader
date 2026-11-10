@@ -47,6 +47,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
       onProgressUpdate,
       onToggleControls,
       readerZoom = 1,
+      zoomAnchor,
       onZoomGesture,
       searchPdf,
       goToSearchMatch,
@@ -63,7 +64,11 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
     const [currentPageIndex, setCurrentPageIndex] = useState<number>(Math.max(0, initialPage - 1));
     const [, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [isPanning, setIsPanning] = useState(false);
-    const [sideFocus, setSideFocus] = useState<'left' | 'center' | 'right'>('center');
+    const [sideFocus, setSideFocus] = useState<'left' | 'center' | 'right' | 'custom'>('center');
+    const sideFocusRef = useRef<'left' | 'center' | 'right' | 'custom'>('center');
+    sideFocusRef.current = sideFocus;
+    const pointerPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
+    const previousZoomRef = useRef(readerZoom);
     const [spreadDimensions, setSpreadDimensions] = useState<{
       pageWidth: number;
       pageHeight: number;
@@ -384,8 +389,11 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
       }
     }, [readerZoom, currentPageIndex, renderNearbyPages]);
 
-    // Apply readerZoom transform and update PageFlip mouse event handling
+    // Apply readerZoom transform, update PageFlip mouse event handling, and anchor zoom
     useEffect(() => {
+      const prevZoom = previousZoomRef.current;
+      previousZoomRef.current = readerZoom;
+
       if (bookStageRef.current) {
         bookStageRef.current.style.setProperty('--pdf-reader-zoom', String(readerZoom));
       }
@@ -416,8 +424,77 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
           bookStageRef.current.style.setProperty('--pdf-pan-x', '0px');
           bookStageRef.current.style.setProperty('--pdf-pan-y', '0px');
         }
+      } else if (readerZoom > prevZoom && (zoomAnchor || pointerPosRef.current)) {
+        // Zooming IN with anchor or pointer: anchor towards pointer
+        let px = 0;
+        let py = 0;
+        let hasPoint = false;
+        const container = containerRef.current;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          if (zoomAnchor && typeof zoomAnchor.viewportX === 'number' && typeof zoomAnchor.viewportY === 'number') {
+            px = rect.left + zoomAnchor.viewportX;
+            py = rect.top + zoomAnchor.viewportY;
+            hasPoint = true;
+          } else if (pointerPosRef.current) {
+            px = pointerPosRef.current.clientX;
+            py = pointerPosRef.current.clientY;
+            hasPoint = true;
+          }
+          if (hasPoint) {
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const dx = px - cx;
+            const dy = py - cy;
+            const factor = readerZoom / Math.max(1, prevZoom) - 1;
+            const { maxX, maxY } = calculateMaxPan(readerZoom);
+            const targetX = panRef.current.x - dx * factor;
+            const targetY = panRef.current.y - dy * factor;
+            const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
+            const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
+            panRef.current = { x: clampedX, y: clampedY };
+            setPan({ x: clampedX, y: clampedY });
+            setSideFocus('custom');
+            if (bookStageRef.current) {
+              bookStageRef.current.style.setProperty('--pdf-pan-x', `${clampedX}px`);
+              bookStageRef.current.style.setProperty('--pdf-pan-y', `${clampedY}px`);
+            }
+          }
+        }
+      } else if (readerZoom < prevZoom) {
+        // Zooming OUT: smoothly pull back to center
+        const { maxX, maxY } = calculateMaxPan(readerZoom);
+        const centerRatio = Math.max(0, (readerZoom - 1.0) / Math.max(0.01, prevZoom - 1.0));
+        const targetX = panRef.current.x * centerRatio;
+        const targetY = panRef.current.y * centerRatio;
+        const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
+        const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
+        panRef.current = { x: clampedX, y: clampedY };
+        setPan({ x: clampedX, y: clampedY });
+        if (centerRatio < 0.1) setSideFocus('center');
+        if (bookStageRef.current) {
+          bookStageRef.current.style.setProperty('--pdf-pan-x', `${clampedX}px`);
+          bookStageRef.current.style.setProperty('--pdf-pan-y', `${clampedY}px`);
+        }
+      } else {
+        const currentFocus = sideFocusRef.current;
+        if (currentFocus === 'left' || currentFocus === 'right') {
+          focusSide(currentFocus, readerZoom);
+        } else if (currentFocus === 'center') {
+          focusSide('center', readerZoom);
+        } else {
+          const { maxX, maxY } = calculateMaxPan(readerZoom);
+          const clampedX = Math.max(-maxX, Math.min(maxX, panRef.current.x));
+          const clampedY = Math.max(-maxY, Math.min(maxY, panRef.current.y));
+          panRef.current = { x: clampedX, y: clampedY };
+          setPan({ x: clampedX, y: clampedY });
+          if (bookStageRef.current) {
+            bookStageRef.current.style.setProperty('--pdf-pan-x', `${clampedX}px`);
+            bookStageRef.current.style.setProperty('--pdf-pan-y', `${clampedY}px`);
+          }
+        }
       }
-    }, [readerZoom]);
+    }, [readerZoom, zoomAnchor, focusSide, calculateMaxPan]);
 
     // Apply color inversion to mounted PageFlip spread
     useEffect(() => {
@@ -439,6 +516,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
         if (e.ctrlKey || e.metaKey) {
           if (onZoomGesture) {
             e.preventDefault();
+            pointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
             onZoomGesture(e.deltaY, { x: e.clientX, y: e.clientY });
           }
           return;
@@ -452,6 +530,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
           const newPan = { x: nextX, y: nextY };
           panRef.current = newPan;
           setPan(newPan);
+          setSideFocus('custom');
 
           if (bookStageRef.current) {
             bookStageRef.current.style.setProperty('--pdf-pan-x', `${nextX}px`);
@@ -517,10 +596,86 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
           const page = totalPages > 1 ? Math.round(clamped * (totalPages - 1)) + 1 : 1;
           turnToPage(page);
         },
-        previewZoom: (zoom: number) => {
+        previewZoom: (zoom: number, anchor?: PdfZoomAnchor) => {
+          const prevZoom = readerZoomRef.current;
           if (bookStageRef.current) {
-            bookStageRef.current.style.setProperty('--pdf-reader-zoom', String(zoom));
+            bookStageRef.current.style.setProperty(
+              '--pdf-reader-zoom',
+              String(zoom)
+            );
           }
+          if (zoom <= 1.001) {
+            panRef.current = { x: 0, y: 0 };
+            setPan({ x: 0, y: 0 });
+            setSideFocus('center');
+            if (bookStageRef.current) {
+              bookStageRef.current.style.setProperty('--pdf-pan-x', '0px');
+              bookStageRef.current.style.setProperty('--pdf-pan-y', '0px');
+            }
+          } else if (zoom > prevZoom) {
+            // Zooming IN: anchor towards pointer if available
+            let px = 0;
+            let py = 0;
+            let hasPoint = false;
+            const container = containerRef.current;
+            if (container) {
+              const rect = container.getBoundingClientRect();
+              if (anchor && typeof anchor.viewportX === 'number' && typeof anchor.viewportY === 'number') {
+                px = rect.left + anchor.viewportX;
+                py = rect.top + anchor.viewportY;
+                hasPoint = true;
+              } else if (pointerPosRef.current) {
+                px = pointerPosRef.current.clientX;
+                py = pointerPosRef.current.clientY;
+                hasPoint = true;
+              }
+              if (hasPoint) {
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                const dx = px - cx;
+                const dy = py - cy;
+                const factor = zoom / Math.max(1, prevZoom) - 1;
+                const { maxX, maxY } = calculateMaxPan(zoom);
+                const targetX = panRef.current.x - dx * factor;
+                const targetY = panRef.current.y - dy * factor;
+                const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
+                const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
+                panRef.current = { x: clampedX, y: clampedY };
+                setPan({ x: clampedX, y: clampedY });
+                setSideFocus('custom');
+                if (bookStageRef.current) {
+                  bookStageRef.current.style.setProperty('--pdf-pan-x', `${clampedX}px`);
+                  bookStageRef.current.style.setProperty('--pdf-pan-y', `${clampedY}px`);
+                }
+              } else {
+                const { maxX, maxY } = calculateMaxPan(zoom);
+                const clampedX = Math.max(-maxX, Math.min(maxX, panRef.current.x));
+                const clampedY = Math.max(-maxY, Math.min(maxY, panRef.current.y));
+                panRef.current = { x: clampedX, y: clampedY };
+                setPan({ x: clampedX, y: clampedY });
+                if (bookStageRef.current) {
+                  bookStageRef.current.style.setProperty('--pdf-pan-x', `${clampedX}px`);
+                  bookStageRef.current.style.setProperty('--pdf-pan-y', `${clampedY}px`);
+                }
+              }
+            }
+          } else {
+            // Zooming OUT (zoom < prevZoom): smoothly pull back to center (0, 0)
+            const { maxX, maxY } = calculateMaxPan(zoom);
+            const centerRatio = Math.max(0, (zoom - 1.0) / Math.max(0.01, prevZoom - 1.0));
+            const targetX = panRef.current.x * centerRatio;
+            const targetY = panRef.current.y * centerRatio;
+            const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
+            const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
+            panRef.current = { x: clampedX, y: clampedY };
+            setPan({ x: clampedX, y: clampedY });
+            if (centerRatio < 0.1) setSideFocus('center');
+            if (bookStageRef.current) {
+              bookStageRef.current.style.setProperty('--pdf-pan-x', `${clampedX}px`);
+              bookStageRef.current.style.setProperty('--pdf-pan-y', `${clampedY}px`);
+            }
+          }
+          readerZoomRef.current = zoom;
         },
         search: async (query: string) => {
           return searchPdf ? searchPdf(query) : [];
@@ -530,14 +685,15 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
           if (goToSearchMatch) await goToSearchMatch(pageNumber, query, matchIndex);
         },
       }),
-      [turnToPage, totalPages, searchPdf, goToSearchMatch]
+      [turnToPage, totalPages, searchPdf, goToSearchMatch, calculateMaxPan]
     );
 
     const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 && e.button !== 1) return;
       const target = e.target as HTMLElement;
       if (target.closest(`.${styles.navZone}`) || target.closest(`.${styles.sideFocusControls}`)) return;
 
+      pointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
       isMouseDownRef.current = true;
       hasDraggedRef.current = false;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
@@ -546,6 +702,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
 
     const handlePointerMove = useCallback(
       (e: React.PointerEvent<HTMLDivElement>) => {
+        pointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
         if (!isMouseDownRef.current) return;
         if (e.buttons === 0) {
           isMouseDownRef.current = false;
@@ -560,6 +717,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
           hasDraggedRef.current = true;
           if (readerZoom > 1) {
             setIsPanning(true);
+            setSideFocus('custom');
             try {
               (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
             } catch {}

@@ -186,6 +186,8 @@ export function useReaderZoom({
       }
       if (sourceFormat === 'epub') {
         previewRefs?.epubReaderRef?.current?.previewZoom(nextZoom, anchor ?? captureZoomAnchor());
+      } else if (sourceFormat === 'pdf') {
+        previewRefs?.pdfReaderRef?.current?.previewZoom(nextZoom, anchor ?? captureZoomAnchor());
       }
       setReaderZoom(nextZoom);
       if (zoomLabelRef.current) {

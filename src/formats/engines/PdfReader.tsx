@@ -28,7 +28,7 @@ import styles from './PdfReader.module.css';
 export interface PdfReaderHandle {
   goToPage: (pageNum: number) => void;
   goToProgress: (fraction: number) => void;
-  previewZoom: (zoom: number, anchor: PdfZoomAnchor) => void;
+  previewZoom: (zoom: number, anchor?: PdfZoomAnchor) => void;
   search: (query: string) => Promise<ReaderSearchResult[]>;
   goToSearchMatch: (pageNumber: number, query: string, matchIndex: number) => Promise<void>;
 }
@@ -167,7 +167,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   );
 
   const previewZoom = useCallback(
-    (nextZoom: number, anchor: PdfZoomAnchor) => {
+    (nextZoom: number, anchor?: PdfZoomAnchor) => {
       if (isDoubleSided && doubleSidedRef.current) {
         doubleSidedRef.current.previewZoom(nextZoom, anchor);
         return;
@@ -182,15 +182,17 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         pageStack.style.transform = '';
         pageStack.style.transformOrigin = '';
         previewTransformRef.current = null;
-        lastZoomAnchorRef.current = anchor;
+        if (anchor) {
+          lastZoomAnchorRef.current = anchor;
+        }
         return;
       }
 
       const isZoomingOut = nextZoom < readerZoom;
-      const targetViewportX = isZoomingOut
+      const targetViewportX = isZoomingOut || !anchor
         ? viewport.clientWidth / 2
         : Math.max(0, Math.min(viewport.clientWidth, anchor.viewportX));
-      const targetViewportY = isZoomingOut
+      const targetViewportY = isZoomingOut || !anchor
         ? viewport.clientHeight / 2
         : Math.max(0, Math.min(viewport.clientHeight, anchor.viewportY));
 
@@ -199,7 +201,9 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       const translateX = Math.round(stackX * (1 - scale));
       const translateY = Math.round(stackY * (1 - scale));
 
-      lastZoomAnchorRef.current = anchor;
+      if (anchor) {
+        lastZoomAnchorRef.current = anchor;
+      }
       pageStack.style.transformOrigin = '0 0';
       pageStack.style.transform = `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`;
       previewTransformRef.current = {
@@ -452,6 +456,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   }, [pdfDoc]);
 
   useLayoutEffect(() => {
+    if (isDoubleSided) return;
     if (previousReaderZoomRef.current === readerZoom) return;
     const prevZoom = previousReaderZoomRef.current;
     const wasZoomingOut = readerZoom < prevZoom;
