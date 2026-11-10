@@ -84,6 +84,9 @@ const isTextTarget = (target: HTMLElement | null): boolean => {
   );
 };
 
+/**
+ * Interactive fixed-layout PDF reader component supporting scroll, paginated, and double-sided modes.
+ */
 export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function PdfReader(
   {
     fileData,
@@ -559,6 +562,13 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     });
     return () => cancelAnimationFrame(frame);
   }, [currentPage, isPaginated]);
+
+  // Ensure paginated mode reports progress when changing pages even without scroll events
+  useEffect(() => {
+    if (!isPaginated || !pdfDoc || totalPages < 1) return;
+    const fraction = totalPages > 1 ? (currentPage - 1) / (totalPages - 1) : 0;
+    onProgressUpdateRef.current(String(currentPage), Math.min(1, Math.max(0, fraction)), currentPage - 1);
+  }, [currentPage, isPaginated, pdfDoc, totalPages]);
 
   const reportScrollPosition = useCallback(() => {
     const viewport = viewportRef.current;

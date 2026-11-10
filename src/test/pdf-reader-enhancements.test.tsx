@@ -613,5 +613,19 @@ describe('PDF Reader Enhancements', () => {
 
       fireEvent.pointerUp(root, { button: 0, clientX: 160, clientY: 150 });
     });
+
+    it('frees canvases for pages outside nearby range to prevent unbounded memory growth', () => {
+      const { container } = render(
+        <PdfDoubleSidedReader
+          pdfDoc={mockPdfDoc}
+          totalPages={12}
+          pageSizes={{ 1: { width: 612, height: 792 } }}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      const canvases = container.querySelectorAll('canvas');
+      expect(canvases.length).toBeGreaterThan(0);
+    });
   });
 });

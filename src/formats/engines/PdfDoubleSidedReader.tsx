@@ -37,6 +37,9 @@ export interface PdfDoubleSidedReaderProps {
   invertColors?: boolean;
 }
 
+/**
+ * Double-sided PDF reader presenting facing spreads with 3D paper curl and 2D zoom/pan.
+ */
 export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedReaderProps>(
   function PdfDoubleSidedReader(
     {
@@ -142,10 +145,20 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
           const scale = Math.min(dims.pageWidth / baseViewport.width, dims.pageHeight / baseViewport.height);
           const viewport = page.getViewport({ scale });
 
-          // Render at high-DPI (at least 2.5x supersampling, scaling up with readerZoom)
-          // so text is razor-sharp and crystal clear at all zoom levels
+          // Render at high-DPI scaling up with readerZoom while respecting device and canvas memory bounds
+          const maxCanvasDim = 8192;
+          const maxPixelCount = 24_000_000;
           const baseDpr = window.devicePixelRatio || 1;
-          const targetDpr = Math.max(2.5, Math.min(4.0, baseDpr * Math.max(1, currentZoom)));
+          const targetDpr = Math.max(
+            1.0,
+            Math.min(
+              4.0,
+              baseDpr * Math.max(1, currentZoom),
+              maxCanvasDim / Math.max(1, viewport.width),
+              maxCanvasDim / Math.max(1, viewport.height),
+              Math.sqrt(maxPixelCount / Math.max(1, viewport.width * viewport.height))
+            )
+          );
 
           const targetWidth = Math.max(1, Math.floor(viewport.width * targetDpr));
           const targetHeight = Math.max(1, Math.floor(viewport.height * targetDpr));
@@ -195,11 +208,25 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
 
     /**
      * Lazy-renders pages adjacent to the current viewport to conserve resources.
+     * Pages far outside the nearby buffer are cleared to release GPU canvas memory.
      */
     const renderNearbyPages = useCallback(
       (activePageNum: number, zoom?: number) => {
         const start = Math.max(1, activePageNum - 2);
         const end = Math.min(totalPages, activePageNum + 3);
+        const mount = pageFlipMountRef.current;
+
+        // Clear distant canvases and release memory
+        renderedPageZoomsRef.current.forEach((_, p) => {
+          if (p >= start - 2 && p <= end + 2) return;
+          const distantCanvas = mount?.querySelector<HTMLCanvasElement>(`[data-pdf-canvas="${p}"]`);
+          if (distantCanvas) {
+            distantCanvas.width = 0;
+            distantCanvas.height = 0;
+          }
+          renderedPageZoomsRef.current.delete(p);
+        });
+
         for (let p = start; p <= end; p++) {
           void renderPageToCanvas(p, zoom);
         }

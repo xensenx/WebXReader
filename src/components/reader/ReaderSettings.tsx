@@ -64,6 +64,10 @@ const FONT_OPTIONS = [
   },
 ];
 
+/**
+ * ReaderSettings modal providing interactive controls for typography, reading modes,
+ * themes, and format-specific display toggles.
+ */
 export function ReaderSettings({
   isOpen,
   onClose,

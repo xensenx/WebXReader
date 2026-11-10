@@ -118,7 +118,7 @@ export const PdfPageView = memo(function PdfPageView({
     textContent: PdfTextContent;
   } | null>(null);
   const [shouldRender, setShouldRender] = useState(initiallyVisible);
-  const [isDirectlyVisible, setIsDirectlyVisible] = useState(initiallyVisible);
+  const isDirectlyVisibleRef = useRef(initiallyVisible);
   const [hasRendered, setHasRendered] = useState(false);
 
   useEffect(() => {
@@ -128,7 +128,7 @@ export const PdfPageView = memo(function PdfPageView({
 
     if (typeof IntersectionObserver === 'undefined') {
       setShouldRender(true);
-      setIsDirectlyVisible(true);
+      isDirectlyVisibleRef.current = true;
       return;
     }
 
@@ -145,11 +145,11 @@ export const PdfPageView = memo(function PdfPageView({
       { root, rootMargin: '600px 600px' }
     );
 
-    // Direct viewport intersection observer: determines priority rendering
+    // Direct viewport intersection observer: determines priority rendering without restarting render pipeline
     const visibilityObserver = new IntersectionObserver(
       (entries) => {
         const visible = entries.some((entry) => entry.isIntersecting);
-        setIsDirectlyVisible(visible);
+        isDirectlyVisibleRef.current = visible;
       },
       { root, rootMargin: '0px 0px' }
     );
@@ -291,7 +291,7 @@ export const PdfPageView = memo(function PdfPageView({
     };
 
     // Directly visible page renders with high priority (20ms); offscreen margin pages wait 120ms
-    const debounceDelay = isDirectlyVisible ? 20 : 120;
+    const debounceDelay = isDirectlyVisibleRef.current ? 20 : 120;
     const timer = window.setTimeout(() => void render(), debounceDelay);
     return () => {
       active = false;
@@ -309,7 +309,6 @@ export const PdfPageView = memo(function PdfPageView({
     pdfDoc,
     pageNumber,
     shouldRender,
-    isDirectlyVisible,
     readerZoom,
     layoutVersion,
     viewportRef,
