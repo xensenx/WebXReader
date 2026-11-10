@@ -442,8 +442,8 @@ describe('PDF Reader Enhancements', () => {
         });
 
         expect(result.current.readerZoom).toBeCloseTo(1.5, 2);
-        expect(result.current.zoomAnchor?.scrollRatioX).toBe(0.5);
-        expect(result.current.zoomAnchor?.pageX).toBe(0.5);
+        expect(result.current.zoomAnchor?.viewportX).toBe(400);
+        expect(result.current.zoomAnchor?.viewportY).toBe(300);
       } finally {
         vi.useRealTimers();
       }

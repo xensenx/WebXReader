@@ -485,8 +485,8 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     const hasRenderedPage = Boolean(page && pageRect && (pageRect.height > 0 || pageRect.width > 0));
 
     if (hasRenderedPage && page && pageRect) {
-      const anchorPageX = wasZoomingOut ? 0.5 : (activeAnchor?.pageX ?? 0.5);
-      const anchorPageY = wasZoomingOut ? 0.5 : (activeAnchor?.pageY ?? 0.5);
+      const anchorPageX = activeAnchor?.pageX ?? 0.5;
+      const anchorPageY = activeAnchor?.pageY ?? 0.5;
 
       const currentAnchorViewportX = pageRect.left - viewportRect.left + pageRect.width * anchorPageX;
       const currentAnchorViewportY = pageRect.top - viewportRect.top + pageRect.height * anchorPageY;
@@ -494,10 +494,12 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       const deltaX = currentAnchorViewportX - targetViewportX;
       const deltaY = currentAnchorViewportY - targetViewportY;
 
-      const nextScrollLeft = wasZoomingOut && !isHorizontal
-        ? Math.max(0, Math.round((viewport.scrollWidth - viewport.clientWidth) / 2))
-        : Math.max(0, Math.round(viewport.scrollLeft + deltaX));
-      const nextScrollTop = Math.max(0, Math.round(viewport.scrollTop + deltaY));
+      const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const nextScrollLeft = wasZoomingOut && readerZoom <= 1.0 && !isHorizontal
+        ? Math.round(maxScrollLeft / 2)
+        : Math.max(0, Math.min(maxScrollLeft, Math.round(viewport.scrollLeft + deltaX)));
+      const nextScrollTop = Math.max(0, Math.min(maxScrollTop, Math.round(viewport.scrollTop + deltaY)));
 
       viewport.scrollTo({
         left: nextScrollLeft,
@@ -530,10 +532,12 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     }
 
     // Continuous vertical scroll: smoothly maintain the reading line without jumping
-    const nextScrollTop = Math.max(0, Math.round(docY * zoomRatio - targetViewportY));
-    const nextScrollLeft = wasZoomingOut
-      ? Math.max(0, Math.round((viewport.scrollWidth - viewport.clientWidth) / 2))
-      : Math.max(0, Math.round(docX * zoomRatio - targetViewportX));
+    const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+    const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    const nextScrollTop = Math.max(0, Math.min(maxScrollTop, Math.round(docY * zoomRatio - targetViewportY)));
+    const nextScrollLeft = wasZoomingOut && readerZoom <= 1.0
+      ? Math.round(maxScrollLeft / 2)
+      : Math.max(0, Math.min(maxScrollLeft, Math.round(docX * zoomRatio - targetViewportX)));
 
     viewport.scrollTo({
       left: nextScrollLeft,

@@ -9,6 +9,7 @@ import {
   useState,
   useEffect,
   useRef,
+  memo,
   type CSSProperties,
 } from 'react';
 import { pdfjsLib } from '../../core/parsing/pdf-init';
@@ -91,7 +92,7 @@ export interface PdfPageViewProps {
  * Component responsible for rasterizing a single PDF page to a canvas and rendering
  * the matching transparent text layer for text selection and search highlights.
  */
-export function PdfPageView({
+export const PdfPageView = memo(function PdfPageView({
   pdfDoc,
   pageNumber,
   viewportRef,
@@ -117,6 +118,7 @@ export function PdfPageView({
     textContent: PdfTextContent;
   } | null>(null);
   const [shouldRender, setShouldRender] = useState(initiallyVisible);
+  const [isDirectlyVisible, setIsDirectlyVisible] = useState(initiallyVisible);
   const [hasRendered, setHasRendered] = useState(false);
 
   useEffect(() => {
@@ -126,22 +128,38 @@ export function PdfPageView({
 
     if (typeof IntersectionObserver === 'undefined') {
       setShouldRender(true);
+      setIsDirectlyVisible(true);
       return;
     }
 
-    const observer = new IntersectionObserver(
+    // Outer buffer observer: pre-render pages within 600px margin of viewport
+    const bufferObserver = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
           setShouldRender(true);
         } else if (!initiallyVisible) {
-          // Keep only pages within 2000px margin rendered to conserve GPU/canvas memory
+          // Keep only pages within 600px buffer rendered to conserve memory and worker throughput
           setShouldRender(false);
         }
       },
-      { root, rootMargin: '2000px 2000px' }
+      { root, rootMargin: '600px 600px' }
     );
-    observer.observe(shell);
-    return () => observer.disconnect();
+
+    // Direct viewport intersection observer: determines priority rendering
+    const visibilityObserver = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.some((entry) => entry.isIntersecting);
+        setIsDirectlyVisible(visible);
+      },
+      { root, rootMargin: '0px 0px' }
+    );
+
+    bufferObserver.observe(shell);
+    visibilityObserver.observe(shell);
+    return () => {
+      bufferObserver.disconnect();
+      visibilityObserver.disconnect();
+    };
   }, [initiallyVisible, viewportRef]);
 
   useEffect(() => {
@@ -183,13 +201,19 @@ export function PdfPageView({
         );
         const viewport = page.getViewport({ scale });
         const stagingCanvas = document.createElement('canvas');
-        const maxPixelCount = 6_000_000;
-        const dpr = Math.min(
-          window.devicePixelRatio || 1,
-          2.0,
-          4096 / Math.max(1, viewport.width),
-          4096 / Math.max(1, viewport.height),
-          Math.sqrt(maxPixelCount / Math.max(1, viewport.width * viewport.height))
+        const maxCanvasDim = 8192;
+        const maxPixelCount = 24_000_000;
+        const baseDpr = window.devicePixelRatio || 1;
+        // Never allow dpr to drop below 1.0, preserving razor-sharp text clarity even at high zoom
+        const dpr = Math.max(
+          1.0,
+          Math.min(
+            baseDpr,
+            2.0,
+            maxCanvasDim / Math.max(1, viewport.width),
+            maxCanvasDim / Math.max(1, viewport.height),
+            Math.sqrt(maxPixelCount / Math.max(1, viewport.width * viewport.height))
+          )
         );
 
         stagingCanvas.width = Math.max(1, Math.floor(viewport.width * dpr));
@@ -266,7 +290,9 @@ export function PdfPageView({
       }
     };
 
-    const timer = window.setTimeout(() => void render(), 80);
+    // Directly visible page renders with high priority (20ms); offscreen margin pages wait 120ms
+    const debounceDelay = isDirectlyVisible ? 20 : 120;
+    const timer = window.setTimeout(() => void render(), debounceDelay);
     return () => {
       active = false;
       window.clearTimeout(timer);
@@ -283,6 +309,7 @@ export function PdfPageView({
     pdfDoc,
     pageNumber,
     shouldRender,
+    isDirectlyVisible,
     readerZoom,
     layoutVersion,
     viewportRef,
@@ -326,4 +353,4 @@ export function PdfPageView({
       {!hasRendered && <div className={styles.pagePlaceholder} aria-hidden="true" />}
     </div>
   );
-}
+});
