@@ -19,7 +19,6 @@ import {
 import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
-  Settings as SettingsIcon,
   Upload,
   BookX,
   SearchX,
@@ -46,6 +45,7 @@ import { BookDetailsDialog } from './BookDetailsDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState } from '../common/EmptyState';
 import { Button } from '../common/Button';
+import { MainPageHeader } from '../common/MainPageHeader';
 
 import { getBookCoverUrl } from '../../assets/covers/txt-default-cover';
 import styles from './LibraryView.module.css';
@@ -224,8 +224,10 @@ export function LibraryView() {
       result.sort((a, b) => {
         const orderA = orderMap.has(a.id) ? orderMap.get(a.id)! : 999999;
         const orderB = orderMap.has(b.id) ? orderMap.get(b.id)! : 999999;
-        if (orderA !== orderB) return orderA - orderB;
-        return b.importedAt - a.importedAt;
+        const comparison = orderA !== orderB ? orderA - orderB : b.importedAt - a.importedAt;
+        return sortField === 'custom' && !dragSortPreview && sortDirection === 'desc'
+          ? -comparison
+          : comparison;
       });
     } else {
       result.sort((a, b) => {
@@ -604,7 +606,10 @@ export function LibraryView() {
     // effect can then animate from the captured position to the true new slot.
     cancelBookReorderAnimations(reorder.affectedIds);
     if (pointerDragRef.current) pointerDragRef.current.order = reorder.nextOrder;
-    setCustomOrder(reorder.nextOrder);
+    const nextCustomOrder = sortField === 'custom' && sortDirection === 'desc'
+      ? [...reorder.nextOrder].reverse()
+      : reorder.nextOrder;
+    setCustomOrder(nextCustomOrder);
   };
 
   const clearLongPressTimer = () => {
@@ -832,9 +837,10 @@ export function LibraryView() {
       const finalOrder = drag.order;
       const didReorder = finalOrder.some((bookId, index) => bookId !== drag.startOrder[index]);
       if (!canceled && pointerInsideLibrary && didReorder) {
-        setCustomOrder(finalOrder);
+        const nextCustomOrder = sortDirection === 'desc' ? [...finalOrder].reverse() : finalOrder;
+        setCustomOrder(nextCustomOrder);
         setDragSortPreview(false);
-        void updateSettings({ librarySortField: 'custom', customBookOrder: finalOrder });
+        void updateSettings({ librarySortField: 'custom', customBookOrder: nextCustomOrder });
       } else {
         pendingReorderPositionsRef.current = captureBookPositions();
         cancelBookReorderAnimations();
@@ -953,30 +959,7 @@ export function LibraryView() {
         if (pointerDragRef.current) e.preventDefault();
       }}
     >
-      {/* App Header */}
-      <header className={styles.header}>
-        <div className={styles.brand}>
-          <img
-            src="/webxreader.svg"
-            alt=""
-            className={styles.brandLogo}
-            aria-hidden="true"
-          />
-          <span>WebXReader</span>
-        </div>
-
-        <div className={styles.headerActions}>
-          <button
-            className={styles.iconButton}
-            onClick={() => navigate('/settings')}
-            title="Application Settings & Backup"
-            aria-label="Settings"
-            type="button"
-          >
-            <SettingsIcon size={20} />
-          </button>
-        </div>
-      </header>
+      <MainPageHeader />
 
       {/* Main Content Area */}
       <main className={styles.main}>
