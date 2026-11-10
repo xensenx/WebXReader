@@ -64,6 +64,10 @@ const FONT_OPTIONS = [
   },
 ];
 
+/**
+ * ReaderSettings modal providing interactive controls for typography, reading modes,
+ * themes, and format-specific display toggles.
+ */
 export function ReaderSettings({
   isOpen,
   onClose,
@@ -155,49 +159,79 @@ export function ReaderSettings({
               </button>
             </div>
           </div>
-          {/* Page Canvas / Sheet Background */}
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>Page Canvas</span>
-            <div className={styles.sheetRow}>
-              <button
-                className={`${styles.sheetBtn} ${styles.sheetPaper} ${
-                  settings.readerSheetColor === 'paper' ? styles.sheetBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ readerSheetColor: 'paper' })}
-                type="button"
-                aria-label="Paper White"
-              >
-                Paper White
-              </button>
-              <button
-                className={`${styles.sheetBtn} ${styles.sheetArchive} ${
-                  settings.readerSheetColor === 'archive' ? styles.sheetBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ readerSheetColor: 'archive' })}
-                type="button"
-                aria-label="Archive Gold"
-              >
-                Archive Gold
-              </button>
-              <button
-                className={`${styles.sheetBtn} ${styles.sheetDark} ${
-                  settings.readerSheetColor === 'dark' ? styles.sheetBtnActive : ''
-                }`}
-                onClick={() => onUpdate({ readerSheetColor: 'dark' })}
-                type="button"
-                aria-label="Dark"
-              >
-                Dark
-              </button>
+          {/* Page Canvas / Sheet Background or Color Inversion for PDF */}
+          {format === 'pdf' ? (
+            <div className={styles.section}>
+              <div className={styles.toggleRow}>
+                <div className={styles.toggleInfo}>
+                  <label
+                    htmlFor="pdf-invert-toggle"
+                    className={styles.toggleLabel}
+                    onClick={() => onUpdate({ invertColors: !settings.invertColors })}
+                  >
+                    Invert Colors
+                  </label>
+                  <span className={styles.toggleHint}>
+                    Invert page canvas colors with a filter for dark reading
+                  </span>
+                </div>
+                <button
+                  id="pdf-invert-toggle"
+                  type="button"
+                  role="switch"
+                  aria-checked={Boolean(settings.invertColors)}
+                  aria-label="Invert Colors"
+                  className={`${styles.toggleSwitch} ${settings.invertColors ? styles.toggleSwitchActive : ''}`}
+                  onClick={() => onUpdate({ invertColors: !settings.invertColors })}
+                >
+                  <span className={styles.toggleThumb} />
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className={styles.section}>
+              <span className={styles.sectionTitle}>Page Canvas</span>
+              <div className={styles.sheetRow}>
+                <button
+                  className={`${styles.sheetBtn} ${styles.sheetPaper} ${
+                    settings.readerSheetColor === 'paper' ? styles.sheetBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readerSheetColor: 'paper' })}
+                  type="button"
+                  aria-label="Paper White"
+                >
+                  Paper White
+                </button>
+                <button
+                  className={`${styles.sheetBtn} ${styles.sheetArchive} ${
+                    settings.readerSheetColor === 'archive' ? styles.sheetBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readerSheetColor: 'archive' })}
+                  type="button"
+                  aria-label="Archive Gold"
+                >
+                  Archive Gold
+                </button>
+                <button
+                  className={`${styles.sheetBtn} ${styles.sheetDark} ${
+                    settings.readerSheetColor === 'dark' ? styles.sheetBtnActive : ''
+                  }`}
+                  onClick={() => onUpdate({ readerSheetColor: 'dark' })}
+                  type="button"
+                  aria-label="Dark"
+                >
+                  Dark
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Reading Mode */}
           <div className={styles.section}>
             <span className={styles.sectionTitle}>Reading Mode</span>
             {isFixed && (
               <p className={styles.modeHint}>
-                This document preserves its original visual layout. Adjust your reading mode and background theme below.
+                This document preserves its original visual layout. Adjust your reading mode and display settings below.
               </p>
             )}
             {format === 'txt' ? (
@@ -235,7 +269,7 @@ export function ReaderSettings({
                   <Scroll size={18} />
                   <span>Vertical Scroll</span>
                 </button>
-                {format === 'epub' && (
+                {(format === 'epub' || format === 'pdf' || (format && formatSupportsFeature(format, 'horizontalScroll'))) && (
                   <button
                     className={`${styles.modeBtn} ${
                       settings.readingMode === 'horizontal' ? styles.modeBtnActive : ''
@@ -272,7 +306,7 @@ export function ReaderSettings({
                   title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
                   type="button"
                 >
-                  {format === 'epub' ? <BookOpen size={18} /> : <Pilcrow size={18} />}
+                  {format === 'epub' || format === 'pdf' ? <BookOpen size={18} /> : <Pilcrow size={18} />}
                   <span>Double Sided</span>
                 </button>
               </div>

@@ -16,14 +16,13 @@
   color: #1f2937;
 }
 
-[data-theme='sepia'] .container {
-  background-color: #eeddbb;
-  color: #4a3f35;
-}
-
 [data-theme='dark'] .container {
   background-color: #1a1a1a;
   color: #e4e4e7;
+}
+
+.containerInverted {
+  background-color: #121214 !important;
 }
 
 /* The PDF document itself is the scroll surface. Pages remain in normal flow
@@ -43,6 +42,22 @@
   scroll-behavior: auto;
 }
 
+.isZoomed .viewport {
+  cursor: grab;
+}
+
+.isHandTool,
+.isHandTool *,
+.isHandTool .textLayer,
+.isHandTool .textLayer :global(span) {
+  cursor: grab !important;
+}
+
+.isPanning,
+.isPanning * {
+  cursor: grabbing !important;
+}
+
 .pageStack {
   display: flex;
   flex-direction: column;
@@ -51,6 +66,104 @@
   width: max-content;
   min-width: 100%;
   min-height: 100%;
+}
+
+.horizontalStack {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 24px;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding: 0 48px;
+}
+
+.paginatedStack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100%;
+}
+
+.navZone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: auto;
+  opacity: 0.35;
+  transition: opacity 0.2s ease;
+  cursor: pointer;
+  user-select: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.navZone:hover:not(:disabled) {
+  opacity: 0.95;
+}
+
+.navZone:disabled {
+  opacity: 0.12;
+  cursor: default;
+  pointer-events: none;
+}
+
+.navLeft {
+  left: 8px;
+}
+
+.navRight {
+  right: 8px;
+}
+
+.navButton {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(20, 20, 24, 0.65);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.navButton:hover {
+  transform: scale(1.08);
+  background: rgba(30, 30, 36, 0.85);
+}
+
+.pageBadge {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 15, 18, 0.72);
+  backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.85);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 8;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .pageShell {
@@ -62,6 +175,12 @@
   scroll-margin-block: 16px;
   overflow: hidden;
   user-select: text;
+  cursor: text;
+  transition: filter 0.2s ease;
+}
+
+.pageInverted {
+  filter: invert(1) hue-rotate(180deg);
 }
 
 .pdfCanvas {
@@ -90,6 +209,7 @@
   transform-origin: 0 0;
   caret-color: CanvasText;
   z-index: 1;
+  cursor: text;
   --min-font-size: 1;
   --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
   --min-font-size-inv: calc(1 / var(--min-font-size));
@@ -100,9 +220,10 @@
   color: transparent;
   position: absolute;
   white-space: pre;
-  cursor: text;
+  cursor: text !important;
   transform-origin: 0% 0%;
-  user-select: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .textLayer :global(.markedContent) {
