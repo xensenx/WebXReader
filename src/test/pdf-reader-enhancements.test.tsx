@@ -7,6 +7,7 @@ import type { EffectiveReaderSettings } from '../hooks/useReaderSettings';
 import { getPdfDisplayScale } from '../formats/engines/PdfPageView';
 import { formatSupportsFeature } from '../formats';
 import { PdfReader, type PdfReaderHandle } from '../formats/engines/PdfReader';
+import { PdfDoubleSidedReader } from '../formats/engines/PdfDoubleSidedReader';
 import { useReaderZoom } from '../components/reader/hooks/useReaderZoom';
 
 describe('PDF Reader Enhancements', () => {
@@ -447,6 +448,108 @@ describe('PDF Reader Enhancements', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('PdfDoubleSidedReader realistic book rendering and text quality', () => {
+    const mockPdfDoc = {
+      getPage: vi.fn().mockResolvedValue({
+        getViewport: vi.fn(({ scale }: { scale: number }) => ({
+          width: 612 * scale,
+          height: 792 * scale,
+          scale,
+        })),
+        render: vi.fn(() => ({
+          promise: Promise.resolve(),
+          cancel: vi.fn(),
+        })),
+      }),
+    } as any;
+
+    it('renders realistic double-sided book spread with soft sheets, spine shadows, and page edges', () => {
+      const { container } = render(
+        <PdfDoubleSidedReader
+          pdfDoc={mockPdfDoc}
+          totalPages={4}
+          pageSizes={{ 1: { width: 612, height: 792 } }}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      // Verify book stage and container exist
+      const bookStage = container.querySelector('[class*="bookStage"]');
+      expect(bookStage).toBeInTheDocument();
+      const bookContainer = container.querySelector('[class*="bookContainer"]');
+      expect(bookContainer).toBeInTheDocument();
+
+      // Verify page sheets exist with soft density (not rigid hard covers)
+      const sheets = container.querySelectorAll('[class*="pageSheet"]');
+      expect(sheets.length).toBeGreaterThanOrEqual(4);
+      sheets.forEach((sheet) => {
+        expect(sheet.getAttribute('data-density')).toBe('soft');
+      });
+
+      // Verify realistic spine shadows are created
+      const leftSpineShadows = container.querySelectorAll('[class*="spineShadowLeft"]');
+      const rightSpineShadows = container.querySelectorAll('[class*="spineShadowRight"]');
+      expect(leftSpineShadows.length).toBeGreaterThan(0);
+      expect(rightSpineShadows.length).toBeGreaterThan(0);
+
+      // Verify page edge highlights exist
+      const leftEdges = container.querySelectorAll('[class*="pageEdgeLeft"]');
+      const rightEdges = container.querySelectorAll('[class*="pageEdgeRight"]');
+      expect(leftEdges.length).toBeGreaterThan(0);
+      expect(rightEdges.length).toBeGreaterThan(0);
+
+      // Verify navigation buttons
+      expect(screen.getByRole('button', { name: /previous page/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /next page/i })).toBeInTheDocument();
+    });
+
+    it('applies color inversion to mounted PageFlip spread', () => {
+      const { container, rerender } = render(
+        <PdfDoubleSidedReader
+          pdfDoc={mockPdfDoc}
+          totalPages={4}
+          pageSizes={{ 1: { width: 612, height: 792 } }}
+          onProgressUpdate={vi.fn()}
+          invertColors={false}
+        />
+      );
+
+      expect(container.querySelector('[class*="containerInverted"]')).not.toBeInTheDocument();
+
+      rerender(
+        <PdfDoubleSidedReader
+          pdfDoc={mockPdfDoc}
+          totalPages={4}
+          pageSizes={{ 1: { width: 612, height: 792 } }}
+          onProgressUpdate={vi.fn()}
+          invertColors={true}
+        />
+      );
+
+      expect(container.querySelector('[class*="containerInverted"]')).toBeInTheDocument();
+      expect(container.querySelector('[class*="pageInverted"]')).toBeInTheDocument();
+    });
+
+    it('handles keyboard navigation without throwing', () => {
+      const { container } = render(
+        <PdfDoubleSidedReader
+          pdfDoc={mockPdfDoc}
+          totalPages={4}
+          pageSizes={{ 1: { width: 612, height: 792 } }}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      const root = container.firstElementChild as HTMLElement;
+      expect(() => {
+        fireEvent.keyDown(root, { key: 'ArrowRight' });
+        fireEvent.keyDown(root, { key: 'ArrowLeft' });
+        fireEvent.keyDown(root, { key: 'Home' });
+        fireEvent.keyDown(root, { key: 'End' });
+      }).not.toThrow();
     });
   });
 });

@@ -75,7 +75,10 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
     const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const hasDraggedRef = useRef(false);
-    const renderedPagesSetRef = useRef<Set<number>>(new Set());
+    const renderedPageZoomsRef = useRef<Map<number, number>>(new Map());
+    const renderTasksRef = useRef<Map<number, any>>(new Map());
+    const readerZoomRef = useRef(readerZoom);
+    readerZoomRef.current = readerZoom;
     const onProgressUpdateRef = useRef(onProgressUpdate);
     onProgressUpdateRef.current = onProgressUpdate;
 
@@ -92,7 +95,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
       const sampleSize = pageSizes[1] ?? { width: 612, height: 792 };
       const baseW = Math.max(100, sampleSize.width);
       const baseH = Math.max(100, sampleSize.height);
-      const isPortrait = viewportW < viewportH * 1.15;
+      const isPortrait = viewportW < 680;
 
       const maxPageW = isPortrait
         ? Math.max(200, viewportW - 48)
@@ -110,9 +113,12 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
      * Renders a given PDF page to its canvas element within the PageFlip mount.
      */
     const renderPageToCanvas = useCallback(
-      async (pageNum: number) => {
+      async (pageNum: number, forceZoom?: number) => {
         if (!pdfDoc || pageNum < 1 || pageNum > totalPages) return;
-        if (renderedPagesSetRef.current.has(pageNum)) return;
+
+        const currentZoom = forceZoom ?? readerZoomRef.current;
+        const lastRenderedZoom = renderedPageZoomsRef.current.get(pageNum);
+        if (lastRenderedZoom !== undefined && lastRenderedZoom >= currentZoom) return;
 
         const mount = pageFlipMountRef.current;
         if (!mount) return;
@@ -120,7 +126,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
         const canvas = mount.querySelector<HTMLCanvasElement>(`[data-pdf-canvas="${pageNum}"]`);
         if (!canvas) return;
 
-        renderedPagesSetRef.current.add(pageNum);
+        renderedPageZoomsRef.current.set(pageNum, currentZoom);
 
         try {
           const page = await pdfDoc.getPage(pageNum);
@@ -128,24 +134,54 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
           const dims = spreadDimensions ?? calculateDimensions();
           if (!dims) return;
 
-          const scale = dims.pageWidth / baseViewport.width;
+          const scale = Math.min(dims.pageWidth / baseViewport.width, dims.pageHeight / baseViewport.height);
           const viewport = page.getViewport({ scale });
-          const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
-          canvas.width = Math.floor(viewport.width * dpr);
-          canvas.height = Math.floor(viewport.height * dpr);
+          // Render at high-DPI (at least 2.5x supersampling, scaling up with readerZoom)
+          // so text is razor-sharp and crystal clear at all zoom levels
+          const baseDpr = window.devicePixelRatio || 1;
+          const targetDpr = Math.max(2.5, Math.min(4.0, baseDpr * Math.max(1, currentZoom)));
 
-          const ctx = canvas.getContext('2d', { alpha: false });
+          const targetWidth = Math.max(1, Math.floor(viewport.width * targetDpr));
+          const targetHeight = Math.max(1, Math.floor(viewport.height * targetDpr));
+
+          const stagingCanvas = document.createElement('canvas');
+          stagingCanvas.width = targetWidth;
+          stagingCanvas.height = targetHeight;
+
+          const ctx = stagingCanvas.getContext('2d', { alpha: false });
           if (!ctx) return;
 
-          await page.render({
-            canvas,
+          // Cancel any in-flight task for this page
+          const existingTask = renderTasksRef.current.get(pageNum);
+          if (existingTask) {
+            try {
+              existingTask.cancel();
+            } catch {}
+          }
+
+          const task = page.render({
+            canvas: stagingCanvas,
             canvasContext: ctx,
             viewport,
-            transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0],
-          }).promise;
-        } catch (err) {
-          renderedPagesSetRef.current.delete(pageNum);
+            transform: targetDpr === 1 ? undefined : [targetDpr, 0, 0, targetDpr, 0, 0],
+          });
+          renderTasksRef.current.set(pageNum, task);
+          await task.promise;
+          if (renderTasksRef.current.get(pageNum) === task) {
+            renderTasksRef.current.delete(pageNum);
+          }
+
+          // Double-buffered copy to visible canvas prevents blank flickering
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          const visibleCtx = canvas.getContext('2d', { alpha: false });
+          if (visibleCtx) {
+            visibleCtx.drawImage(stagingCanvas, 0, 0);
+          }
+        } catch (err: any) {
+          if (err?.name === 'RenderingCancelledException') return;
+          renderedPageZoomsRef.current.delete(pageNum);
           console.error(`Failed to render page ${pageNum} in double-sided mode:`, err);
         }
       },
@@ -156,11 +192,11 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
      * Lazy-renders pages adjacent to the current viewport to conserve resources.
      */
     const renderNearbyPages = useCallback(
-      (activePageNum: number) => {
+      (activePageNum: number, zoom?: number) => {
         const start = Math.max(1, activePageNum - 2);
         const end = Math.min(totalPages, activePageNum + 3);
         for (let p = start; p <= end; p++) {
-          void renderPageToCanvas(p);
+          void renderPageToCanvas(p, zoom);
         }
       },
       [renderPageToCanvas, totalPages]
@@ -238,7 +274,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
         } catch {}
         pageFlipRef.current = null;
       }
-      renderedPagesSetRef.current.clear();
+      renderedPageZoomsRef.current.clear();
       bookContainer.replaceChildren();
 
       // Create dedicated mount container
@@ -251,36 +287,54 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
       pageFlipMountRef.current = mountEl;
       bookContainer.appendChild(mountEl);
 
-      // Create page sheets with canvas elements
-      for (let p = 1; p <= totalPages; p++) {
+      let initialStart = Math.max(0, Math.min(totalPages - 1, currentPageIndex));
+      if (!dims.isPortrait && initialStart % 2 !== 0) {
+        initialStart -= 1;
+      }
+      if (initialStart < 0) initialStart = 0;
+
+      // Balance two-page spread with an even number of sheets
+      const totalSheets = !dims.isPortrait && totalPages % 2 !== 0 ? totalPages + 1 : totalPages;
+      for (let p = 1; p <= totalSheets; p++) {
         const sheet = document.createElement('div');
         sheet.className = styles.pageSheet;
-        sheet.dataset.density = p === 1 || p === totalPages ? 'hard' : 'soft';
-        sheet.setAttribute('aria-label', `Page ${p}`);
+        sheet.dataset.density = 'soft';
+        sheet.setAttribute('aria-label', p <= totalPages ? `Page ${p}` : 'End of Book');
 
         const canvas = document.createElement('canvas');
         canvas.setAttribute('data-pdf-canvas', String(p));
         sheet.appendChild(canvas);
+
+        const isLeft = (p - 1) % 2 === 0;
+        const spineShadow = document.createElement('div');
+        spineShadow.className = isLeft ? styles.spineShadowLeft : styles.spineShadowRight;
+        sheet.appendChild(spineShadow);
+
+        const pageEdge = document.createElement('div');
+        pageEdge.className = isLeft ? styles.pageEdgeLeft : styles.pageEdgeRight;
+        sheet.appendChild(pageEdge);
+
         mountEl.appendChild(sheet);
       }
-
-      const initialStart = Math.max(0, Math.min(totalPages - 1, currentPageIndex));
 
       const pageFlip = new PageFlip(mountEl, {
         width: dims.pageWidth,
         height: dims.pageHeight,
         size: 'fixed',
-        minWidth: 200,
-        maxWidth: 2400,
-        minHeight: 250,
-        maxHeight: 2800,
-        maxShadowOpacity: 0.5,
-        showCover: true,
-        mobileScrollSupport: false,
-        useMouseEvents: readerZoom <= 1,
-        flippingTime: 450,
+        minWidth: dims.pageWidth,
+        maxWidth: dims.pageWidth,
+        minHeight: dims.pageHeight,
+        maxHeight: dims.pageHeight,
+        drawShadow: true,
+        maxShadowOpacity: 0.45,
+        showCover: false,
         usePortrait: dims.isPortrait,
         startPage: initialStart,
+        flippingTime: 650,
+        useMouseEvents: readerZoom <= 1,
+        showPageCorners: true,
+        disableFlipByClick: true,
+        autoSize: false,
       });
 
       pageFlipRef.current = pageFlip;
@@ -295,6 +349,12 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
         renderNearbyPages(pageNum);
       });
 
+      // Pre-render pages during drag/fold so user sees both sides dynamically as page turns
+      pageFlip.on('changeState', () => {
+        const currentIdx = pageFlip.getCurrentPageIndex();
+        renderNearbyPages(currentIdx + 1);
+      });
+
       // Render pages around the starting spread
       const activeNum = initialStart + 1;
       renderNearbyPages(activeNum);
@@ -305,8 +365,24 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
         } catch {}
         pageFlipRef.current = null;
         mountEl.remove();
+        renderTasksRef.current.forEach((t) => {
+          try {
+            t.cancel();
+          } catch {}
+        });
+        renderTasksRef.current.clear();
       };
     }, [pdfDoc, totalPages, calculateDimensions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Re-render nearby pages at higher resolution when zoom level settles
+    useEffect(() => {
+      if (readerZoom > 1) {
+        const timer = window.setTimeout(() => {
+          renderNearbyPages(currentPageIndex + 1, readerZoom);
+        }, 120);
+        return () => window.clearTimeout(timer);
+      }
+    }, [readerZoom, currentPageIndex, renderNearbyPages]);
 
     // Apply readerZoom transform and update PageFlip mouse event handling
     useEffect(() => {
@@ -417,14 +493,19 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
 
     const turnToPage = useCallback(
       (pageNumber: number) => {
-        const targetIdx = Math.max(0, Math.min(totalPages - 1, pageNumber - 1));
+        let targetIdx = Math.max(0, Math.min(totalPages - 1, pageNumber - 1));
+        const dims = spreadDimensions ?? calculateDimensions();
+        if (dims && !dims.isPortrait && targetIdx % 2 !== 0) {
+          targetIdx -= 1;
+        }
+        if (targetIdx < 0) targetIdx = 0;
         setCurrentPageIndex(targetIdx);
-        renderNearbyPages(pageNumber);
+        renderNearbyPages(targetIdx + 1);
         try {
           pageFlipRef.current?.turnToPage(targetIdx);
         } catch {}
       },
-      [totalPages, renderNearbyPages]
+      [totalPages, renderNearbyPages, spreadDimensions, calculateDimensions]
     );
 
     useImperativeHandle(
@@ -536,8 +617,9 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
       }
     };
 
+    const isPortrait = spreadDimensions?.isPortrait ?? false;
     const isFirstPage = currentPageIndex <= 0;
-    const isLastPage = currentPageIndex >= totalPages - 1;
+    const isLastPage = currentPageIndex >= totalPages - (isPortrait ? 1 : 2);
 
     return (
       <div
@@ -623,8 +705,8 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
 
         {/* Page progress badge */}
         <div className={styles.pageBadge}>
-          {currentPageIndex === 0
-            ? 'Cover (Page 1)'
+          {spreadDimensions?.isPortrait
+            ? `Page ${currentPageIndex + 1} of ${totalPages}`
             : `Pages ${currentPageIndex + 1}–${Math.min(totalPages, currentPageIndex + 2)} of ${totalPages}`}
         </div>
       </div>
