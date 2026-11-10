@@ -37,6 +37,8 @@ export function MainPageHeader() {
   const navigate = useNavigate();
   const location = useLocation();
   const [donateOpen, setDonateOpen] = useState(false);
+  const menuRef = useRef<HTMLElement>(null);
+  const donateDialogRef = useRef<HTMLElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const donateTriggerRef = useRef<HTMLButtonElement>(null);
@@ -53,6 +55,22 @@ export function MainPageHeader() {
     else closeRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Tab') {
+        const dialog = donateOpen ? donateDialogRef.current : menuRef.current;
+        const controls = dialog?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href]',
+        );
+        const first = controls?.[0];
+        const last = controls?.[controls.length - 1];
+        if (!dialog || !first || !last) return;
+
+        const active = document.activeElement;
+        if (!dialog.contains(active) || active === dialog ||
+          (event.shiftKey ? active === first : active === last)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
+      }
       if (event.key === 'Escape') {
         if (donateOpen) {
           setDonateOpen(false);
@@ -134,6 +152,7 @@ export function MainPageHeader() {
       <div
         className={`${styles.overlay} ${isOpen ? styles.overlayOpen : ''}`}
         aria-hidden={!isOpen || donateOpen}
+        inert={!isOpen || donateOpen}
         onClick={(event) => {
           if (event.target === event.currentTarget) {
             setIsOpen(false);
@@ -142,6 +161,8 @@ export function MainPageHeader() {
         }}
       >
         <aside
+          ref={menuRef}
+          tabIndex={-1}
           id="main-side-panel"
           className={`${styles.panel} ${isOpen ? styles.panelOpen : ''}`}
           role="dialog"
@@ -214,6 +235,8 @@ export function MainPageHeader() {
           }}
         >
           <section
+            ref={donateDialogRef}
+            tabIndex={-1}
             className={styles.donateDialog}
             role="dialog"
             aria-modal="true"
