@@ -67,6 +67,10 @@ export function LibraryToolbar({
   selectionMode,
   onToggleSelectionMode,
 }: LibraryToolbarProps) {
+  const sortDirectionLabel = sortField === 'custom'
+    ? sortDirection === 'asc' ? 'Reverse Custom Order' : 'Use Custom Order'
+    : `Sort ${sortDirection === 'asc' ? 'Descending' : 'Ascending'}`;
+
   return (
     <div className={styles.toolbar}>
       <div className={styles.topRow}>
@@ -128,9 +132,8 @@ export function LibraryToolbar({
           <button
             className={styles.iconBtn}
             onClick={onToggleSortDirection}
-            disabled={sortField === 'custom'}
-            title={sortField === 'custom' ? 'Sort direction fixed in Custom Order' : `Sort ${sortDirection === 'asc' ? 'Descending' : 'Ascending'}`}
-            aria-label={sortField === 'custom' ? 'Sort direction fixed in Custom Order' : `Sort ${sortDirection === 'asc' ? 'Descending' : 'Ascending'}`}
+            title={sortDirectionLabel}
+            aria-label={sortDirectionLabel}
             type="button"
           >
             <ArrowDownUp size={14} />
