@@ -9,6 +9,12 @@
 
 ---
 
+<p align="center">
+  <img src="assets/branding/wxr-banner-upscayled.webp" alt="WebXReader banner" width="600">
+</p>
+
+
+
 WebXReader is a local-first reading application designed to help you organize, manage, and read your digital library directly in your browser.
 
 ---
