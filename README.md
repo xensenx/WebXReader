@@ -10,7 +10,7 @@
 ---
 
 <p align="center">
-  <img src="assets/branding/wxr-banner-upscayled.webp" alt="WebXReader banner" width="600">
+  <img src="assets/branding/wxr-banner-upscayled.webp" alt="WebXReader banner" width="1000">
 </p>
 
 
