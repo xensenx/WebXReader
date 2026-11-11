@@ -123,21 +123,44 @@ function AboutWebXReader() {
           <h3>Site mirrors</h3>
           <p>Choose any of the available WebXReader sites.</p>
           <div className={styles.mirrorGrid}>
-            {mirrors.map((mirror) => (
-              <a
-                key={mirror.label}
-                className={styles.mirrorLink}
-                href={mirror.href}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span className={styles.mirrorCopy}>
-                  <span className={styles.mirrorLabel}>{mirror.label}</span>
-                  <span className={styles.mirrorUrl}>{mirror.host}</span>
-                </span>
-                <ExternalLink size={15} />
-              </a>
-            ))}
+            {mirrors.map((mirror) => {
+              const hasNetlifyAttribution = mirror.label === 'Mirror three';
+
+              return (
+                <div key={mirror.label} className={styles.mirrorCard}>
+                  <div className={styles.mirrorHeading}>
+                    <span className={styles.mirrorLabel}>{mirror.label}</span>
+                    {hasNetlifyAttribution && (
+                      <>
+                        <span className={styles.mirrorAttributionSeparator} aria-hidden="true">
+                          {'\u00b7'}
+                        </span>
+                        <span>Powered by</span>
+                        <a
+                          className={styles.mirrorAttributionLink}
+                          href="https://www.netlify.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label="Netlify (opens in a new tab)"
+                        >
+                          Netlify <ExternalLink size={12} aria-hidden="true" />
+                        </a>
+                      </>
+                    )}
+                  </div>
+                  <a
+                    className={styles.mirrorDestination}
+                    href={mirror.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`${mirror.host} (opens in a new tab)`}
+                  >
+                    <span className={styles.mirrorUrl}>{mirror.host}</span>
+                    <ExternalLink size={15} aria-hidden="true" />
+                  </a>
+                </div>
+              );
+            })}
           </div>
           <div className={styles.summary}>
             Your library data is not shared between these mirrors. Each site stores books,
