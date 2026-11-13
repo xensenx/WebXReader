@@ -25,11 +25,13 @@ WebXReader is a local-first reading application designed to help you organize, m
 
 ---
 
-### okay, Now how can I use it? 
+# Okay, so how can I use it? 
 
-WebXReader is hosted on multiple platforms, and has several mirrors. here are the ways you can use it.
+WebXReader is hosted on multiple platforms, and has several mirrors. here are ways you can use it.
 
 <h5>1. Hosted site's (recommended)</h5> 
+
+Choose from any of the following sites! New updates gets deployed on all 4 mirrors simultaneously. 
 
 | Platforms hosted | Site Link |
 | :--- | :--- |
@@ -42,6 +44,7 @@ WebXReader is hosted on multiple platforms, and has several mirrors. here are th
 
 > [!IMPORTANT]
 > Your library data is not shared between these mirrors. Each site stores books, bookmarks, reading progress, and preferences separately in your browser.
+> (you can use multiple or all sites simultaneously if you want to have multiple separate libraries)
 
 ---
 
@@ -49,7 +52,8 @@ WebXReader is hosted on multiple platforms, and has several mirrors. here are th
 
 Prefer to host it yourself? You can run WebXReader directly on your computer using the steps below. 
 
-**Note:** Self-hosting is not recommended for most users since you won't receive automatic updates, and all official web mirrors already work offline.
+**Note:** Self-hosting is not recommended for most users since you won't receive automatic updates, and all official web mirrors already work offline. 
+your local library data is stored separately as well if you decide to use both local setup and hosted sites simultaneously. 
 
 
 <details>
@@ -91,6 +95,8 @@ npm run preview
 ```
 
 </details>
+
+
 
 
 
