@@ -36,7 +36,7 @@ Choose from any of the following sites! New updates get deployed on all 4 mirror
 | Platforms hosted | Site Link |
 | :--- | :--- |
 | Cloudflare | [webxreader.pages.dev](https://webxreader.pages.dev/) |
-| Netlify | [webxreader.netlify.app](https://netlify.app) |
+| Netlify | [webxreader.netlify.app](https://webxreader.netlify.app/) |
 | Firebase | [webxreader.web.app](https://webxreader.web.app/) |
 | Vercel | [webxreader.vercel.app](https://webxreader.vercel.app/) |
 
