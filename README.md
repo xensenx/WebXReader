@@ -9,17 +9,89 @@
 
 ---
 
+> [!NOTE]
+> This project is still a work in progress! Many planned features are still being built. As a solo developer, I welcome any feedback or volunteer contributions!
+
+__Current Status__ : The Project now supports 20 formats across documents, ebooks, comic, plain text and archival formats, individual enhancement of each of the format is a ongoing efforts, along with further improvement of reading experience and additional features.
+
+---
+
 <p align="center">
   <img src="assets/branding/wxr-banner-upscayled.webp" alt="WebXReader banner" width="1000">
 </p>
 
 
-
-WebXReader is a local-first reading application designed to help you organize, manage, and read your digital library directly in your browser.
+WebXReader is a local-first reading application designed to help you organize, manage, and read your digital library directly in your browser. 
 
 ---
 
-> [!NOTE]
-> This project is under active development. The first stable deployment is available [here](https://webxreader.web.app).
-> The project is functional and usable. The README and additional documentation will be updated comprehensively after its first major overhaul.
-> I’m actively developing the project solo, and any feedback or volunteer contributions would be greatly appreciated.
+### Great, Now how can I use it? 
+
+WebXReader is hosted on multiple platforms, and has several mirrors. here are the ways you can use it.
+
+1. Hosted site's (recommended) 
+
+| Platforms hosted | Site Link |
+| :--- | :--- |
+| Cloudflare | [webxreader.pages.dev](https://webxreader.pages.dev/) |
+| Netlify | [webxreader.netlify.app](https://netlify.app) |
+| Firebase | [webxreader.web.app](https://webxreader.web.app/) |
+| Vercel | [webxreader.vercel.app](https://webxreader.vercel.app/) |
+
+*The primary Netlify deployment is supported by [Netlify's Open Source Program](https://www.netlify.com/open-source/).*
+
+---
+
+2. Running Locally (Alternative)
+
+Prefer to host it yourself? You can run WebXReader directly on your computer using the steps below. 
+
+> **Note:** Self-hosting is not recommended for most users since you won't receive automatic updates, and all official web mirrors already work offline.
+
+
+<details open>
+<summary><strong>Click to expand/collapse local setup instructions</strong></summary>
+
+<br>
+
+**Prerequisites**
+
+* [Node.js](https://nodejs.org) (v18 or higher recommended)
+* [Git](https://git-scm.com)
+
+**Setup Steps**
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com
+   cd WebXReader
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Run locally (Development Mode):**
+   ```bash
+   npm run dev
+   ```
+   Open the local URL shown in your terminal (usually `http://localhost:5173`).
+
+**Optional: Production Build**
+
+If you want to build and serve the optimized production version (including full offline/PWA support):
+
+```bash
+npm run build
+npm run preview
+```
+
+</details>
+
+
+
+
+
+
+
