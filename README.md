@@ -46,10 +46,10 @@ WebXReader is hosted on multiple platforms, and has several mirrors. here are th
 
 Prefer to host it yourself? You can run WebXReader directly on your computer using the steps below. 
 
-> **Note:** Self-hosting is not recommended for most users since you won't receive automatic updates, and all official web mirrors already work offline.
+**Note:** Self-hosting is not recommended for most users since you won't receive automatic updates, and all official web mirrors already work offline.
 
 
-<details open>
+<details>
 <summary><strong>Click to expand/collapse local setup instructions</strong></summary>
 
 <br>
