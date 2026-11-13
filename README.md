@@ -40,6 +40,9 @@ WebXReader is hosted on multiple platforms, and has several mirrors. here are th
 
 *The primary Netlify deployment is supported by [Netlify's Open Source Program](https://www.netlify.com/open-source/).*
 
+> [IMPORTANT]
+> Your library data is not shared between these mirrors. Each site stores books, bookmarks, reading progress, and preferences separately in your browser.
+
 ---
 
 <h5>2. Running Locally (Alternative)</h5>
@@ -50,7 +53,7 @@ Prefer to host it yourself? You can run WebXReader directly on your computer usi
 
 
 <details>
-<summary><strong>Click to expand/collapse local setup instructions</strong></summary>
+<summary><strong>Click here to show local setup details</strong></summary>
 
 <br>
 
@@ -63,7 +66,7 @@ Prefer to host it yourself? You can run WebXReader directly on your computer usi
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com
+   git clone https://github.com/xensenx/WebXReader
    cd WebXReader
    ```
 
