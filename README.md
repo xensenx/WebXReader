@@ -12,7 +12,7 @@
 > [!NOTE]
 > This project is still a work in progress! Many planned features are still being built. As a solo developer, I welcome any feedback or volunteer contributions!
 
-__Current Status__ : The Project now supports 20 formats across documents, ebooks, comic, plain text and archival formats, individual enhancement of each of the format is a ongoing efforts, along with further improvement of reading experience and additional features.
+__Current Status__: The project now supports 20 formats across document, ebook, comic, plain text, and archival formats. Individual enhancement of each format is an ongoing effort, along with further improvement of the reading experience and additional features.
 
 ---
 
@@ -27,11 +27,11 @@ WebXReader is a local-first reading application designed to help you organize, m
 
 # Okay, so how can I use it? 
 
-WebXReader is hosted on multiple platforms, and has several mirrors. here are ways you can use it.
+WebXReader is hosted on multiple platforms and has several mirrors. Here are ways you can use it:
 
-<h5>1. Hosted site's (recommended)</h5> 
+<h5>1. Hosted sites (recommended)</h5> 
 
-Choose from any of the following sites! New updates gets deployed on all 4 mirrors simultaneously. 
+Choose from any of the following sites! New updates get deployed on all 4 mirrors simultaneously. 
 
 | Platforms hosted | Site Link |
 | :--- | :--- |
@@ -44,7 +44,7 @@ Choose from any of the following sites! New updates gets deployed on all 4 mirro
 
 > [!IMPORTANT]
 > Your library data is not shared between these mirrors. Each site stores books, bookmarks, reading progress, and preferences separately in your browser.
-> (you can use multiple or all sites simultaneously if you want to have multiple separate libraries)
+> (You can use multiple or all sites simultaneously if you want to have multiple separate libraries.)
 
 ---
 
@@ -53,7 +53,7 @@ Choose from any of the following sites! New updates gets deployed on all 4 mirro
 Prefer to host it yourself? You can run WebXReader directly on your computer using the steps below. 
 
 **Note:** Self-hosting is not recommended for most users since you won't receive automatic updates, and all official web mirrors already work offline. 
-your local library data is stored separately as well if you decide to use both local setup and hosted sites simultaneously. 
+Your locally hosted setup's data is also stored separately if you decide to use both a local setup and hosted sites simultaneously. 
 
 
 <details>
@@ -63,14 +63,14 @@ your local library data is stored separately as well if you decide to use both l
 
 **Prerequisites**
 
-* [Node.js](https://nodejs.org) (v18 or higher recommended)
-* [Git](https://git-scm.com)
+- [Node.js](https://nodejs.org) (v18 or higher recommended)
+- [Git](https://git-scm.com)
 
 **Setup Steps**
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/xensenx/WebXReader
+   git clone [https://github.com/xensenx/WebXReader](https://github.com/xensenx/WebXReader)
    cd WebXReader
    ```
 
@@ -95,12 +95,3 @@ npm run preview
 ```
 
 </details>
-
-
-
-
-
-
-
-
-
