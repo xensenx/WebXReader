@@ -25,11 +25,11 @@ WebXReader is a local-first reading application designed to help you organize, m
 
 ---
 
-### Great, Now how can I use it? 
+### okay, Now how can I use it? 
 
 WebXReader is hosted on multiple platforms, and has several mirrors. here are the ways you can use it.
 
-1. Hosted site's (recommended) 
+<h5>1. Hosted site's (recommended)</h5> 
 
 | Platforms hosted | Site Link |
 | :--- | :--- |
@@ -42,7 +42,7 @@ WebXReader is hosted on multiple platforms, and has several mirrors. here are th
 
 ---
 
-2. Running Locally (Alternative)
+<h5>2. Running Locally (Alternative)</h5>
 
 Prefer to host it yourself? You can run WebXReader directly on your computer using the steps below. 
 
