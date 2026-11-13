@@ -40,7 +40,7 @@ WebXReader is hosted on multiple platforms, and has several mirrors. here are th
 
 *The primary Netlify deployment is supported by [Netlify's Open Source Program](https://www.netlify.com/open-source/).*
 
-> [IMPORTANT]
+> [!IMPORTANT]
 > Your library data is not shared between these mirrors. Each site stores books, bookmarks, reading progress, and preferences separately in your browser.
 
 ---
