@@ -57,10 +57,10 @@ export function InformationPage({ kind }: InformationPageProps) {
 
 function AboutWebXReader() {
   const mirrors = [
-    { label: 'Primary', href: 'https://webxreader.web.app/', host: 'webxreader.web.app' },
-    { label: 'Mirror one', href: 'https://webxreader.pages.dev/', host: 'webxreader.pages.dev' },
-    { label: 'Mirror two', href: 'https://webxreader.vercel.app/', host: 'webxreader.vercel.app' },
-    { label: 'Mirror three', href: 'https://webxreader.netlify.app/', host: 'webxreader.netlify.app' },
+    { label: 'Mirror one', href: 'https://webxreader.netlify.app/', host: 'webxreader.netlify.app' },
+    { label: 'Mirror two', href: 'https://webxreader.web.app/', host: 'webxreader.web.app' },
+    { label: 'Mirror three', href: 'https://webxreader.pages.dev/', host: 'webxreader.pages.dev' },
+    { label: 'Mirror four', href: 'https://webxreader.vercel.app/', host: 'webxreader.vercel.app' },
   ];
 
   return (
@@ -124,7 +124,7 @@ function AboutWebXReader() {
           <p>Choose any of the available WebXReader sites.</p>
           <div className={styles.mirrorGrid}>
             {mirrors.map((mirror) => {
-              const hasNetlifyAttribution = mirror.label === 'Mirror three';
+              const hasNetlifyAttribution = mirror.host === 'webxreader.netlify.app';
 
               return (
                 <div key={mirror.label} className={styles.mirrorCard}>
