@@ -159,8 +159,8 @@ export function ReaderSettings({
               </button>
             </div>
           </div>
-          {/* Page Canvas / Sheet Background or Color Inversion for PDF */}
-          {format === 'pdf' ? (
+          {/* Page Canvas / Sheet Background or Color Inversion for PDF and Comic formats */}
+          {format === 'pdf' || format === 'cbz' || format === 'cbr' || format === 'cb7' ? (
             <div className={styles.section}>
               <div className={styles.toggleRow}>
                 <div className={styles.toggleInfo}>
@@ -306,7 +306,11 @@ export function ReaderSettings({
                   title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
                   type="button"
                 >
-                  {format === 'epub' || format === 'pdf' ? <BookOpen size={18} /> : <Pilcrow size={18} />}
+                  {format === 'epub' || format === 'pdf' || format === 'cbz' || format === 'cbr' || format === 'cb7' ? (
+                    <BookOpen size={18} />
+                  ) : (
+                    <Pilcrow size={18} />
+                  )}
                   <span>Double Sided</span>
                 </button>
               </div>

@@ -22,6 +22,7 @@ export const cbrFormat: FormatDefinition = {
     continuousScroll: true,
     paginated: true,
     doubleSided: true,
+    horizontalScroll: true,
     zoom: true,
     search: false,
     readingDirection: true,

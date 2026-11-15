@@ -870,6 +870,8 @@ export function ReaderView() {
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
+              onZoomGesture={(deltaY, point) => queueWheelZoom(deltaY, point)}
+              invertColors={readerSettings.invertColors}
             />
           ) : isEpub ? (
             <EpubReader

@@ -179,7 +179,8 @@ export function useReaderZoom({
   const updateZoom = useCallback((nextZoom: number, fixedLayout: boolean, anchor?: ReaderZoomAnchor) => {
     if (Math.abs(nextZoom - readerZoomRef.current) < 1e-7) return;
     readerZoomRef.current = nextZoom;
-    if (!fixedLayout || sourceFormat === 'pdf') {
+    const isComic = sourceFormat === 'cbz' || sourceFormat === 'cbr' || sourceFormat === 'cb7';
+    if (!fixedLayout || sourceFormat === 'pdf' || isComic) {
       if (anchor) {
         pdfZoomAnchorRef.current = anchor;
         setZoomAnchor(anchor);
@@ -188,6 +189,8 @@ export function useReaderZoom({
         previewRefs?.epubReaderRef?.current?.previewZoom(nextZoom, anchor ?? captureZoomAnchor());
       } else if (sourceFormat === 'pdf') {
         previewRefs?.pdfReaderRef?.current?.previewZoom(nextZoom, anchor ?? captureZoomAnchor());
+      } else if (isComic) {
+        previewRefs?.cbzReaderRef?.current?.previewZoom(nextZoom, anchor ?? captureZoomAnchor());
       }
       setReaderZoom(nextZoom);
       if (zoomLabelRef.current) {
@@ -283,7 +286,8 @@ export function useReaderZoom({
   }, [captureZoomAnchor, previewRefs, sourceFormat]);
 
   const queueWheelZoom = useCallback((deltaY: number, point?: { x: number; y: number }) => {
-    const isBufferedFormat = sourceFormat !== 'pdf' && isFixedLayout(sourceFormat);
+    const isComic = sourceFormat === 'cbz' || sourceFormat === 'cbr' || sourceFormat === 'cb7';
+    const isBufferedFormat = sourceFormat !== 'pdf' && !isComic && isFixedLayout(sourceFormat);
     wheelZoomDeltaRef.current += deltaY;
     if (point) wheelZoomPointRef.current = point;
     if (wheelZoomFrameRef.current !== null) return;

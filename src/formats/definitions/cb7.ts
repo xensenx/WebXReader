@@ -21,6 +21,7 @@ export const cb7Format: FormatDefinition = {
     continuousScroll: true,
     paginated: true,
     doubleSided: true,
+    horizontalScroll: true,
     zoom: true,
     search: false,
     readingDirection: true,
