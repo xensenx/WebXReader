@@ -935,19 +935,15 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       if (!rect) return;
       const x = e.clientX - rect.left;
       const ratio = x / rect.width;
-      const isRtl = readingDirection === 'rtl';
-
       if (ratio < 0.25) {
-        if (isRtl) handleNextPage();
-        else handlePrevPage();
+        handlePrevPage();
       } else if (ratio > 0.75) {
-        if (isRtl) handlePrevPage();
-        else handleNextPage();
+        handleNextPage();
       } else {
         onToggleControls?.();
       }
     },
-    [isContinuous, isHorizontal, readingDirection, handlePrevPage, handleNextPage, onToggleControls]
+    [isContinuous, isHorizontal, handlePrevPage, handleNextPage, onToggleControls]
   );
 
   // Keyboard navigation
@@ -973,17 +969,13 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         }
       }
 
-      const isRtl = readingDirection === 'rtl';
-
       if (isHorizontal) {
         if (e.key === 'ArrowRight' || e.key === 'PageDown') {
           e.preventDefault();
-          if (isRtl) handlePrevPage();
-          else handleNextPage();
+          handleNextPage();
         } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
           e.preventDefault();
-          if (isRtl) handleNextPage();
-          else handlePrevPage();
+          handlePrevPage();
         } else if (e.key === 'Home') {
           e.preventDefault();
           goToPage(1, 'smooth');
@@ -1014,12 +1006,10 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       // Paginated
       if (e.key === 'ArrowRight' || e.key === 'PageDown') {
         e.preventDefault();
-        if (isRtl) handlePrevPage();
-        else handleNextPage();
+        handleNextPage();
       } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
         e.preventDefault();
-        if (isRtl) handleNextPage();
-        else handlePrevPage();
+        handlePrevPage();
       } else if (e.key === 'Home') {
         e.preventDefault();
         goToPage(1, 'auto');
@@ -1028,7 +1018,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         goToPage(totalPages, 'auto');
       }
     },
-    [isContinuous, isHorizontal, readingDirection, handlePrevPage, handleNextPage, goToPage, totalPages]
+    [isContinuous, isHorizontal, handlePrevPage, handleNextPage, goToPage, totalPages]
   );
 
   const handleKeyUp = useCallback(
@@ -1046,14 +1036,12 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
           if (isContinuous) {
             viewport.scrollBy?.({ top: Math.max(160, viewport.clientHeight * 0.88), behavior: 'smooth' });
           } else {
-            const isRtl = readingDirection === 'rtl';
-            if (isRtl) handlePrevPage();
-            else handleNextPage();
+            handleNextPage();
           }
         }
       }
     },
-    [isContinuous, readingDirection, handlePrevPage, handleNextPage]
+    [isContinuous, handlePrevPage, handleNextPage]
   );
 
   // Delegate double-sided spread mode to ComicDoubleSidedReader

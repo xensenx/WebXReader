@@ -98,7 +98,7 @@ describe('Comic Reader Enhancements (CBZ, CBR, CB7)', () => {
       expect(screen.queryByRole('button', { name: /archive gold/i })).not.toBeInTheDocument();
     });
 
-    it('renders reading direction controls (LTR Western and RTL Manga)', () => {
+    it('omits reading direction controls to maintain standard natural page turning', () => {
       const handleUpdate = vi.fn();
       render(
         <ReaderSettings
@@ -112,13 +112,10 @@ describe('Comic Reader Enhancements (CBZ, CBR, CB7)', () => {
         />
       );
 
-      const ltrBtn = screen.getByRole('button', { name: /ltr \(western\)/i });
-      const rtlBtn = screen.getByRole('button', { name: /rtl \(manga\)/i });
-      expect(ltrBtn).toBeInTheDocument();
-      expect(rtlBtn).toBeInTheDocument();
-
-      fireEvent.click(rtlBtn);
-      expect(handleUpdate).toHaveBeenCalledWith({ comicReadingDirection: 'rtl' });
+      const ltrBtn = screen.queryByRole('button', { name: /ltr \(western\)/i });
+      const rtlBtn = screen.queryByRole('button', { name: /rtl \(manga\)/i });
+      expect(ltrBtn).not.toBeInTheDocument();
+      expect(rtlBtn).not.toBeInTheDocument();
     });
   });
 
@@ -377,11 +374,12 @@ describe('Comic Reader Enhancements (CBZ, CBR, CB7)', () => {
       const bookContainer = container.querySelector('[class*="bookContainer"]');
       expect(bookContainer).toBeInTheDocument();
 
-      // Verify 3D sheets exist with hard density to prevent soft clip-path distortion
+      // Verify 3D sheets exist with soft density and paint isolation content wrappers
       const sheets = container.querySelectorAll('[class*="pageSheet"]');
       expect(sheets.length).toBeGreaterThanOrEqual(6);
       sheets.forEach((sheet) => {
-        expect(sheet.getAttribute('data-density')).toBe('hard');
+        expect(sheet.getAttribute('data-density')).toBe('soft');
+        expect(sheet.querySelector('[class*="pageContentWrapper"]')).toBeInTheDocument();
       });
 
       // Verify spine shadows exist
@@ -401,20 +399,18 @@ describe('Comic Reader Enhancements (CBZ, CBR, CB7)', () => {
       expect(screen.getByRole('button', { name: /next page/i })).toBeInTheDocument();
     });
 
-    it('supports Japanese Manga RTL reading direction with swapped navigation labels', () => {
+    it('maintains consistent sequential navigation order across double-sided comic spreads', () => {
       render(
         <ComicDoubleSidedReader
           totalPages={6}
-          readingDirection="rtl"
           loadUrl={mockLoadUrl}
           pageSizes={{ 1: { width: 800, height: 1200 } }}
           onProgressUpdate={vi.fn()}
         />
       );
 
-      // In RTL: left nav is Next page, right nav is Previous page
-      const leftBtn = screen.getByRole('button', { name: /next page/i });
-      const rightBtn = screen.getByRole('button', { name: /previous page/i });
+      const leftBtn = screen.getByRole('button', { name: /previous page/i });
+      const rightBtn = screen.getByRole('button', { name: /next page/i });
       expect(leftBtn).toHaveClass(/navLeft/);
       expect(rightBtn).toHaveClass(/navRight/);
     });

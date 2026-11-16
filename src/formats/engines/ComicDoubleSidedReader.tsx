@@ -49,7 +49,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
     {
       totalPages,
       initialPage = 1,
-      readingDirection = 'ltr',
+      readingDirection: _readingDirection = 'ltr',
       loadUrl,
       pageSizes,
       onProgressUpdate,
@@ -61,7 +61,6 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
     },
     ref
   ) {
-    const isRtl = readingDirection === 'rtl';
     const containerRef = useRef<HTMLDivElement>(null);
     const bookStageRef = useRef<HTMLDivElement>(null);
     const bookContainerRef = useRef<HTMLDivElement>(null);
@@ -94,42 +93,6 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
     onProgressUpdateRef.current = onProgressUpdate;
 
     /**
-     * Maps spread sheet index to real comic page number taking reading direction into account.
-     */
-    const sheetIndexToPageNumber = useCallback(
-      (sheetIdx: number, isPortrait: boolean): number => {
-        if (isPortrait) return sheetIdx + 1;
-        if (!isRtl) return sheetIdx + 1;
-
-        // In RTL Manga:
-        // Sheet 0 (Left) = Page 2, Sheet 1 (Right) = Page 1
-        // Sheet 2 (Left) = Page 4, Sheet 3 (Right) = Page 3
-        const spreadBase = Math.floor(sheetIdx / 2) * 2;
-        const isLeftSheet = sheetIdx % 2 === 0;
-        return isLeftSheet ? spreadBase + 2 : spreadBase + 1;
-      },
-      [isRtl]
-    );
-
-    /**
-     * Maps real comic page number to spread sheet index taking reading direction into account.
-     */
-    const pageNumberToSheetIndex = useCallback(
-      (pageNumber: number, isPortrait: boolean): number => {
-        if (isPortrait) return pageNumber - 1;
-        if (!isRtl) return pageNumber - 1;
-
-        // In RTL Manga:
-        // Page 1 -> Sheet 1 (Right), Page 2 -> Sheet 0 (Left)
-        // Page 3 -> Sheet 3 (Right), Page 4 -> Sheet 2 (Left)
-        const spreadBase = Math.floor((pageNumber - 1) / 2) * 2;
-        const isOdd = pageNumber % 2 !== 0;
-        return isOdd ? spreadBase + 1 : spreadBase;
-      },
-      [isRtl]
-    );
-
-    /**
      * Calculates single-page and two-page spread dimensions based on viewport bounds.
      */
     const calculateDimensions = useCallback(() => {
@@ -139,7 +102,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
       const viewportW = container.clientWidth || window.innerWidth;
       const viewportH = container.clientHeight || window.innerHeight;
 
-      const sampleSize = pageSizes[1] ?? { width: 800, height: 1200 };
+      const sampleSize = Object.values(pageSizes)[0] ?? pageSizes[1] ?? { width: 800, height: 1200 };
       const baseW = Math.max(100, sampleSize.width);
       const baseH = Math.max(100, sampleSize.height);
       const isPortrait = viewportW < 680;
@@ -286,18 +249,19 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
       loadedPagesRef.current.clear();
       bookContainer.replaceChildren();
 
-      // Create dedicated mount container
+      // Create dedicated mount container with strict containment
       const mountEl = document.createElement('div');
       mountEl.style.width = `${dims.isPortrait ? dims.pageWidth : dims.pageWidth * 2}px`;
       mountEl.style.height = `${dims.pageHeight}px`;
+      mountEl.style.overflow = 'hidden';
+      mountEl.style.contain = 'paint';
       if (invertColors) {
         mountEl.classList.add(styles.pageInverted);
       }
       pageFlipMountRef.current = mountEl;
       bookContainer.appendChild(mountEl);
 
-      const mappedStartSheet = pageNumberToSheetIndex(currentPageIndex + 1, dims.isPortrait);
-      let initialStart = Math.max(0, Math.min(totalPages - 1, mappedStartSheet));
+      let initialStart = Math.max(0, Math.min(totalPages - 1, currentPageIndex));
       if (!dims.isPortrait && initialStart % 2 !== 0) {
         initialStart -= 1;
       }
@@ -305,37 +269,40 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
 
       // Balance two-page spread with an even number of sheets
       const totalSheets = !dims.isPortrait && totalPages % 2 !== 0 ? totalPages + 1 : totalPages;
-      for (let s = 0; s < totalSheets; s++) {
-        const pageNum = sheetIndexToPageNumber(s, dims.isPortrait);
+      for (let p = 1; p <= totalSheets; p++) {
         const sheet = document.createElement('div');
         sheet.className = styles.pageSheet;
-        sheet.dataset.density = 'hard';
-        sheet.setAttribute('aria-label', pageNum <= totalPages ? `Page ${pageNum}` : 'End of Book');
+        sheet.dataset.density = 'soft';
+        sheet.setAttribute('aria-label', p <= totalPages ? `Page ${p}` : 'End of Book');
 
-        if (pageNum <= totalPages) {
+        const wrapper = document.createElement('div');
+        wrapper.className = styles.pageContentWrapper;
+
+        if (p <= totalPages) {
           const img = document.createElement('img');
           img.className = styles.comicPageImg;
-          img.setAttribute('data-comic-page-img', String(pageNum));
-          img.alt = `Comic Page ${pageNum}`;
+          img.setAttribute('data-comic-page-img', String(p));
+          img.alt = `Comic Page ${p}`;
           img.loading = 'lazy';
           img.decoding = 'async';
-          sheet.appendChild(img);
+          wrapper.appendChild(img);
         } else {
           const placeholder = document.createElement('div');
           placeholder.className = styles.pagePlaceholder;
           placeholder.textContent = 'End of Comic';
-          sheet.appendChild(placeholder);
+          wrapper.appendChild(placeholder);
         }
 
-        const isLeft = s % 2 === 0;
+        const isLeft = (p - 1) % 2 === 0;
         const spineShadow = document.createElement('div');
         spineShadow.className = isLeft ? styles.spineShadowLeft : styles.spineShadowRight;
-        sheet.appendChild(spineShadow);
+        wrapper.appendChild(spineShadow);
 
         const pageEdge = document.createElement('div');
         pageEdge.className = isLeft ? styles.pageEdgeLeft : styles.pageEdgeRight;
-        sheet.appendChild(pageEdge);
+        wrapper.appendChild(pageEdge);
 
+        sheet.appendChild(wrapper);
         mountEl.appendChild(sheet);
       }
 
@@ -364,7 +331,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
 
       pageFlip.on('flip', (e) => {
         const newSheetIdx = typeof e.data === 'number' ? e.data : pageFlip.getCurrentPageIndex();
-        const resolvedPageNum = sheetIndexToPageNumber(newSheetIdx, dims.isPortrait);
+        const resolvedPageNum = newSheetIdx + 1;
         const resolvedPageIndex = Math.max(0, Math.min(totalPages - 1, resolvedPageNum - 1));
         setCurrentPageIndex(resolvedPageIndex);
         const fraction = totalPages > 1 ? resolvedPageIndex / (totalPages - 1) : 0;
@@ -372,7 +339,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         renderNearbyPages(resolvedPageNum);
       });
 
-      const initialPageNum = sheetIndexToPageNumber(initialStart, dims.isPortrait);
+      const initialPageNum = initialStart + 1;
       renderNearbyPages(initialPageNum);
 
       return () => {
@@ -385,8 +352,6 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
     }, [
       totalPages,
       calculateDimensions,
-      sheetIndexToPageNumber,
-      pageNumberToSheetIndex,
       renderNearbyPages,
       invertColors,
     ]);
@@ -555,7 +520,11 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         goToPage: (pageNum: number) => {
           if (!pageFlipRef.current) return;
           const isPortrait = spreadDimensions?.isPortrait ?? false;
-          const targetSheet = pageNumberToSheetIndex(pageNum, isPortrait);
+          let targetSheet = pageNum - 1;
+          if (!isPortrait && targetSheet % 2 !== 0) {
+            targetSheet -= 1;
+          }
+          targetSheet = Math.max(0, targetSheet);
           try {
             pageFlipRef.current.flip(targetSheet);
           } catch {
@@ -569,7 +538,11 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
           const clamped = Math.min(1, Math.max(0, fraction));
           const pageNum = Math.round(clamped * (totalPages - 1)) + 1;
           const isPortrait = spreadDimensions?.isPortrait ?? false;
-          const targetSheet = pageNumberToSheetIndex(pageNum, isPortrait);
+          let targetSheet = pageNum - 1;
+          if (!isPortrait && targetSheet % 2 !== 0) {
+            targetSheet -= 1;
+          }
+          targetSheet = Math.max(0, targetSheet);
           try {
             pageFlipRef.current.turnToPage(targetSheet);
           } catch {}
@@ -608,7 +581,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         getCurrentPage: () => currentPageIndex + 1,
         getTotalPages: () => totalPages,
       }),
-      [totalPages, spreadDimensions, pageNumberToSheetIndex, calculateMaxPan, currentPageIndex]
+      [totalPages, spreadDimensions, calculateMaxPan, currentPageIndex]
     );
 
     const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -678,21 +651,11 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
     };
 
     const handlePrev = () => {
-      if (!pageFlipRef.current) return;
-      if (isRtl) {
-        pageFlipRef.current.flipNext();
-      } else {
-        pageFlipRef.current.flipPrev();
-      }
+      pageFlipRef.current?.flipPrev();
     };
 
     const handleNext = () => {
-      if (!pageFlipRef.current) return;
-      if (isRtl) {
-        pageFlipRef.current.flipPrev();
-      } else {
-        pageFlipRef.current.flipNext();
-      }
+      pageFlipRef.current?.flipNext();
     };
 
     const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -700,26 +663,16 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
 
       if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
         e.preventDefault();
-        if (isRtl) {
-          pageFlipRef.current.flipNext();
-        } else {
-          pageFlipRef.current.flipPrev();
-        }
+        pageFlipRef.current.flipPrev();
       } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
-        if (isRtl) {
-          pageFlipRef.current.flipPrev();
-        } else {
-          pageFlipRef.current.flipNext();
-        }
+        pageFlipRef.current.flipNext();
       } else if (e.key === 'Home') {
         e.preventDefault();
-        const isPortrait = spreadDimensions?.isPortrait ?? false;
-        pageFlipRef.current.turnToPage(pageNumberToSheetIndex(1, isPortrait));
+        pageFlipRef.current.turnToPage(0);
       } else if (e.key === 'End') {
         e.preventDefault();
-        const isPortrait = spreadDimensions?.isPortrait ?? false;
-        pageFlipRef.current.turnToPage(pageNumberToSheetIndex(totalPages, isPortrait));
+        pageFlipRef.current.turnToPage(Math.max(0, totalPages - 1));
       }
     };
 
@@ -752,7 +705,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         <button
           className={`${styles.navZone} ${styles.navLeft}`}
           onClick={handlePrev}
-          aria-label={isRtl ? 'Next page' : 'Previous page'}
+          aria-label="Previous page"
           type="button"
         >
           <div className={styles.navButton}>
@@ -763,7 +716,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         <button
           className={`${styles.navZone} ${styles.navRight}`}
           onClick={handleNext}
-          aria-label={isRtl ? 'Previous page' : 'Next page'}
+          aria-label="Next page"
           type="button"
         >
           <div className={styles.navButton}>
