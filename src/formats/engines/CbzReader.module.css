@@ -136,6 +136,9 @@
   user-select: none;
   -webkit-user-drag: none;
   pointer-events: none;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: high-quality;
+  transform: translateZ(0);
 }
 
 .pagePlaceholder {

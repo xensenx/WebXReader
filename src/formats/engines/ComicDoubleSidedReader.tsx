@@ -309,7 +309,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         const pageNum = sheetIndexToPageNumber(s, dims.isPortrait);
         const sheet = document.createElement('div');
         sheet.className = styles.pageSheet;
-        sheet.dataset.density = 'soft';
+        sheet.dataset.density = 'hard';
         sheet.setAttribute('aria-label', pageNum <= totalPages ? `Page ${pageNum}` : 'End of Book');
 
         if (pageNum <= totalPages) {
@@ -510,9 +510,19 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         if (e.ctrlKey || e.metaKey) {
           if (onZoomGesture) {
             e.preventDefault();
-            pointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
-            onZoomGesture(e.deltaY, { x: e.clientX, y: e.clientY });
+            e.stopPropagation();
+            const isZoomingIn = e.deltaY < 0;
+            const containerRect = container.getBoundingClientRect();
+            const point = isZoomingIn
+              ? { x: e.clientX, y: e.clientY }
+              : {
+                  x: containerRect.left + containerRect.width / 2,
+                  y: containerRect.top + containerRect.height / 2,
+                };
+            pointerPosRef.current = { clientX: point.x, clientY: point.y };
+            onZoomGesture(e.deltaY, point);
           }
+          return;
         } else if (readerZoomRef.current > 1) {
           e.preventDefault();
           const { maxX, maxY } = calculateMaxPan(readerZoomRef.current);

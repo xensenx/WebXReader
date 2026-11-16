@@ -574,7 +574,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       if (!viewport || !pageStack) return;
 
       const scale = nextZoom / readerZoom;
-      if (Math.abs(scale - 1) < 0.005 || nextZoom <= 1.001) {
+      if (Math.abs(scale - 1) < 0.005) {
         pageStack.style.transform = '';
         pageStack.style.transformOrigin = '';
         previewTransformRef.current = null;
@@ -637,11 +637,48 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       ? viewport.clientHeight / 2
       : (activeAnchor?.viewportY ?? viewport.clientHeight / 2);
 
+    const page = activeAnchor?.pageNumber
+      ? pageStack?.querySelector<HTMLElement>(
+          `[data-cbz-page="${activeAnchor.pageNumber}"], [data-comic-page="${activeAnchor.pageNumber}"]`
+        )
+      : null;
+    const pageRect = page?.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    const hasRenderedPage = Boolean(page && pageRect && (pageRect.height > 0 || pageRect.width > 0));
+
+    if (hasRenderedPage && page && pageRect) {
+      const anchorPageX = activeAnchor?.pageX ?? 0.5;
+      const anchorPageY = activeAnchor?.pageY ?? 0.5;
+
+      const currentAnchorViewportX = pageRect.left - viewportRect.left + pageRect.width * anchorPageX;
+      const currentAnchorViewportY = pageRect.top - viewportRect.top + pageRect.height * anchorPageY;
+
+      const deltaX = currentAnchorViewportX - targetViewportX;
+      const deltaY = currentAnchorViewportY - targetViewportY;
+
+      const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const nextScrollLeft = wasZoomingOut && readerZoom <= 1.0 && !isHorizontal
+        ? Math.round(maxScrollLeft / 2)
+        : Math.max(0, Math.min(maxScrollLeft, Math.round(viewport.scrollLeft + deltaX)));
+      const nextScrollTop = wasZoomingOut && readerZoom <= 1.0 && isHorizontal
+        ? Math.round(maxScrollTop / 2)
+        : Math.max(0, Math.min(maxScrollTop, Math.round(viewport.scrollTop + deltaY)));
+
+      viewport.scrollTo?.({
+        left: nextScrollLeft,
+        top: nextScrollTop,
+        behavior: 'auto',
+      });
+      return;
+    }
+
     if (readerZoom <= 1.0) {
       const maxScrollX = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      const maxScrollY = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
       viewport.scrollTo?.({
         left: isHorizontal ? viewport.scrollLeft : Math.round(maxScrollX / 2),
-        top: viewport.scrollTop,
+        top: isHorizontal ? Math.round(maxScrollY / 2) : viewport.scrollTop,
         behavior: 'auto',
       });
       return;
@@ -697,8 +734,18 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       if (e.ctrlKey || e.metaKey) {
         if (onZoomGesture) {
           e.preventDefault();
-          onZoomGesture(e.deltaY, { x: e.clientX, y: e.clientY });
+          e.stopPropagation();
+          const isZoomingIn = e.deltaY < 0;
+          const viewportRect = viewport.getBoundingClientRect();
+          const point = isZoomingIn
+            ? { x: e.clientX, y: e.clientY }
+            : {
+                x: viewportRect.left + viewportRect.width / 2,
+                y: viewportRect.top + viewportRect.height / 2,
+              };
+          onZoomGesture(e.deltaY, point);
         }
+        return;
       } else if (isHorizontal && !e.shiftKey && Math.abs(e.deltaY) > 0) {
         e.preventDefault();
         viewport.scrollLeft += e.deltaY;

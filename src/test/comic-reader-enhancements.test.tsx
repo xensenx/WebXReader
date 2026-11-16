@@ -303,12 +303,66 @@ describe('Comic Reader Enhancements (CBZ, CBR, CB7)', () => {
       fireEvent.wheel(viewport, { deltaY: 100 });
       expect(viewport.scrollLeft).toBe(100);
     });
+
+    it('smoothly scales down page stack below 1.0 when zooming out without clearing matrix', async () => {
+      const ref = { current: null as any };
+      const { container } = render(
+        <CbzReader
+          ref={ref}
+          fileData={dummyBuffer}
+          readingMode="scroll"
+          readerZoom={1.0}
+          onProgressUpdate={vi.fn()}
+        />
+      );
+
+      const stack = container.querySelector('[class*="Stack"]') as HTMLElement;
+      expect(stack).toBeInTheDocument();
+
+      // Zoom out to 0.75
+      act(() => {
+        ref.current?.previewZoom(0.75, { viewportX: 300, viewportY: 300 });
+      });
+
+      expect(stack.style.transform).toContain('matrix(0.75');
+    });
+
+    it('stops event propagation on Ctrl+wheel zoom gesture in comic reader', () => {
+      const handleZoomGesture = vi.fn();
+      const { container } = render(
+        <CbzReader
+          fileData={dummyBuffer}
+          readingMode="scroll"
+          onProgressUpdate={vi.fn()}
+          onZoomGesture={handleZoomGesture}
+        />
+      );
+
+      const viewport = container.querySelector('[data-reader-viewport]') as HTMLElement;
+      const wheelEvent = new WheelEvent('wheel', {
+        ctrlKey: true,
+        deltaY: -100,
+        clientX: 250,
+        clientY: 300,
+        bubbles: true,
+        cancelable: true,
+      });
+
+      const stopPropagationSpy = vi.spyOn(wheelEvent, 'stopPropagation');
+      const preventDefaultSpy = vi.spyOn(wheelEvent, 'preventDefault');
+
+      viewport.dispatchEvent(wheelEvent);
+
+      expect(preventDefaultSpy).toHaveBeenCalled();
+      expect(stopPropagationSpy).toHaveBeenCalled();
+      expect(handleZoomGesture).toHaveBeenCalledWith(-100, expect.any(Object));
+    });
   });
 
   describe('ComicDoubleSidedReader realistic 3D book spread and physics', () => {
     const mockLoadUrl = vi.fn().mockResolvedValue('blob:http://localhost/mock-comic-page');
 
-    it('renders realistic double-sided comic spread with soft sheets, spine shadows, and page edges', () => {
+    it('renders realistic double-sided comic spread with 3D sheets, spine shadows, and page edges', () => {
       const { container } = render(
         <ComicDoubleSidedReader
           totalPages={6}
@@ -323,11 +377,11 @@ describe('Comic Reader Enhancements (CBZ, CBR, CB7)', () => {
       const bookContainer = container.querySelector('[class*="bookContainer"]');
       expect(bookContainer).toBeInTheDocument();
 
-      // Verify soft density sheets exist
+      // Verify 3D sheets exist with hard density to prevent soft clip-path distortion
       const sheets = container.querySelectorAll('[class*="pageSheet"]');
       expect(sheets.length).toBeGreaterThanOrEqual(6);
       sheets.forEach((sheet) => {
-        expect(sheet.getAttribute('data-density')).toBe('soft');
+        expect(sheet.getAttribute('data-density')).toBe('hard');
       });
 
       // Verify spine shadows exist

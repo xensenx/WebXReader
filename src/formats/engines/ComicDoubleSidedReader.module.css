@@ -42,7 +42,7 @@
   align-items: center;
   justify-content: center;
   perspective: 2000px;
-  transform: translate(var(--comic-pan-x, 0px), var(--comic-pan-y, 0px)) scale(var(--comic-reader-zoom, 1));
+  transform: translate3d(var(--comic-pan-x, 0px), var(--comic-pan-y, 0px), 0) scale3d(var(--comic-reader-zoom, 1), var(--comic-reader-zoom, 1), 1);
   transform-origin: center center;
   transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   flex-shrink: 0;
@@ -106,7 +106,11 @@
   pointer-events: none;
   -webkit-user-drag: none;
   background-color: #ffffff;
-  image-rendering: auto;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: high-quality;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   -webkit-font-smoothing: subpixel-antialiased;
 }
 
