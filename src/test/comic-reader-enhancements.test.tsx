@@ -374,12 +374,13 @@ describe('Comic Reader Enhancements (CBZ, CBR, CB7)', () => {
       const bookContainer = container.querySelector('[class*="bookContainer"]');
       expect(bookContainer).toBeInTheDocument();
 
-      // Verify 3D sheets exist with soft density and paint isolation content wrappers
+      // Verify 3D sheets exist with soft density and direct comic page image / placeholder
       const sheets = container.querySelectorAll('[class*="pageSheet"]');
       expect(sheets.length).toBeGreaterThanOrEqual(6);
       sheets.forEach((sheet) => {
         expect(sheet.getAttribute('data-density')).toBe('soft');
-        expect(sheet.querySelector('[class*="pageContentWrapper"]')).toBeInTheDocument();
+        const imgOrPlaceholder = sheet.querySelector('[class*="comicPageImg"], [class*="pagePlaceholder"]');
+        expect(imgOrPlaceholder).toBeInTheDocument();
       });
 
       // Verify spine shadows exist
