@@ -219,7 +219,7 @@ describe('Comic Reader Enhancements (CBZ, CBR, CB7)', () => {
         <CbzReader
           fileData={dummyBuffer}
           readingMode="scroll"
-          readerZoom={2.0}
+          readerZoom={1.0}
           onProgressUpdate={vi.fn()}
         />
       );

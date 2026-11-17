@@ -49,7 +49,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
     {
       totalPages,
       initialPage = 1,
-      readingDirection: _readingDirection = 'ltr',
+      readingDirection = 'ltr',
       loadUrl,
       pageSizes,
       onProgressUpdate,
@@ -68,6 +68,11 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
     const pageFlipRef = useRef<PageFlip | null>(null);
 
     const [currentPageIndex, setCurrentPageIndex] = useState<number>(Math.max(0, initialPage - 1));
+    const currentPageIndexRef = useRef(currentPageIndex);
+    currentPageIndexRef.current = currentPageIndex;
+    const mouseEventsEnabled = readerZoom <= 1;
+    const rtl = readingDirection === 'rtl';
+    const imageRequestsRef = useRef(new Map<number, object>());
     const [, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [isPanning, setIsPanning] = useState(false);
     const [sideFocus, setSideFocus] = useState<'left' | 'center' | 'right' | 'custom'>('center');
@@ -131,11 +136,14 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         const img = mount.querySelector<HTMLImageElement>(`[data-comic-page-img="${pageNum}"]`);
         if (!img) return;
 
+        if (loadedPagesRef.current.has(pageNum)) return;
         loadedPagesRef.current.add(pageNum);
+        const request = {};
+        imageRequestsRef.current.set(pageNum, request);
 
         try {
           const url = await loadUrl(pageNum - 1);
-          if (url && img.src !== url) {
+          if (pageFlipMountRef.current === mount && imageRequestsRef.current.get(pageNum) === request && loadedPagesRef.current.has(pageNum) && url && img.src !== url) {
             img.src = url;
           }
         } catch (err) {
@@ -163,6 +171,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
             distantImg.removeAttribute('src');
           }
           loadedPagesRef.current.delete(p);
+          imageRequestsRef.current.delete(p);
         });
 
         for (let p = start; p <= end; p++) {
@@ -228,14 +237,34 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
       [calculateMaxPan, readerZoom]
     );
 
+    useEffect(() => {
+      const update = () => {
+        const next = calculateDimensions();
+        if (next) setSpreadDimensions(prev => prev?.pageWidth === next.pageWidth && prev.pageHeight === next.pageHeight && prev.isPortrait === next.isPortrait ? prev : next);
+      };
+      update();
+      const container = containerRef.current;
+      if (!container || typeof ResizeObserver === 'undefined') return;
+      const observer = new ResizeObserver(update);
+      observer.observe(container);
+      return () => observer.disconnect();
+    }, [calculateDimensions]);
+
+    const sheetForPage = useCallback((pageNum: number) => {
+      const portrait = spreadDimensions?.isPortrait ?? false;
+      const sheets = !portrait && totalPages % 2 ? totalPages + 1 : totalPages;
+      let index = rtl ? sheets - Math.max(1, Math.min(totalPages, pageNum)) : Math.max(0, Math.min(totalPages - 1, pageNum - 1));
+      if (!portrait) index -= index % 2;
+      return Math.max(0, index);
+    }, [rtl, spreadDimensions, totalPages]);
+
     // Mount PageFlip instance when dimensions and container are ready
     useEffect(() => {
       const bookContainer = bookContainerRef.current;
       if (!bookContainer || totalPages < 1) return;
 
-      const dims = calculateDimensions();
+      const dims = spreadDimensions;
       if (!dims) return;
-      setSpreadDimensions(dims);
 
       // Clean up previous PageFlip instance
       if (pageFlipRef.current) {
@@ -245,27 +274,22 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         pageFlipRef.current = null;
       }
       loadedPagesRef.current.clear();
+      imageRequestsRef.current.clear();
       bookContainer.replaceChildren();
 
       // Create dedicated mount container
       const mountEl = document.createElement('div');
       mountEl.style.width = `${dims.isPortrait ? dims.pageWidth : dims.pageWidth * 2}px`;
       mountEl.style.height = `${dims.pageHeight}px`;
-      if (invertColors) {
-        mountEl.classList.add(styles.pageInverted);
-      }
       pageFlipMountRef.current = mountEl;
       bookContainer.appendChild(mountEl);
 
-      let initialStart = Math.max(0, Math.min(totalPages - 1, currentPageIndex));
-      if (!dims.isPortrait && initialStart % 2 !== 0) {
-        initialStart -= 1;
-      }
-      if (initialStart < 0) initialStart = 0;
+      const initialStart = sheetForPage(currentPageIndexRef.current + 1);
 
       // Balance two-page spread with an even number of sheets
       const totalSheets = !dims.isPortrait && totalPages % 2 !== 0 ? totalPages + 1 : totalPages;
-      for (let p = 1; p <= totalSheets; p++) {
+      for (let sheetIndex = 0; sheetIndex < totalSheets; sheetIndex++) {
+        const p = rtl ? totalSheets - sheetIndex : sheetIndex + 1;
         const sheet = document.createElement('div');
         sheet.className = styles.pageSheet;
         sheet.dataset.density = 'soft';
@@ -286,7 +310,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
           sheet.appendChild(placeholder);
         }
 
-        const isLeft = (p - 1) % 2 === 0;
+        const isLeft = sheetIndex % 2 === 0;
         const spineShadow = document.createElement('div');
         spineShadow.className = isLeft ? styles.spineShadowLeft : styles.spineShadowRight;
         sheet.appendChild(spineShadow);
@@ -312,7 +336,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         usePortrait: dims.isPortrait,
         startPage: initialStart,
         flippingTime: 600,
-        useMouseEvents: readerZoom <= 1,
+        useMouseEvents: mouseEventsEnabled,
         showPageCorners: true,
         disableFlipByClick: true,
         autoSize: false,
@@ -323,10 +347,11 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
 
       pageFlip.on('flip', (e) => {
         const newSheetIdx = typeof e.data === 'number' ? e.data : pageFlip.getCurrentPageIndex();
-        const resolvedPageNum = newSheetIdx + 1;
+        const resolvedPageNum = rtl ? Math.max(1, totalSheets - newSheetIdx - (dims.isPortrait ? 0 : 1)) : newSheetIdx + 1;
         const resolvedPageIndex = Math.max(0, Math.min(totalPages - 1, resolvedPageNum - 1));
         setCurrentPageIndex(resolvedPageIndex);
-        const fraction = totalPages > 1 ? resolvedPageIndex / (totalPages - 1) : 0;
+        const endpoint = Math.min(totalPages - 1, resolvedPageIndex + (dims.isPortrait ? 0 : 1));
+        const fraction = totalPages > 1 ? endpoint / (totalPages - 1) : 0;
         onProgressUpdateRef.current(String(resolvedPageNum), Math.min(1, Math.max(0, fraction)), resolvedPageIndex);
         renderNearbyPages(resolvedPageNum);
       });
@@ -334,10 +359,10 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
       // Pre-render pages during drag/fold so user sees both sides dynamically as page turns
       pageFlip.on('changeState', () => {
         const currentIdx = pageFlip.getCurrentPageIndex();
-        renderNearbyPages(currentIdx + 1);
+        renderNearbyPages(rtl ? Math.max(1, totalSheets - currentIdx - (dims.isPortrait ? 0 : 1)) : currentIdx + 1);
       });
 
-      const initialPageNum = initialStart + 1;
+      const initialPageNum = currentPageIndexRef.current + 1;
       renderNearbyPages(initialPageNum);
 
       return () => {
@@ -345,32 +370,26 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
           pageFlip.destroy();
         } catch {}
         pageFlipRef.current = null;
+        pageFlipMountRef.current = null;
+        imageRequestsRef.current.clear();
         mountEl.remove();
       };
     }, [
       totalPages,
-      calculateDimensions,
+      spreadDimensions,
       renderNearbyPages,
-      invertColors,
+      sheetForPage,
+      rtl,
+      mouseEventsEnabled,
     ]);
 
-    // Apply readerZoom transform, update PageFlip mouse event handling, and anchor zoom
+    // Apply readerZoom transform and anchor zoom
     useEffect(() => {
       const prevZoom = previousZoomRef.current;
       previousZoomRef.current = readerZoom;
 
       if (bookStageRef.current) {
         bookStageRef.current.style.setProperty('--comic-reader-zoom', String(readerZoom));
-      }
-
-      if (pageFlipRef.current) {
-        try {
-          const pf = pageFlipRef.current as any;
-          const flipSettings = pf.getSettings?.();
-          if (flipSettings) {
-            flipSettings.useMouseEvents = readerZoom <= 1;
-          }
-        } catch {}
       }
 
       if (readerZoom <= 1) {
@@ -405,8 +424,8 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
             const dy = py - cy;
             const factor = readerZoom / Math.max(1, prevZoom) - 1;
             const { maxX, maxY } = calculateMaxPan(readerZoom);
-            const targetX = panRef.current.x - dx * factor;
-            const targetY = panRef.current.y - dy * factor;
+            const targetX = panRef.current.x * (factor + 1) - dx * factor;
+            const targetY = panRef.current.y * (factor + 1) - dy * factor;
             const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
             const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
             panRef.current = { x: clampedX, y: clampedY };
@@ -462,7 +481,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
           pageFlipMountRef.current.classList.remove(styles.pageInverted);
         }
       }
-    }, [invertColors]);
+    }, [invertColors, spreadDimensions, mouseEventsEnabled, rtl, renderNearbyPages]);
 
     // Native wheel listener for 2D pan and Ctrl+wheel zooming
     useEffect(() => {
@@ -517,13 +536,8 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
       () => ({
         goToPage: (pageNum: number) => {
           if (!pageFlipRef.current) return;
-          const isPortrait = spreadDimensions?.isPortrait ?? false;
-          let targetSheet = pageNum - 1;
-          if (!isPortrait && targetSheet % 2 !== 0) {
-            targetSheet -= 1;
-          }
-          targetSheet = Math.max(0, targetSheet);
-          renderNearbyPages(targetSheet + 1);
+          const targetSheet = sheetForPage(pageNum);
+          renderNearbyPages(pageNum);
           try {
             pageFlipRef.current.flip(targetSheet);
           } catch {
@@ -536,13 +550,8 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
           if (!pageFlipRef.current || totalPages <= 1) return;
           const clamped = Math.min(1, Math.max(0, fraction));
           const pageNum = Math.round(clamped * (totalPages - 1)) + 1;
-          const isPortrait = spreadDimensions?.isPortrait ?? false;
-          let targetSheet = pageNum - 1;
-          if (!isPortrait && targetSheet % 2 !== 0) {
-            targetSheet -= 1;
-          }
-          targetSheet = Math.max(0, targetSheet);
-          renderNearbyPages(targetSheet + 1);
+          const targetSheet = sheetForPage(pageNum);
+          renderNearbyPages(pageNum);
           try {
             pageFlipRef.current.turnToPage(targetSheet);
           } catch {}
@@ -581,7 +590,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         getCurrentPage: () => currentPageIndex + 1,
         getTotalPages: () => totalPages,
       }),
-      [totalPages, spreadDimensions, calculateMaxPan, currentPageIndex]
+      [totalPages, sheetForPage, renderNearbyPages, calculateMaxPan, currentPageIndex]
     );
 
     const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -652,35 +661,35 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
 
     const handlePrev = () => {
       if (!pageFlipRef.current) return;
-      const currentIdx = pageFlipRef.current.getCurrentPageIndex();
-      renderNearbyPages(Math.max(1, currentIdx - 2));
-      pageFlipRef.current.flipPrev();
+      renderNearbyPages(Math.max(1, currentPageIndex + 1 - 2));
+      if (rtl) pageFlipRef.current.flipNext();
+      else pageFlipRef.current.flipPrev();
     };
 
     const handleNext = () => {
       if (!pageFlipRef.current) return;
-      const currentIdx = pageFlipRef.current.getCurrentPageIndex();
-      renderNearbyPages(currentIdx + 3);
-      pageFlipRef.current.flipNext();
+      renderNearbyPages(currentPageIndex + 3);
+      if (rtl) pageFlipRef.current.flipPrev();
+      else pageFlipRef.current.flipNext();
     };
 
     const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
       if (!pageFlipRef.current) return;
 
-      if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      if (e.key === (rtl ? 'ArrowRight' : 'ArrowLeft') || e.key === 'PageUp') {
         e.preventDefault();
         handlePrev();
-      } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+      } else if (e.key === (rtl ? 'ArrowLeft' : 'ArrowRight') || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
         handleNext();
       } else if (e.key === 'Home') {
         e.preventDefault();
         renderNearbyPages(1);
-        pageFlipRef.current.turnToPage(0);
+        pageFlipRef.current.turnToPage(sheetForPage(1));
       } else if (e.key === 'End') {
         e.preventDefault();
         renderNearbyPages(totalPages);
-        pageFlipRef.current.turnToPage(Math.max(0, totalPages - 1));
+        pageFlipRef.current.turnToPage(sheetForPage(totalPages));
       }
     };
 
@@ -712,8 +721,8 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
 
         <button
           className={`${styles.navZone} ${styles.navLeft}`}
-          onClick={handlePrev}
-          aria-label="Previous page"
+          onClick={rtl ? handleNext : handlePrev}
+          aria-label={rtl ? "Next page" : "Previous page"}
           type="button"
         >
           <div className={styles.navButton}>
@@ -723,8 +732,8 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
 
         <button
           className={`${styles.navZone} ${styles.navRight}`}
-          onClick={handleNext}
-          aria-label="Next page"
+          onClick={rtl ? handlePrev : handleNext}
+          aria-label={rtl ? "Previous page" : "Next page"}
           type="button"
         >
           <div className={styles.navButton}>

@@ -328,6 +328,8 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   const previousReaderZoomRef = useRef(readerZoom);
   const hasRestoredInitialRef = useRef(false);
   const initialPageRef = useRef(initialPage);
+  const currentPageRef = useRef(currentPage);
+  currentPageRef.current = currentPage;
   const doubleSidedRef = useRef<CbzReaderHandle>(null);
 
   const isMouseDownRef = useRef(false);
@@ -507,12 +509,23 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
     [totalPages, isContinuous, isHorizontal]
   );
 
-  const goToPage = scrollToPage;
+  const goToPage = useCallback((pageNum: number, behavior: ScrollBehavior = 'smooth') => {
+    const target = totalPages > 0 ? Math.max(1, Math.min(pageNum, totalPages)) : Math.max(1, pageNum);
+    if (isSpreadMode && doubleSidedRef.current) {
+      doubleSidedRef.current.goToPage(target);
+      return;
+    }
+    scrollToPage(target, behavior);
+  }, [totalPages, isSpreadMode, scrollToPage]);
 
   const goToProgress = useCallback(
     (fraction: number) => {
       if (totalPages === 0) return;
       const clamped = Math.min(1, Math.max(0, fraction));
+      if (isSpreadMode && doubleSidedRef.current) {
+        doubleSidedRef.current.goToProgress(clamped);
+        return;
+      }
       if (isContinuous && viewportRef.current) {
         const viewport = viewportRef.current;
         viewport.scrollTo?.({
@@ -522,7 +535,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       } else if (isHorizontal && viewportRef.current) {
         const viewport = viewportRef.current;
         viewport.scrollTo?.({
-          left: clamped * Math.max(0, viewport.scrollWidth - viewport.clientWidth),
+          left: (readingDirection === 'rtl' ? 1 - clamped : clamped) * Math.max(0, viewport.scrollWidth - viewport.clientWidth),
           behavior: 'smooth',
         });
       } else {
@@ -530,16 +543,15 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         goToPage(targetPage, 'smooth');
       }
     },
-    [totalPages, isContinuous, isHorizontal, goToPage]
+    [totalPages, isContinuous, isHorizontal, isSpreadMode, readingDirection, goToPage]
   );
 
   // Restore initial page on mount after archive loads
   useEffect(() => {
-    if (loading || totalPages === 0 || hasRestoredInitialRef.current || isSpreadMode) return;
+    if (loading || totalPages === 0) return;
+    const restoring = !hasRestoredInitialRef.current;
     hasRestoredInitialRef.current = true;
-    if (initialPageRef.current <= 1) return;
-
-    const target = Math.max(1, Math.min(initialPageRef.current, totalPages));
+    const target = Math.max(1, Math.min(restoring ? initialPageRef.current : currentPageRef.current, totalPages));
     setCurrentPage(target);
 
     if (isContinuous || isHorizontal) {
@@ -559,7 +571,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       frame = requestAnimationFrame(seek);
       return () => cancelAnimationFrame(frame);
     }
-  }, [loading, totalPages, isContinuous, isHorizontal, isSpreadMode]);
+  }, [loading, totalPages, isContinuous, isHorizontal, isSpreadMode, readingDirection]);
 
   // Preview zoom matrix transform around pointer anchor (mirrors PdfReader)
   const previewZoom = useCallback(
@@ -748,13 +760,13 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         return;
       } else if (isHorizontal && !e.shiftKey && Math.abs(e.deltaY) > 0) {
         e.preventDefault();
-        viewport.scrollLeft += e.deltaY;
+        viewport.scrollLeft += e.deltaY * (readingDirection === 'rtl' ? -1 : 1);
       }
     };
 
     viewport.addEventListener('wheel', handleNativeWheel, { passive: false });
     return () => viewport.removeEventListener('wheel', handleNativeWheel);
-  }, [isHorizontal, onZoomGesture]);
+  }, [isHorizontal, onZoomGesture, readingDirection]);
 
   // Imperative handle for parent control
   useImperativeHandle(
@@ -776,21 +788,22 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
     if (!viewport || !stack || totalPages < 1) return;
 
     if (isHorizontal) {
-      const viewportLeft = viewport.getBoundingClientRect().left + 24;
+      const rtl = readingDirection === 'rtl';
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportLeft = viewportRect.left + 24;
       const shells = Array.from(stack.querySelectorAll<HTMLElement>('[data-cbz-page], [data-comic-page]'));
+      if (rtl) shells.reverse();
       let visiblePage = currentPage;
       for (const shell of shells) {
-        if (shell.getBoundingClientRect().right > viewportLeft) {
+        if (rtl ? shell.getBoundingClientRect().left < viewportRect.right - 24 : shell.getBoundingClientRect().right > viewportLeft) {
           visiblePage = Number(shell.dataset.cbzPage || shell.dataset.comicPage) || visiblePage;
           break;
         }
       }
 
       const maxScroll = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
-      const withinPageFraction = maxScroll > 0 ? viewport.scrollLeft / maxScroll : 0;
-      const fraction = totalPages > 1
-        ? Math.min(1, (Math.max(0, visiblePage - 1) + withinPageFraction) / (totalPages - 1))
-        : withinPageFraction;
+      const scrollFraction = maxScroll > 0 ? viewport.scrollLeft / maxScroll : 0;
+      const fraction = maxScroll > 0 && rtl ? 1 - scrollFraction : scrollFraction;
 
       setCurrentPage((prev) => (prev === visiblePage ? prev : visiblePage));
       onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
@@ -820,7 +833,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
 
     setCurrentPage((prev) => (prev === visiblePage ? prev : visiblePage));
     onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
-  }, [currentPage, isContinuous, isHorizontal, totalPages]);
+  }, [currentPage, isContinuous, isHorizontal, totalPages, readingDirection]);
 
   const handleScroll = useCallback(() => {
     if (previewTransformRef.current !== null || (!isContinuous && !isHorizontal)) return;
@@ -875,7 +888,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
 
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
-      const canPan = readerZoom > 1 || isSpaceDownRef.current || e.button === 1;
+      const canPan = readerZoom > 1 || isSpaceDownRef.current || (e.buttons & 4) !== 0;
 
       if (!hasDraggedRef.current && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
         hasDraggedRef.current = true;
@@ -970,10 +983,10 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       }
 
       if (isHorizontal) {
-        if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+        if (e.key === (readingDirection === 'rtl' ? 'ArrowLeft' : 'ArrowRight') || e.key === 'PageDown') {
           e.preventDefault();
           handleNextPage();
-        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        } else if (e.key === (readingDirection === 'rtl' ? 'ArrowRight' : 'ArrowLeft') || e.key === 'PageUp') {
           e.preventDefault();
           handlePrevPage();
         } else if (e.key === 'Home') {
@@ -1018,7 +1031,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         goToPage(totalPages, 'auto');
       }
     },
-    [isContinuous, isHorizontal, handlePrevPage, handleNextPage, goToPage, totalPages]
+    [isContinuous, isHorizontal, handlePrevPage, handleNextPage, goToPage, totalPages, readingDirection]
   );
 
   const handleKeyUp = useCallback(
@@ -1054,7 +1067,10 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         readingDirection={readingDirection}
         loadUrl={loadPageBlobUrl}
         pageSizes={pageSizes}
-        onProgressUpdate={onProgressUpdate}
+        onProgressUpdate={(chapterId, fraction, pageIndex) => {
+          setCurrentPage(pageIndex + 1);
+          onProgressUpdateRef.current(chapterId, fraction, pageIndex);
+        }}
         onToggleControls={onToggleControls}
         readerZoom={readerZoom}
         zoomAnchor={zoomAnchor}
@@ -1127,7 +1143,9 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
           >
           {isContinuous || isHorizontal ? (
             /* Continuous Vertical (Webtoon) or Horizontal Ribbon Scroll */
-            Array.from({ length: totalPages }, (_, idx) => (
+            Array.from({ length: totalPages }, (_, position) => {
+              const idx = isHorizontal && readingDirection === 'rtl' ? totalPages - position - 1 : position;
+              return (
               <ComicPageView
                 key={idx + 1}
                 pageNumber={idx + 1}
@@ -1144,7 +1162,8 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
                 invertColors={invertColors}
                 onPageSize={setPageSize}
               />
-            ))
+              );
+            })
           ) : (
             /* Single-Page Paginated Mode */
             <ComicPageView
