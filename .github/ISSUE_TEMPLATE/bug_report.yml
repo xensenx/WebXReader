@@ -1,0 +1,74 @@
+name: Bug Report
+description: Report a rendering issue, parsing error, or UI/UX quirk in WebXReader
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue! Please fill out the details below so we can reproduce and fix it quickly.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly and what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: format
+    attributes:
+      label: File Format Involved (if applicable)
+      description: Which format were you opening when this happened?
+      options:
+        - Not format-specific (UI / Library / Settings / PWA)
+        - EPUB
+        - PDF
+        - CBZ / CBR / CB7
+        - MOBI / AZW3 / FB2
+        - DOCX / DOC / RTF
+        - DJVU
+        - TXT / MD / HTML / MHT
+        - ZIP / RAR / PNG / JPEG
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Where were you running WebXReader?
+      options:
+        - Hosted mirror (Pages / Netlify / Firebase / Vercel)
+        - Installed PWA (Desktop or Mobile)
+        - Local development build
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we trigger this behavior?
+      placeholder: |
+        1. Open WebXReader
+        2. Import a file...
+        3. Navigate to page / open settings...
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Browser & OS
+      placeholder: "e.g., Brave 1.73 on Windows 11, Safari on iOS 18, Chrome on Android"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Screenshots, Console Logs, or Extra Context
+      description: Optional—paste any browser console errors, screenshots, or details about the file (e.g., large file size, right-to-left text, scanned pages).
+    validations:
+      required: false
