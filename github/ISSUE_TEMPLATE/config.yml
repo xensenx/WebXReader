@@ -1,5 +1,0 @@
-blank_issues_enabled: true
-contact_links:
-  - name: Report a Security Vulnerability
-    url: https://github.com/xensenx/WebXReader/security/advisories/new
-    about: Please report file-parsing XSS or security issues privately here instead of opening a public issue.
