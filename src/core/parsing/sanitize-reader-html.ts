@@ -5,6 +5,37 @@ export interface SanitizeReaderHtmlOptions {
   allowSvg?: boolean;
 }
 
+let purifyInstance: any = null;
+let isHookAttached = false;
+
+function getPurifyInstance(): any {
+  if (!purifyInstance) {
+    if (typeof (DOMPurify as any)?.sanitize === 'function') {
+      purifyInstance = DOMPurify;
+    } else if (typeof DOMPurify === 'function' && typeof window !== 'undefined') {
+      purifyInstance = (DOMPurify as any)(window);
+    }
+    if (purifyInstance && !isHookAttached && typeof purifyInstance.addHook === 'function') {
+      purifyInstance.addHook('uponSanitizeAttribute', (node: any, data: any) => {
+        const tag = node.tagName && String(node.tagName).toLowerCase();
+        const attr = data.attrName && String(data.attrName).toLowerCase();
+        // Disallow external network URLs on embedded media/images to enforce local-first privacy (F04)
+        if (
+          (tag === 'img' || tag === 'image') &&
+          (attr === 'src' || attr === 'href' || attr === 'xlink:href' || attr === 'data-src')
+        ) {
+          const val = (data.attrValue || '').trim();
+          if (/^(?:https?:|\/\/)/i.test(val)) {
+            data.keepAttr = false;
+          }
+        }
+      });
+      isHookAttached = true;
+    }
+  }
+  return purifyInstance;
+}
+
 /**
  * Sanitizes book HTML before it is persisted or inserted into the reader DOM.
  * Keep this allowlist shared by HTML/Markdown imports, backup restoration, and
@@ -20,12 +51,7 @@ export function sanitizeReaderHtml(
 ): string {
   if (typeof content !== 'string') return '';
 
-  const sanitizeFn =
-    typeof (DOMPurify as any)?.sanitize === 'function'
-      ? (DOMPurify as any).sanitize.bind(DOMPurify)
-      : typeof DOMPurify === 'function' && typeof window !== 'undefined'
-      ? (DOMPurify as any)(window).sanitize
-      : null;
+  const purify = getPurifyInstance();
 
   const allowImages = Boolean(options?.allowImages);
   const allowSvg = Boolean(options?.allowSvg);
@@ -63,29 +89,74 @@ export function sanitizeReaderHtml(
     );
   }
 
-  if (sanitizeFn) {
-    return sanitizeFn(content, {
+  if (purify && typeof purify.sanitize === 'function') {
+    return purify.sanitize(content, {
       ALLOWED_TAGS: allowedTags,
       ALLOWED_ATTR: allowedAttrs,
       ALLOW_DATA_ATTR: false,
       FORBID_TAGS: forbidTags,
+      ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|blob|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
     });
   }
 
-  // Fallback for non-browser/CLI environments without DOM window
-  let fallback = content
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    .replace(/on\w+="[^"]*"/gi, '')
-    .replace(/on\w+='[^']*'/gi, '');
+  // Fail closed: regex filtering is not safe sanitization.
+  // If DOMPurify is unavailable the caller must not trust the output.
+  console.error(
+    'sanitizeReaderHtml: DOMPurify is unavailable — returning empty string for safety.',
+  );
+  return '';
+}
 
-  if (!allowImages) {
-    fallback = fallback.replace(/<img\b[^>]*>/gi, '');
-  }
-  if (!allowSvg) {
-    fallback = fallback.replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '');
-  }
-  return fallback;
+/**
+ * Sanitizes untrusted CSS extracted from an EPUB/book document so it can be
+ * safely placed inside a `<style>` element in the main application DOM.
+ *
+ * The critical threat is a `</style>` sequence (or case-variants / HTML-entity-
+ * decoded equivalents) that terminates the style element and allows arbitrary
+ * HTML injection. This function:
+ *
+ * 1. Strips any literal `</style` substring (case-insensitive).
+ * 2. Removes `@import` rules that could load external stylesheets.
+ * 3. Removes `url(...)` values that reference external `http:`, `https:`, or `//` resources
+ *    (privacy leak vector — F04). `data:`, `blob:`, and bare fragment refs are kept.
+ * 4. Removes `expression(...)` (legacy IE CSS expression attack surface).
+ * 5. Removes `-moz-binding` (legacy Firefox XBL binding attack surface).
+ *
+ * This is NOT a full CSS parser; it is a defence-in-depth layer. The primary
+ * protection is to never interpolate the output into an `innerHTML` string —
+ * always assign it via `element.textContent` on a `<style>` element created
+ * through the DOM API.
+ *
+ * @param cssText - Raw CSS text from an untrusted book document
+ * @returns Sanitized CSS string safe for `style.textContent` assignment
+ */
+export function sanitizeBookCss(cssText: unknown): string {
+  if (typeof cssText !== 'string' || !cssText.trim()) return '';
+
+  let css = cssText;
+
+  // 1. Remove any sequence that could close a <style> element or HTML comments.
+  css = css.replace(/<\s*\/?\s*style/gi, '/* removed */');
+  css = css.replace(/<\s*\/?[a-zA-Z]/g, '/* removed */');
+  css = css.replace(/<!--/g, '/*').replace(/-->/g, '*/');
+
+  // 2. Strip all @import rules (external stylesheet loading).
+  css = css.replace(/@import\s+[^;{}]+;?/gi, '/* import-rule removed */');
+
+  // 3. Strip url() values pointing to external http(s) or protocol-relative resources.
+  //    Keep data:, blob:, and fragment-only references intact.
+  css = css.replace(
+    /url\(\s*(['"]?)\s*(?:https?:|\/\/)[^)]*\1\s*\)/gi,
+    '/* url removed */',
+  );
+
+  // 4. Remove expression() (legacy IE).
+  css = css.replace(/expression\s*\(/gi, '/* expression removed */(');
+
+  // 5. Remove -moz-binding (legacy Firefox XBL).
+  css = css.replace(/-moz-binding\s*:/gi, '/* moz-binding removed */:');
+
+  return css;
 }
 
 /**

@@ -89,6 +89,14 @@ export interface EpubSearchSectionIndex {
 export const isInlineOrNetworkUrl = (value: string) =>
   /^(?:data:|blob:|https?:|file:|mailto:|javascript:)/i.test(value.trim());
 
+/**
+ * Returns true when a URL points to an external network resource that an
+ * untrusted book should NOT be allowed to load (privacy / tracking risk).
+ * `data:` and `blob:` URLs are considered safe inline resources.
+ */
+export const isExternalNetworkUrl = (value: string): boolean =>
+  /^(?:https?:|\/\/)/i.test(value.trim());
+
 export const withoutFragment = (value: string) => value.split('#')[0].split('?')[0];
 
 const appendCandidate = (candidates: string[], value: string | undefined) => {
@@ -383,13 +391,26 @@ const resolveSrcset = async (
   if (!value) return;
 
   const entries = value.split(',');
-  const resolvedEntries = await Promise.all(entries.map(async (entry) => {
+  const resolvedEntries: string[] = [];
+  for (const entry of entries) {
     const match = entry.trim().match(/^(\S+)(\s+.*)?$/);
-    if (!match) return entry;
+    if (!match) continue;
+    if (isExternalNetworkUrl(match[1])) {
+      // Discard external network tracking images in srcset (F04)
+      continue;
+    }
     const resolved = await resolveEpubResource(book, match[1], contents);
-    return resolved ? `${resolved}${match[2] || ''}` : entry;
-  }));
-  element.setAttribute(attribute, resolvedEntries.join(','));
+    if (resolved) {
+      resolvedEntries.push(`${resolved}${match[2] || ''}`);
+    } else if (!isInlineOrNetworkUrl(match[1])) {
+      resolvedEntries.push(entry.trim());
+    }
+  }
+  if (resolvedEntries.length > 0) {
+    element.setAttribute(attribute, resolvedEntries.join(', '));
+  } else {
+    element.removeAttribute(attribute);
+  }
 };
 
 export const prepareEpubImageSources = async (
@@ -413,8 +434,15 @@ export const prepareEpubImageSources = async (
       ? lazySource
       : declaredSource || lazySource;
     if (source) {
-      const replacement = await resolveEpubResource(book, source, contents);
-      if (replacement) image.setAttribute('src', replacement);
+      if (isExternalNetworkUrl(source)) {
+        // Discard external network tracking images (F04)
+        image.removeAttribute('src');
+        image.removeAttribute('data-src');
+        image.removeAttribute('data-original');
+      } else {
+        const replacement = await resolveEpubResource(book, source, contents);
+        if (replacement) image.setAttribute('src', replacement);
+      }
     }
     await resolveSrcset(book, contents, image, 'srcset');
   }));
@@ -422,10 +450,16 @@ export const prepareEpubImageSources = async (
   await Promise.all(svgImages.map(async (image) => {
     const source = image.getAttribute('href') || image.getAttribute('xlink:href');
     if (!source) return;
-    const replacement = await resolveEpubResource(book, source, contents);
-    if (replacement) {
-      image.setAttribute('href', replacement);
-      image.setAttribute('xlink:href', replacement);
+    if (isExternalNetworkUrl(source)) {
+      // Discard external network tracking images (F04)
+      image.removeAttribute('href');
+      image.removeAttribute('xlink:href');
+    } else {
+      const replacement = await resolveEpubResource(book, source, contents);
+      if (replacement) {
+        image.setAttribute('href', replacement);
+        image.setAttribute('xlink:href', replacement);
+      }
     }
   }));
 

@@ -5,7 +5,7 @@
 
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
-import { sanitizeReaderHtml } from './sanitize-reader-html';
+import { sanitizeReaderHtml, escapeHtml } from './sanitize-reader-html';
 
 /** Result of parsing an HTML file */
 export interface HtmlParseResult {
@@ -114,7 +114,7 @@ function splitByHeadings(html: string): Chapter[] {
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       currentContent.push((element as HTMLElement).outerHTML);
     } else if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
-      currentContent.push(`<p>${node.textContent.trim()}</p>`);
+      currentContent.push(`<p>${escapeHtml(node.textContent.trim())}</p>`);
     }
   }
 
