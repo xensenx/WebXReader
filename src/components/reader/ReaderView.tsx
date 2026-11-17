@@ -435,11 +435,11 @@ export function ReaderView() {
         chapterId,
         overallProgress: fraction,
         scrollPosition: scrollPos,
-        readingMode: 'scroll',
+        readingMode: readerSettings.readingMode,
         lastUpdatedAt: Date.now(),
       });
     },
-    [updateProgress]
+    [updateProgress, readerSettings.readingMode]
   );
 
   const handleDoubleSidedProgress = useCallback(
@@ -451,11 +451,11 @@ export function ReaderView() {
         chapterId,
         overallProgress: fraction,
         pageIndex: scrollPos,
-        readingMode: 'vertical',
+        readingMode: readerSettings.readingMode,
         lastUpdatedAt: Date.now(),
       });
     },
-    [updateProgress]
+    [updateProgress, readerSettings.readingMode]
   );
 
   // Handle paginated progress update
@@ -468,11 +468,11 @@ export function ReaderView() {
         chapterId,
         overallProgress: fraction,
         pageIndex,
-        readingMode: 'paginated',
+        readingMode: readerSettings.readingMode,
         lastUpdatedAt: Date.now(),
       });
     },
-    [updateProgress]
+    [updateProgress, readerSettings.readingMode]
   );
 
   // Handle EPUB progress update
@@ -605,11 +605,11 @@ export function ReaderView() {
   const isTxt = book?.sourceFormat === 'txt';
   const effectiveReadingMode = (() => {
     if (isTxt) return 'scroll';
-    if (!isEpub && !isPdf && readerSettings.readingMode === 'horizontal') {
-      if (isCbz || isDjvu || isImage) return 'paginated';
+    if (!isEpub && !isPdf && !isCbz && readerSettings.readingMode === 'horizontal') {
+      if (isDjvu || isImage) return 'paginated';
       return 'scroll';
     }
-    if (!isEpub && !isPdf && readerSettings.readingMode === 'vertical') {
+    if (!isEpub && !isPdf && !isCbz && readerSettings.readingMode === 'vertical') {
       return 'paginated';
     }
     return readerSettings.readingMode;
@@ -862,7 +862,7 @@ export function ReaderView() {
               fileData={content.originalFile!}
               format={book?.sourceFormat}
               initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
-              readingMode={readerSettings.readingMode}
+              readingMode={effectiveReaderSettings.readingMode}
               readingDirection={readerSettings.comicReadingDirection ?? (book?.identifiers?.readingDirection as 'ltr' | 'rtl') ?? 'ltr'}
               fitMode={readerSettings.comicFitMode ?? 'contain'}
               pageGap={readerSettings.contentMargin}
@@ -870,6 +870,8 @@ export function ReaderView() {
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
+              onZoomGesture={(deltaY, point) => queueWheelZoom(deltaY, point)}
+              invertColors={readerSettings.invertColors}
             />
           ) : isEpub ? (
             <EpubReader

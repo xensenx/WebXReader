@@ -6,8 +6,9 @@
  * 2. Stable centering in flex pageStack with zero negative margin push or lateral jumping
  * 3. Smooth matrix preview zooming around pointer anchor with exact layout-effect scroll restoration
  * 4. High-performance lazy blob rendering with IntersectionObserver
- * 5. Full support for Continuous Scroll (Webtoon), Single-page Paginated, and Double-page Spread (Manga RTL)
+ * 5. Full support for Continuous Vertical Scroll (Webtoon), Continuous Horizontal Ribbon Scroll, Single-page Paginated, and Realistic 3D Double-page Spread (LTR Western & RTL Manga)
  * 6. Universal comic archive support: ZIP (CBZ via JSZip), RAR (CBR via 7z-wasm), and 7z (CB7 via 7z-wasm)
+ * 7. Invert Colors filter toggle for dark/night reading
  */
 
 import {
@@ -36,6 +37,7 @@ import {
   type ComicArchiveSession,
 } from '../../core/parsing/sevenzip-extractor';
 import type { ComicReadingDirection, ComicFitMode, ReadingMode } from '../../types/book';
+import { ComicDoubleSidedReader } from './ComicDoubleSidedReader';
 import styles from './CbzReader.module.css';
 
 export interface CbzZoomAnchor {
@@ -52,7 +54,7 @@ export interface CbzZoomAnchor {
 export interface CbzReaderHandle {
   goToPage: (pageNum: number) => void;
   goToProgress: (fraction: number) => void;
-  previewZoom: (zoom: number, anchor: CbzZoomAnchor) => void;
+  previewZoom: (zoom: number, anchor?: CbzZoomAnchor) => void;
   getCurrentPage: () => number;
   getTotalPages: () => number;
 }
@@ -60,7 +62,7 @@ export interface CbzReaderHandle {
 export type ComicZoomAnchor = CbzZoomAnchor;
 export type ComicReaderHandle = CbzReaderHandle;
 
-interface CbzReaderProps {
+export interface CbzReaderProps {
   fileData: ArrayBuffer;
   format?: 'cbz' | 'cbr' | 'cb7' | string;
   initialPage?: number;
@@ -72,6 +74,8 @@ interface CbzReaderProps {
   onToggleControls?: () => void;
   readerZoom?: number;
   zoomAnchor?: CbzZoomAnchor;
+  onZoomGesture?: (deltaY: number, point?: { x: number; y: number }) => void;
+  invertColors?: boolean;
 }
 
 interface PageSize {
@@ -98,8 +102,15 @@ function getComicDisplayScale(
   viewportHeight: number,
   readerZoom: number,
   fitMode: ComicFitMode = 'contain',
-  isSpread = false
+  isSpread = false,
+  isHorizontal = false
 ): number {
+  if (isHorizontal) {
+    const availableHeight = Math.max(240, viewportHeight - 48);
+    const fitScale = availableHeight / Math.max(1, baseHeight);
+    return Math.min(8.0, Math.max(0.15, fitScale)) * readerZoom;
+  }
+
   const paddingX = 32;
   const paddingY = 48;
   const availableWidth = Math.max(240, isSpread ? (viewportWidth - paddingX) / 2 : viewportWidth - paddingX);
@@ -131,6 +142,8 @@ interface ComicPageViewProps {
   layoutVersion: number;
   initiallyVisible: boolean;
   isSpread?: boolean;
+  isHorizontal?: boolean;
+  invertColors?: boolean;
   onPageSize: (pageNumber: number, size: PageSize) => void;
 }
 
@@ -150,6 +163,8 @@ const ComicPageView = memo(function ComicPageView({
   layoutVersion: _layoutVersion,
   initiallyVisible,
   isSpread = false,
+  isHorizontal = false,
+  invertColors = false,
   onPageSize,
 }: ComicPageViewProps) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -176,12 +191,12 @@ const ComicPageView = memo(function ComicPageView({
           observer.disconnect();
         }
       },
-      { root, rootMargin: '1200px 0px' }
+      { root, rootMargin: isHorizontal ? '0px 1200px' : '1200px 0px' }
     );
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [shouldLoad, viewportRef]);
+  }, [shouldLoad, viewportRef, isHorizontal]);
 
   // Load page image blob URL
   useEffect(() => {
@@ -215,7 +230,8 @@ const ComicPageView = memo(function ComicPageView({
     viewportHeight,
     readerZoom,
     fitMode,
-    isSpread
+    isSpread,
+    isHorizontal
   );
 
   const displayWidth = Math.floor(effectiveSize.width * displayScale);
@@ -229,7 +245,7 @@ const ComicPageView = memo(function ComicPageView({
   return (
     <div
       ref={shellRef}
-      className={styles.pageShell}
+      className={`${styles.pageShell} ${invertColors ? styles.pageInverted : ''}`}
       data-cbz-page={pageNumber}
       data-comic-page={pageNumber}
       style={shellStyle}
@@ -263,6 +279,10 @@ const ComicPageView = memo(function ComicPageView({
   );
 });
 
+/**
+ * Universal Comic reader component supporting vertical continuous scroll,
+ * horizontal ribbon scroll, paginated single page, and double-sided spreads.
+ */
 export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function CbzReader(
   {
     fileData,
@@ -276,11 +296,15 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
     onToggleControls,
     readerZoom = 1,
     zoomAnchor,
+    onZoomGesture,
+    invertColors = false,
   },
   ref
 ) {
   const isContinuous = readingMode === 'scroll';
+  const isHorizontal = readingMode === 'horizontal';
   const isSpreadMode = readingMode === 'vertical';
+  const isPaginated = readingMode === 'paginated';
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -289,6 +313,9 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   const [commonAspectRatio, setCommonAspectRatio] = useState<number>(0.68);
   const [pageSizes, setPageSizes] = useState<Record<number, PageSize>>({});
   const [layoutVersion, setLayoutVersion] = useState(0);
+
+  const [isPanning, setIsPanning] = useState(false);
+  const [isSpaceDown, setIsSpaceDown] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -301,6 +328,20 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   const previousReaderZoomRef = useRef(readerZoom);
   const hasRestoredInitialRef = useRef(false);
   const initialPageRef = useRef(initialPage);
+  const currentPageRef = useRef(currentPage);
+  currentPageRef.current = currentPage;
+  const doubleSidedRef = useRef<CbzReaderHandle>(null);
+
+  const isMouseDownRef = useRef(false);
+  const isSpaceDownRef = useRef(false);
+  const spaceDraggedRef = useRef(false);
+  const hasDraggedRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number }>({
+    x: 0,
+    y: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+  });
 
   const pageLoaderRef = useRef<(index: number) => Promise<Blob | undefined>>(() => Promise.resolve(undefined));
   const sessionRef = useRef<ComicArchiveSession | null>(null);
@@ -331,9 +372,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       urls.forEach((url) => {
         try {
           URL.revokeObjectURL(url);
-        } catch {
-          // ignore
-        }
+        } catch {}
       });
       urls.clear();
       if (scrollFrameRef.current !== null) {
@@ -376,6 +415,11 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
 
     async function loadArchive() {
       try {
+        if (!fileData || fileData.byteLength < 32) {
+          setLoading(false);
+          return;
+        }
+
         const detected = detectComicFormat(fileData);
         const formatType = format || (detected !== 'unknown' ? detected : 'cbz');
 
@@ -445,37 +489,53 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   // Programmatic page navigation (TOC, bookmarks, keyboard)
   const scrollToPage = useCallback(
     (pageNum: number, behavior: ScrollBehavior = 'smooth') => {
-      if (totalPages === 0) return;
-      const target = Math.max(1, Math.min(pageNum, totalPages));
+      const target = totalPages > 0 ? Math.max(1, Math.min(pageNum, totalPages)) : Math.max(1, pageNum);
       setCurrentPage(target);
 
-      const fraction = totalPages > 1 ? (target - 1) / (totalPages - 1) : 1;
+      const fraction = totalPages > 1 ? (target - 1) / (totalPages - 1) : 0;
       onProgressUpdateRef.current(String(target), fraction, target - 1);
 
-      if (isContinuous && viewportRef.current) {
+      if ((isContinuous || isHorizontal) && viewportRef.current) {
         const el = pageStackRef.current?.querySelector<HTMLElement>(
           `[data-cbz-page="${target}"], [data-comic-page="${target}"]`
         );
         if (el) {
-          el.scrollIntoView({ behavior, block: 'start' });
+          el.scrollIntoView({ behavior, block: isHorizontal ? 'nearest' : 'start', inline: isHorizontal ? 'start' : 'nearest' });
         }
       } else {
-        viewportRef.current?.scrollTo({ top: 0, left: 0, behavior });
+        viewportRef.current?.scrollTo?.({ top: 0, left: 0, behavior });
       }
     },
-    [totalPages, isContinuous]
+    [totalPages, isContinuous, isHorizontal]
   );
 
-  const goToPage = scrollToPage;
+  const goToPage = useCallback((pageNum: number, behavior: ScrollBehavior = 'smooth') => {
+    const target = totalPages > 0 ? Math.max(1, Math.min(pageNum, totalPages)) : Math.max(1, pageNum);
+    if (isSpreadMode && doubleSidedRef.current) {
+      doubleSidedRef.current.goToPage(target);
+      return;
+    }
+    scrollToPage(target, behavior);
+  }, [totalPages, isSpreadMode, scrollToPage]);
 
   const goToProgress = useCallback(
     (fraction: number) => {
       if (totalPages === 0) return;
       const clamped = Math.min(1, Math.max(0, fraction));
+      if (isSpreadMode && doubleSidedRef.current) {
+        doubleSidedRef.current.goToProgress(clamped);
+        return;
+      }
       if (isContinuous && viewportRef.current) {
         const viewport = viewportRef.current;
-        viewport.scrollTo({
+        viewport.scrollTo?.({
           top: clamped * Math.max(0, viewport.scrollHeight - viewport.clientHeight),
+          behavior: 'smooth',
+        });
+      } else if (isHorizontal && viewportRef.current) {
+        const viewport = viewportRef.current;
+        viewport.scrollTo?.({
+          left: (readingDirection === 'rtl' ? 1 - clamped : clamped) * Math.max(0, viewport.scrollWidth - viewport.clientWidth),
           behavior: 'smooth',
         });
       } else {
@@ -483,19 +543,18 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         goToPage(targetPage, 'smooth');
       }
     },
-    [totalPages, isContinuous, goToPage]
+    [totalPages, isContinuous, isHorizontal, isSpreadMode, readingDirection, goToPage]
   );
 
   // Restore initial page on mount after archive loads
   useEffect(() => {
-    if (loading || totalPages === 0 || hasRestoredInitialRef.current) return;
+    if (loading || totalPages === 0) return;
+    const restoring = !hasRestoredInitialRef.current;
     hasRestoredInitialRef.current = true;
-    if (initialPageRef.current <= 1) return;
-
-    const target = Math.max(1, Math.min(initialPageRef.current, totalPages));
+    const target = Math.max(1, Math.min(restoring ? initialPageRef.current : currentPageRef.current, totalPages));
     setCurrentPage(target);
 
-    if (isContinuous) {
+    if (isContinuous || isHorizontal) {
       let attempts = 0;
       let frame = 0;
       const seek = () => {
@@ -504,7 +563,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
           `[data-cbz-page="${target}"], [data-comic-page="${target}"]`
         );
         if (el || attempts >= 15) {
-          if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
+          if (el) el.scrollIntoView({ behavior: 'auto', block: isHorizontal ? 'nearest' : 'start', inline: isHorizontal ? 'start' : 'nearest' });
           return;
         }
         frame = requestAnimationFrame(seek);
@@ -512,103 +571,202 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       frame = requestAnimationFrame(seek);
       return () => cancelAnimationFrame(frame);
     }
-  }, [loading, totalPages, isContinuous]);
+  }, [loading, totalPages, isContinuous, isHorizontal, isSpreadMode, readingDirection]);
 
   // Preview zoom matrix transform around pointer anchor (mirrors PdfReader)
   const previewZoom = useCallback(
-    (nextZoom: number, anchor: CbzZoomAnchor) => {
+    (nextZoom: number, anchor?: CbzZoomAnchor) => {
+      if (isSpreadMode && doubleSidedRef.current) {
+        doubleSidedRef.current.previewZoom(nextZoom, anchor);
+        return;
+      }
+
       const viewport = viewportRef.current;
-      const pageStack = pageStackRef.current;
+      const pageStack = pageStackRef.current ?? viewport?.querySelector<HTMLElement>('[class*="Stack"]');
       if (!viewport || !pageStack) return;
 
-      const viewportRect = viewport.getBoundingClientRect();
-      const pointerX = viewportRect.left + anchor.viewportX;
-      const pointerY = viewportRect.top + anchor.viewportY;
-      const previous = previewTransformRef.current ?? {
-        baseLeft: pageStack.getBoundingClientRect().left,
-        baseTop: pageStack.getBoundingClientRect().top,
-        scale: 1,
-        translateX: 0,
-        translateY: 0,
-      };
       const scale = nextZoom / readerZoom;
+      if (Math.abs(scale - 1) < 0.005) {
+        pageStack.style.transform = '';
+        pageStack.style.transformOrigin = '';
+        previewTransformRef.current = null;
+        if (anchor) lastZoomAnchorRef.current = anchor;
+        return;
+      }
 
-      const documentX = (pointerX - previous.baseLeft - previous.translateX) / previous.scale;
-      const documentY = (pointerY - previous.baseTop - previous.translateY) / previous.scale;
-      const translateX = pointerX - previous.baseLeft - scale * documentX;
-      const translateY = pointerY - previous.baseTop - scale * documentY;
+      const isZoomingOut = nextZoom < readerZoom;
+      const targetViewportX = isZoomingOut || !anchor
+        ? viewport.clientWidth / 2
+        : Math.max(0, Math.min(viewport.clientWidth, anchor.viewportX));
+      const targetViewportY = isZoomingOut || !anchor
+        ? viewport.clientHeight / 2
+        : Math.max(0, Math.min(viewport.clientHeight, anchor.viewportY));
 
-      lastZoomAnchorRef.current = anchor;
+      const stackX = viewport.scrollLeft + targetViewportX - pageStack.offsetLeft;
+      const stackY = viewport.scrollTop + targetViewportY - pageStack.offsetTop;
+      const translateX = Math.round(stackX * (1 - scale));
+      const translateY = Math.round(stackY * (1 - scale));
+
+      if (anchor) lastZoomAnchorRef.current = anchor;
       pageStack.style.transformOrigin = '0 0';
       pageStack.style.transform = `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`;
       previewTransformRef.current = {
-        baseLeft: previous.baseLeft,
-        baseTop: previous.baseTop,
+        baseLeft: pageStack.offsetLeft,
+        baseTop: pageStack.offsetTop,
         scale,
         translateX,
         translateY,
       };
     },
-    [readerZoom]
+    [readerZoom, isSpreadMode]
   );
 
   // Exact anchor restoration upon zoom commit (mirrors PdfReader)
   useLayoutEffect(() => {
+    if (isSpreadMode) return;
     if (previousReaderZoomRef.current === readerZoom) return;
+    const prevZoom = previousReaderZoomRef.current;
+    const wasZoomingOut = readerZoom < prevZoom;
     previousReaderZoomRef.current = readerZoom;
 
-    const pageStack = pageStackRef.current;
+    const viewport = viewportRef.current;
+    const pageStack = pageStackRef.current ?? viewport?.querySelector<HTMLElement>('[class*="Stack"]');
     if (pageStack) {
       pageStack.style.transform = '';
       pageStack.style.transformOrigin = '';
     }
     previewTransformRef.current = null;
 
-    const viewport = viewportRef.current;
+    if (!viewport) return;
+
     const activeAnchor = zoomAnchor ?? lastZoomAnchorRef.current;
     lastZoomAnchorRef.current = undefined;
-    if (!viewport || !activeAnchor) return;
 
-    const page = activeAnchor.pageNumber
-      ? pageStackRef.current?.querySelector<HTMLElement>(
+    const targetViewportX = wasZoomingOut
+      ? viewport.clientWidth / 2
+      : (activeAnchor?.viewportX ?? viewport.clientWidth / 2);
+    const targetViewportY = wasZoomingOut
+      ? viewport.clientHeight / 2
+      : (activeAnchor?.viewportY ?? viewport.clientHeight / 2);
+
+    const page = activeAnchor?.pageNumber
+      ? pageStack?.querySelector<HTMLElement>(
           `[data-cbz-page="${activeAnchor.pageNumber}"], [data-comic-page="${activeAnchor.pageNumber}"]`
         )
       : null;
+    const pageRect = page?.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    const hasRenderedPage = Boolean(page && pageRect && (pageRect.height > 0 || pageRect.width > 0));
 
-    if (page) {
-      const viewportRect = viewport.getBoundingClientRect();
-      const pageRect = page.getBoundingClientRect();
-      const left =
-        viewport.scrollLeft +
-        pageRect.left -
-        viewportRect.left +
-        pageRect.width * (activeAnchor.pageX ?? 0.5) -
-        activeAnchor.viewportX;
-      const top =
-        viewport.scrollTop +
-        pageRect.top -
-        viewportRect.top +
-        pageRect.height * (activeAnchor.pageY ?? 0.5) -
-        activeAnchor.viewportY;
-      viewport.scrollTo({ left: Math.max(0, left), top: Math.max(0, top), behavior: 'auto' });
+    if (hasRenderedPage && page && pageRect) {
+      const anchorPageX = activeAnchor?.pageX ?? 0.5;
+      const anchorPageY = activeAnchor?.pageY ?? 0.5;
+
+      const currentAnchorViewportX = pageRect.left - viewportRect.left + pageRect.width * anchorPageX;
+      const currentAnchorViewportY = pageRect.top - viewportRect.top + pageRect.height * anchorPageY;
+
+      const deltaX = currentAnchorViewportX - targetViewportX;
+      const deltaY = currentAnchorViewportY - targetViewportY;
+
+      const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const nextScrollLeft = wasZoomingOut && readerZoom <= 1.0 && !isHorizontal
+        ? Math.round(maxScrollLeft / 2)
+        : Math.max(0, Math.min(maxScrollLeft, Math.round(viewport.scrollLeft + deltaX)));
+      const nextScrollTop = wasZoomingOut && readerZoom <= 1.0 && isHorizontal
+        ? Math.round(maxScrollTop / 2)
+        : Math.max(0, Math.min(maxScrollTop, Math.round(viewport.scrollTop + deltaY)));
+
+      viewport.scrollTo?.({
+        left: nextScrollLeft,
+        top: nextScrollTop,
+        behavior: 'auto',
+      });
       return;
     }
 
-    viewport.scrollTo({
-      left: Math.max(0, activeAnchor.scrollRatioX * viewport.scrollWidth - activeAnchor.viewportX),
-      top: Math.max(0, activeAnchor.scrollRatioY * viewport.scrollHeight - activeAnchor.viewportY),
+    if (readerZoom <= 1.0) {
+      const maxScrollX = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      const maxScrollY = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      viewport.scrollTo?.({
+        left: isHorizontal ? viewport.scrollLeft : Math.round(maxScrollX / 2),
+        top: isHorizontal ? Math.round(maxScrollY / 2) : viewport.scrollTop,
+        behavior: 'auto',
+      });
+      return;
+    }
+
+    const zoomRatio = prevZoom > 0 ? readerZoom / prevZoom : 1;
+    const docX = viewport.scrollLeft + targetViewportX;
+    const docY = viewport.scrollTop + targetViewportY;
+
+    if (isHorizontal) {
+      const nextScrollLeft = Math.max(0, Math.round(docX * zoomRatio - targetViewportX));
+      viewport.scrollTo?.({ left: nextScrollLeft, behavior: 'auto' });
+      return;
+    }
+
+    // Vertical continuous scroll
+    const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+    const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    const nextScrollTop = Math.max(0, Math.min(maxScrollTop, Math.round(docY * zoomRatio - targetViewportY)));
+    const nextScrollLeft = wasZoomingOut && readerZoom <= 1.0
+      ? Math.round(maxScrollLeft / 2)
+      : Math.max(0, Math.min(maxScrollLeft, Math.round(docX * zoomRatio - targetViewportX)));
+
+    viewport.scrollTo?.({
+      left: nextScrollLeft,
+      top: nextScrollTop,
       behavior: 'auto',
     });
-  }, [readerZoom, zoomAnchor]);
+  }, [readerZoom, zoomAnchor, isHorizontal, isSpreadMode]);
 
   // Reset scroll to top-left when flipping pages in paginated mode
   useEffect(() => {
-    if (isContinuous) return;
+    if (isContinuous || isHorizontal) return;
     const frame = requestAnimationFrame(() => {
-      viewportRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      viewportRef.current?.scrollTo?.({ top: 0, left: 0, behavior: 'auto' });
     });
     return () => cancelAnimationFrame(frame);
-  }, [currentPage, isContinuous]);
+  }, [currentPage, isContinuous, isHorizontal]);
+
+  // Report progress synchronously on page change in paginated mode
+  useEffect(() => {
+    if (!isPaginated) return;
+    const fraction = totalPages > 1 ? (currentPage - 1) / (totalPages - 1) : 0;
+    onProgressUpdateRef.current(String(currentPage), Math.min(1, Math.max(0, fraction)), currentPage - 1);
+  }, [currentPage, isPaginated, totalPages]);
+
+  // Native wheel listener for Ctrl+Wheel zooming and horizontal scrolling
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (onZoomGesture) {
+          e.preventDefault();
+          e.stopPropagation();
+          const isZoomingIn = e.deltaY < 0;
+          const viewportRect = viewport.getBoundingClientRect();
+          const point = isZoomingIn
+            ? { x: e.clientX, y: e.clientY }
+            : {
+                x: viewportRect.left + viewportRect.width / 2,
+                y: viewportRect.top + viewportRect.height / 2,
+              };
+          onZoomGesture(e.deltaY, point);
+        }
+        return;
+      } else if (isHorizontal && !e.shiftKey && Math.abs(e.deltaY) > 0) {
+        e.preventDefault();
+        viewport.scrollLeft += e.deltaY * (readingDirection === 'rtl' ? -1 : 1);
+      }
+    };
+
+    viewport.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', handleNativeWheel);
+  }, [isHorizontal, onZoomGesture, readingDirection]);
 
   // Imperative handle for parent control
   useImperativeHandle(
@@ -627,7 +785,32 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   const reportScrollPosition = useCallback(() => {
     const viewport = viewportRef.current;
     const stack = pageStackRef.current;
-    if (!viewport || !stack || totalPages < 1 || !isContinuous) return;
+    if (!viewport || !stack || totalPages < 1) return;
+
+    if (isHorizontal) {
+      const rtl = readingDirection === 'rtl';
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportLeft = viewportRect.left + 24;
+      const shells = Array.from(stack.querySelectorAll<HTMLElement>('[data-cbz-page], [data-comic-page]'));
+      if (rtl) shells.reverse();
+      let visiblePage = currentPage;
+      for (const shell of shells) {
+        if (rtl ? shell.getBoundingClientRect().left < viewportRect.right - 24 : shell.getBoundingClientRect().right > viewportLeft) {
+          visiblePage = Number(shell.dataset.cbzPage || shell.dataset.comicPage) || visiblePage;
+          break;
+        }
+      }
+
+      const maxScroll = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      const scrollFraction = maxScroll > 0 ? viewport.scrollLeft / maxScroll : 0;
+      const fraction = maxScroll > 0 && rtl ? 1 - scrollFraction : scrollFraction;
+
+      setCurrentPage((prev) => (prev === visiblePage ? prev : visiblePage));
+      onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
+      return;
+    }
+
+    if (!isContinuous) return;
 
     const viewportTop = viewport.getBoundingClientRect().top + 24;
     const shells = Array.from(
@@ -650,47 +833,111 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
 
     setCurrentPage((prev) => (prev === visiblePage ? prev : visiblePage));
     onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
-  }, [currentPage, isContinuous, totalPages]);
+  }, [currentPage, isContinuous, isHorizontal, totalPages, readingDirection]);
 
   const handleScroll = useCallback(() => {
-    if (previewTransformRef.current !== null || !isContinuous) return;
+    if (previewTransformRef.current !== null || (!isContinuous && !isHorizontal)) return;
     if (scrollFrameRef.current !== null) return;
     scrollFrameRef.current = requestAnimationFrame(() => {
       scrollFrameRef.current = null;
       if (previewTransformRef.current !== null) return;
       reportScrollPosition();
     });
-  }, [isContinuous, reportScrollPosition]);
+  }, [isContinuous, isHorizontal, reportScrollPosition]);
 
   // Paginated navigation helpers
   const handlePrevPage = useCallback(() => {
-    if (isSpreadMode) {
-      const step = 2;
-      const next = Math.max(1, currentPage - step);
-      goToPage(next, 'auto');
-    } else {
-      if (currentPage > 1) {
-        goToPage(currentPage - 1, 'auto');
-      }
+    if (currentPage > 1) {
+      goToPage(currentPage - 1, 'auto');
     }
-  }, [isSpreadMode, currentPage, goToPage]);
+  }, [currentPage, goToPage]);
 
   const handleNextPage = useCallback(() => {
-    if (isSpreadMode) {
-      const step = 2;
-      const next = Math.min(totalPages, currentPage + step);
-      goToPage(next, 'auto');
-    } else {
-      if (currentPage < totalPages) {
-        goToPage(currentPage + 1, 'auto');
-      }
+    if (currentPage < totalPages) {
+      goToPage(currentPage + 1, 'auto');
     }
-  }, [isSpreadMode, currentPage, totalPages, goToPage]);
+  }, [currentPage, totalPages, goToPage]);
+
+  // Pointer drag and pan handling
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const canPan = readerZoom > 1 || isSpaceDownRef.current || e.button === 1;
+      if (!canPan && e.button !== 0) return;
+
+      isMouseDownRef.current = true;
+      hasDraggedRef.current = false;
+      const viewport = viewportRef.current;
+      dragStartRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        scrollLeft: viewport?.scrollLeft ?? 0,
+        scrollTop: viewport?.scrollTop ?? 0,
+      };
+    },
+    [readerZoom]
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isMouseDownRef.current) return;
+      if (e.buttons === 0) {
+        isMouseDownRef.current = false;
+        setIsPanning(false);
+        return;
+      }
+
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      const canPan = readerZoom > 1 || isSpaceDownRef.current || (e.buttons & 4) !== 0;
+
+      if (!hasDraggedRef.current && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        hasDraggedRef.current = true;
+        if (isSpaceDownRef.current) {
+          spaceDraggedRef.current = true;
+        }
+        if (canPan) {
+          setIsPanning(true);
+          try {
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          } catch {}
+        }
+      }
+
+      if (hasDraggedRef.current && canPan) {
+        const viewport = viewportRef.current;
+        if (viewport) {
+          viewport.scrollLeft = dragStartRef.current.scrollLeft - dx;
+          viewport.scrollTop = dragStartRef.current.scrollTop - dy;
+        }
+      }
+    },
+    [readerZoom]
+  );
+
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isMouseDownRef.current) return;
+    isMouseDownRef.current = false;
+    setIsPanning(false);
+
+    try {
+      if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      }
+    } catch {}
+
+    if (hasDraggedRef.current) {
+      setTimeout(() => {
+        hasDraggedRef.current = false;
+      }, 100);
+    }
+  }, []);
 
   // Click zone handling (left 25% = prev, right 25% = next, center 50% = toggle controls)
   const handleClick = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
-      if (isContinuous) {
+      if (hasDraggedRef.current) return;
+
+      if (isContinuous || isHorizontal) {
         if (e.target === viewportRef.current || e.target === pageStackRef.current) {
           onToggleControls?.();
         }
@@ -701,19 +948,15 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       if (!rect) return;
       const x = e.clientX - rect.left;
       const ratio = x / rect.width;
-      const isRtl = readingDirection === 'rtl';
-
       if (ratio < 0.25) {
-        if (isRtl) handleNextPage();
-        else handlePrevPage();
+        handlePrevPage();
       } else if (ratio > 0.75) {
-        if (isRtl) handlePrevPage();
-        else handleNextPage();
+        handleNextPage();
       } else {
         onToggleControls?.();
       }
     },
-    [isContinuous, readingDirection, handlePrevPage, handleNextPage, onToggleControls]
+    [isContinuous, isHorizontal, handlePrevPage, handleNextPage, onToggleControls]
   );
 
   // Keyboard navigation
@@ -721,96 +964,188 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
     (e: KeyboardEvent<HTMLDivElement>) => {
       const viewport = viewportRef.current;
       if (!viewport) return;
-      const isRtl = readingDirection === 'rtl';
+
+      if (e.key === ' ' || e.code === 'Space') {
+        const activeElement = document.activeElement;
+        const isInput =
+          activeElement instanceof HTMLInputElement ||
+          activeElement instanceof HTMLTextAreaElement ||
+          activeElement?.getAttribute('contenteditable') === 'true';
+        if (!isInput) {
+          e.preventDefault();
+          if (!isSpaceDownRef.current) {
+            isSpaceDownRef.current = true;
+            spaceDraggedRef.current = false;
+            setIsSpaceDown(true);
+          }
+          return;
+        }
+      }
+
+      if (isHorizontal) {
+        if (e.key === (readingDirection === 'rtl' ? 'ArrowLeft' : 'ArrowRight') || e.key === 'PageDown') {
+          e.preventDefault();
+          handleNextPage();
+        } else if (e.key === (readingDirection === 'rtl' ? 'ArrowRight' : 'ArrowLeft') || e.key === 'PageUp') {
+          e.preventDefault();
+          handlePrevPage();
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          goToPage(1, 'smooth');
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          goToPage(totalPages, 'smooth');
+        }
+        return;
+      }
 
       if (isContinuous) {
-        if (e.key === 'PageDown' || e.key === 'ArrowDown' || e.key === ' ') {
+        if (e.key === 'PageDown' || e.key === 'ArrowDown') {
           e.preventDefault();
-          viewport.scrollBy({ top: Math.max(160, viewport.clientHeight * 0.88), behavior: 'smooth' });
+          viewport.scrollBy?.({ top: Math.max(160, viewport.clientHeight * 0.88), behavior: 'smooth' });
         } else if (e.key === 'PageUp' || e.key === 'ArrowUp') {
           e.preventDefault();
-          viewport.scrollBy({ top: -Math.max(160, viewport.clientHeight * 0.88), behavior: 'smooth' });
+          viewport.scrollBy?.({ top: -Math.max(160, viewport.clientHeight * 0.88), behavior: 'smooth' });
         } else if (e.key === 'Home') {
           e.preventDefault();
-          viewport.scrollTo({ top: 0, behavior: 'smooth' });
+          viewport.scrollTo?.({ top: 0, behavior: 'smooth' });
         } else if (e.key === 'End') {
           e.preventDefault();
-          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+          viewport.scrollTo?.({ top: viewport.scrollHeight, behavior: 'smooth' });
         }
-      } else {
-        if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
-          e.preventDefault();
-          if (isRtl) handlePrevPage();
-          else handleNextPage();
-        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
-          e.preventDefault();
-          if (isRtl) handleNextPage();
-          else handlePrevPage();
-        } else if (e.key === 'Home') {
-          e.preventDefault();
-          goToPage(1, 'auto');
-        } else if (e.key === 'End') {
-          e.preventDefault();
-          goToPage(totalPages, 'auto');
+        return;
+      }
+
+      // Paginated
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+        e.preventDefault();
+        handleNextPage();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        handlePrevPage();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        goToPage(1, 'auto');
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        goToPage(totalPages, 'auto');
+      }
+    },
+    [isContinuous, isHorizontal, handlePrevPage, handleNextPage, goToPage, totalPages, readingDirection]
+  );
+
+  const handleKeyUp = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === ' ' || e.code === 'Space') {
+        const wasDown = isSpaceDownRef.current;
+        const hadDragged = spaceDraggedRef.current;
+        isSpaceDownRef.current = false;
+        spaceDraggedRef.current = false;
+        setIsSpaceDown(false);
+
+        if (wasDown && !hadDragged) {
+          const viewport = viewportRef.current;
+          if (!viewport) return;
+          if (isContinuous) {
+            viewport.scrollBy?.({ top: Math.max(160, viewport.clientHeight * 0.88), behavior: 'smooth' });
+          } else {
+            handleNextPage();
+          }
         }
       }
     },
-    [isContinuous, readingDirection, handlePrevPage, handleNextPage, goToPage, totalPages]
+    [isContinuous, handlePrevPage, handleNextPage]
   );
 
-  if (loading) {
+  // Delegate double-sided spread mode to ComicDoubleSidedReader
+  if (isSpreadMode && totalPages > 0) {
     return (
-      <div className={styles.loadingOverlay}>
-        <div className={styles.spinner} />
-        <p>Opening comic archive…</p>
-      </div>
+      <ComicDoubleSidedReader
+        ref={doubleSidedRef}
+        totalPages={totalPages}
+        initialPage={currentPage}
+        readingDirection={readingDirection}
+        loadUrl={loadPageBlobUrl}
+        pageSizes={pageSizes}
+        onProgressUpdate={(chapterId, fraction, pageIndex) => {
+          setCurrentPage(pageIndex + 1);
+          onProgressUpdateRef.current(chapterId, fraction, pageIndex);
+        }}
+        onToggleControls={onToggleControls}
+        readerZoom={readerZoom}
+        zoomAnchor={zoomAnchor}
+        onZoomGesture={onZoomGesture}
+        invertColors={invertColors}
+      />
     );
   }
 
-  if (error) {
-    return (
-      <div className={styles.errorOverlay}>
-        <AlertCircle size={36} color="var(--color-danger)" />
-        <p className={styles.errorText}>{error}</p>
-      </div>
-    );
-  }
-
-  // Calculate pages to display in Spread Mode
-  let spreadLeft: number | null = null;
-  let spreadRight: number | null = null;
-  if (isSpreadMode && currentPage > 1) {
-    const firstIdx = currentPage % 2 === 0 ? currentPage - 1 : currentPage - 2;
-    const secondIdx = firstIdx + 1 < totalPages ? firstIdx + 1 : null;
-    spreadLeft = readingDirection === 'rtl' ? (secondIdx !== null ? secondIdx + 1 : null) : firstIdx + 1;
-    spreadRight = readingDirection === 'rtl' ? firstIdx + 1 : (secondIdx !== null ? secondIdx + 1 : null);
-  }
+  const stackClassName = isHorizontal
+    ? styles.horizontalStack
+    : isPaginated
+      ? styles.paginatedStack
+      : styles.pageStack;
 
   return (
     <div
       ref={containerRef}
-      className={styles.container}
+      className={`${styles.container} ${invertColors ? styles.containerInverted : ''} ${readerZoom > 1 ? styles.isZoomed : ''} ${isPanning ? styles.isPanning : ''} ${isSpaceDown ? styles.isHandTool : ''}`}
       tabIndex={0}
       onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
       autoFocus
+      role="region"
+      aria-label="Comic Document Viewer"
     >
       <div
         ref={viewportRef}
         className={styles.viewport}
-        data-reader-viewport={isContinuous ? 'cbz-vertical-scroll' : 'cbz-page'}
-        data-comic-viewport={isContinuous ? 'vertical-scroll' : 'page'}
+        data-reader-viewport={
+          isHorizontal
+            ? 'comic-horizontal-scroll'
+            : isPaginated
+              ? 'cbz-page'
+              : 'cbz-vertical-scroll'
+        }
+        data-comic-viewport={
+          isHorizontal
+            ? 'horizontal-scroll'
+            : isPaginated
+              ? 'page'
+              : 'vertical-scroll'
+        }
         data-current-page={currentPage}
         onScroll={handleScroll}
         onClick={handleClick}
       >
-        <div
-          ref={pageStackRef}
-          className={styles.pageStack}
-          style={{ gap: `${pageGap}px` }}
-        >
-          {isContinuous ? (
-            /* 1. Continuous Webtoon Scroll */
-            Array.from({ length: totalPages }, (_, idx) => (
+        {loading && (
+          <div className={styles.loadingOverlay}>
+            <div className={styles.spinner} />
+            <p>Opening comic archive…</p>
+          </div>
+        )}
+
+        {error && (
+          <div className={styles.errorOverlay}>
+            <AlertCircle size={36} color="var(--color-danger)" />
+            <p className={styles.errorText}>{error}</p>
+          </div>
+        )}
+
+        {!loading && !error && (
+          <div
+            ref={pageStackRef}
+            className={stackClassName}
+            style={{ gap: `${pageGap}px` }}
+          >
+          {isContinuous || isHorizontal ? (
+            /* Continuous Vertical (Webtoon) or Horizontal Ribbon Scroll */
+            Array.from({ length: totalPages }, (_, position) => {
+              const idx = isHorizontal && readingDirection === 'rtl' ? totalPages - position - 1 : position;
+              return (
               <ComicPageView
                 key={idx + 1}
                 pageNumber={idx + 1}
@@ -823,49 +1158,14 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
                 fallbackAspectRatio={commonAspectRatio}
                 layoutVersion={layoutVersion}
                 initiallyVisible={Math.abs(idx + 1 - currentPage) <= 1}
+                isHorizontal={isHorizontal}
+                invertColors={invertColors}
                 onPageSize={setPageSize}
               />
-            ))
-          ) : isSpreadMode && currentPage > 1 ? (
-            /* 2. Double-Page Spread Mode */
-            <div className={styles.spreadRow} style={{ gap: `${pageGap}px` }}>
-              {spreadLeft !== null && (
-                <ComicPageView
-                  key={spreadLeft}
-                  pageNumber={spreadLeft}
-                  total={totalPages}
-                  loadUrl={loadPageBlobUrl}
-                  viewportRef={viewportRef}
-                  pageSize={pageSizes[spreadLeft]}
-                  readerZoom={readerZoom}
-                  fitMode={fitMode}
-                  fallbackAspectRatio={commonAspectRatio}
-                  layoutVersion={layoutVersion}
-                  initiallyVisible={true}
-                  isSpread={true}
-                  onPageSize={setPageSize}
-                />
-              )}
-              {spreadRight !== null && (
-                <ComicPageView
-                  key={spreadRight}
-                  pageNumber={spreadRight}
-                  total={totalPages}
-                  loadUrl={loadPageBlobUrl}
-                  viewportRef={viewportRef}
-                  pageSize={pageSizes[spreadRight]}
-                  readerZoom={readerZoom}
-                  fitMode={fitMode}
-                  fallbackAspectRatio={commonAspectRatio}
-                  layoutVersion={layoutVersion}
-                  initiallyVisible={true}
-                  isSpread={true}
-                  onPageSize={setPageSize}
-                />
-              )}
-            </div>
+              );
+            })
           ) : (
-            /* 3. Single-Page Paginated Mode */
+            /* Single-Page Paginated Mode */
             <ComicPageView
               key={currentPage}
               pageNumber={currentPage}
@@ -878,10 +1178,12 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
               fallbackAspectRatio={commonAspectRatio}
               layoutVersion={layoutVersion}
               initiallyVisible={true}
+              invertColors={invertColors}
               onPageSize={setPageSize}
             />
           )}
         </div>
+        )}
       </div>
     </div>
   );

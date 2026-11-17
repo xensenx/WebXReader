@@ -12,8 +12,6 @@ import {
   BookOpen,
   Pilcrow,
   RotateCcw,
-  ArrowRight,
-  ArrowLeft,
   Maximize2,
   Minimize2,
   MoveVertical,
@@ -84,7 +82,6 @@ export function ReaderSettings({
   const panelRef = useRef<HTMLDivElement>(null);
   const isFixed = fixedLayout || isFixedLayout(format);
   const canDoubleSided = doubleSidedSupported && (format ? formatSupportsFeature(format, 'doubleSided') : true);
-  const canReadingDirection = formatSupportsFeature(format, 'readingDirection');
   const canFitMode = formatSupportsFeature(format, 'fitMode');
   const canPageGap = formatSupportsFeature(format, 'pageGap');
   const canTypography = !isFixed && (format ? formatSupportsFeature(format, 'customTypography') : true);
@@ -159,8 +156,8 @@ export function ReaderSettings({
               </button>
             </div>
           </div>
-          {/* Page Canvas / Sheet Background or Color Inversion for PDF */}
-          {format === 'pdf' ? (
+          {/* Page Canvas / Sheet Background or Color Inversion for PDF and Comic formats */}
+          {format === 'pdf' || format === 'cbz' || format === 'cbr' || format === 'cb7' ? (
             <div className={styles.section}>
               <div className={styles.toggleRow}>
                 <div className={styles.toggleInfo}>
@@ -306,41 +303,16 @@ export function ReaderSettings({
                   title={!canDoubleSided ? 'Double-sided spreads are unavailable for this format.' : undefined}
                   type="button"
                 >
-                  {format === 'epub' || format === 'pdf' ? <BookOpen size={18} /> : <Pilcrow size={18} />}
+                  {format === 'epub' || format === 'pdf' || format === 'cbz' || format === 'cbr' || format === 'cb7' ? (
+                    <BookOpen size={18} />
+                  ) : (
+                    <Pilcrow size={18} />
+                  )}
                   <span>Double Sided</span>
                 </button>
               </div>
             )}
           </div>
-
-          {/* Comic Reading Direction */}
-          {canReadingDirection && (
-            <div className={styles.section}>
-              <span className={styles.sectionTitle}>Reading Direction</span>
-              <div className={styles.modeRow} aria-label="Comic reading direction">
-                <button
-                  className={`${styles.modeBtn} ${
-                    settings.comicReadingDirection !== 'rtl' ? styles.modeBtnActive : ''
-                  }`}
-                  onClick={() => onUpdate({ comicReadingDirection: 'ltr' })}
-                  type="button"
-                >
-                  <ArrowRight size={18} />
-                  <span>LTR (Western)</span>
-                </button>
-                <button
-                  className={`${styles.modeBtn} ${
-                    settings.comicReadingDirection === 'rtl' ? styles.modeBtnActive : ''
-                  }`}
-                  onClick={() => onUpdate({ comicReadingDirection: 'rtl' })}
-                  type="button"
-                >
-                  <ArrowLeft size={18} />
-                  <span>RTL (Manga)</span>
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Comic Page Fit Mode */}
           {canFitMode && (

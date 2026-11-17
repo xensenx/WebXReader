@@ -179,15 +179,13 @@ export function useReaderZoom({
   const updateZoom = useCallback((nextZoom: number, fixedLayout: boolean, anchor?: ReaderZoomAnchor) => {
     if (Math.abs(nextZoom - readerZoomRef.current) < 1e-7) return;
     readerZoomRef.current = nextZoom;
-    if (!fixedLayout || sourceFormat === 'pdf') {
+    if (!fixedLayout) {
       if (anchor) {
         pdfZoomAnchorRef.current = anchor;
         setZoomAnchor(anchor);
       }
       if (sourceFormat === 'epub') {
         previewRefs?.epubReaderRef?.current?.previewZoom(nextZoom, anchor ?? captureZoomAnchor());
-      } else if (sourceFormat === 'pdf') {
-        previewRefs?.pdfReaderRef?.current?.previewZoom(nextZoom, anchor ?? captureZoomAnchor());
       }
       setReaderZoom(nextZoom);
       if (zoomLabelRef.current) {
@@ -283,31 +281,22 @@ export function useReaderZoom({
   }, [captureZoomAnchor, previewRefs, sourceFormat]);
 
   const queueWheelZoom = useCallback((deltaY: number, point?: { x: number; y: number }) => {
-    const isBufferedFormat = sourceFormat !== 'pdf' && isFixedLayout(sourceFormat);
     wheelZoomDeltaRef.current += deltaY;
     if (point) wheelZoomPointRef.current = point;
     if (wheelZoomFrameRef.current !== null) return;
 
-    const applyPendingZoom = () => {
-      const elapsed = performance.now() - lastWheelZoomAtRef.current;
-      if (!isBufferedFormat && wheelZoomDeltaRef.current !== 0 && elapsed < 50) {
-        wheelZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
-        return;
-      }
-
+    wheelZoomFrameRef.current = requestAnimationFrame(() => {
       wheelZoomFrameRef.current = null;
       const delta = wheelZoomDeltaRef.current;
       const latestPoint = wheelZoomPointRef.current;
       wheelZoomDeltaRef.current = 0;
       wheelZoomPointRef.current = undefined;
       if (delta !== 0) {
-        if (!isBufferedFormat) lastWheelZoomAtRef.current = performance.now();
+        lastWheelZoomAtRef.current = performance.now();
         zoomBy(Math.exp(-delta * 0.0008), latestPoint);
       }
-    };
-
-    wheelZoomFrameRef.current = requestAnimationFrame(applyPendingZoom);
-  }, [sourceFormat, zoomBy]);
+    });
+  }, [zoomBy]);
 
   const queueTouchZoom = useCallback((zoom: number, point: { x: number; y: number }) => {
     const fixedLayout = isFixedLayout(sourceFormat);
