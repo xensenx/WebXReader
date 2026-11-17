@@ -10,13 +10,13 @@ Audit date: 2026-11-17. Scope: `src/`, `public/`, `index.html`, Vite and hosting
 
 The original audit found that two alternate EPUB views copied author CSS into the application's main DOM using `innerHTML`, allowing XML entity decoding to introduce a literal closing `</style>`. This issue has since been resolved as F01 (Phase 1) using `sanitizeBookCss` and DOM `textContent` assignment.
 
-<!-- /coderabbit-ai-generated:v1 --> Archive extraction and rendering also lack consistent pre-extraction budgets, allowing a small malicious file to exhaust memory or block the UI thread. A strict network policy is absent, so a book can request remote resources despite the local-first claim.
+<!-- /coderabbit-ai-generated:v1 --> Archive extraction and rendering still lack consistent pre-extraction budgets, allowing a small malicious file to exhaust memory or block the UI thread. Phase 1 reader filtering and Phase 2 response CSP now restrict book-initiated network loads; remote cover handling remains a separate F13 item.
 
 | Severity | Count | Findings | Status |
 | --- | ---: | --- | --- |
 | Critical | 1 | F01 | ✅ Resolved (Phase 1) |
 | High | 4 | F02–F05 | 🟡 F04 Resolved (Phase 1); F02, F03, F05 Pending |
-| Medium | 9 | F06–F13, F17 | ⏳ Pending (Phase 2 & Phase 3) |
+| Medium | 7 | F07–F13 | ⏳ Pending (Phase 3 & Phase 4) |
 | Low | 2 | F14–F15 | ✅ Resolved (Phase 1) |
 | Info / Bug | 1 | F16 | ℹ️ Verified Baseline |
 
@@ -28,9 +28,9 @@ The original audit found that two alternate EPUB views copied author CSS into th
   - ✅ **F14 (Low)**: Replaced unsafe regex fallback in `sanitizeReaderHtml` with a fail-closed return (`return ''`) when DOMPurify is unavailable.
   - ✅ **F15 (Low)**: Escaped angle brackets via `escapeHtml(...)` when wrapping text nodes in `html-parser.ts`, `markdown-parser.ts`, and `mht-parser.ts`.
   - ✅ **Automated Regression Tests**: Added unit and integration tests in `src/test/reader-content-security.test.tsx` verifying CSS sanitization, breakout prevention, network containment, and text escaping (all 340 test suite tests pass).
-- **Phase 2: Deployment Hardening & Offline Storage** (Upcoming):
-  - ⏳ **F06 (Medium)**: Content Security Policy (CSP) and uniform HTTP security headers across Netlify, Vercel, and Firebase.
-  - ⏳ **F17 (Medium)**: Service Worker same-origin cache restriction and byte limits.
+- **Phase 2: Deployment Hardening & Offline Storage** (Completed on branch `fix/phase2-security-hardening`):
+  - ✅ **F06 (Medium)**: Added a CSP and uniform HTTP security headers across Netlify, Vercel, and Firebase; disabled production source maps.
+  - ✅ **F17 (Medium)**: Restricted the Service Worker to same-origin shell assets, bounded each cached response to 5 MiB, capped the cache at 64 MiB and 200 entries, and scoped cache cleanup to WebXReader caches.
 - **Phase 3: Lifecycle Cleanup, Memory & Data Concurrency** (Upcoming):
   - ⏳ **F07 (Medium)**: Comic blob URL cache eviction and session revocation.
   - ⏳ **F08 (Medium)**: PDF.js import task destruction in `finally`.
@@ -124,10 +124,11 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F06 — CSP and common response security headers are absent on all hosts
 
+- **Status:** ✅ Implemented (Phase 2 — shared CSP and security headers on Netlify, Vercel, and Firebase; production source maps disabled)
 - **Severity:** Medium
 - **Category:** Deployment hardening
 - **Affected:** `netlify.toml:1-4`; `vercel.json:1-3`; `firebase.json:1-11`; `index.html:59-86,90-114`; `vite.config.ts:18-28`.
-- **Technical description:** None of the three hosting configs declares CSP, `X-Content-Type-Options`, `Referrer-Policy`, or `Permissions-Policy`. The inline service-worker bootstrap and JSON-LD script require CSP hashes or relocation. Vite emits source maps (`sourcemap: true`), potentially exposing readable application code on deployed hosts; this is not a secret leak by itself, but increases exploit research convenience. There is no iframe embedding policy. The epub.js iframe uses `sandbox="allow-same-origin"` with scripts disabled by default, which is a useful boundary, but a response CSP is still needed to constrain resources in both parent and content documents.
+- **Technical description:** At audit time, none of the three hosting configs declared CSP, `X-Content-Type-Options`, `Referrer-Policy`, or `Permissions-Policy`. The inline service-worker bootstrap and JSON-LD script require CSP hashes or relocation. Vite emitted source maps (`sourcemap: true`), potentially exposing readable application code on deployed hosts; this is not a secret leak by itself, but increases exploit research convenience. There was no iframe embedding policy. The epub.js iframe uses `sandbox="allow-same-origin"` with scripts disabled by default, which is a useful boundary, but a response CSP was needed to constrain resources in both parent and content documents.
 - **Real-world impact:** HTML/CSS injection paths have fewer browser-level barriers, third-party loads are unrestricted, and the site can be framed by other pages.
 - **Suggested fix:** Apply the CSP and header examples below consistently on each host. Begin with `Content-Security-Policy-Report-Only` in a staging environment, then enforce after checking EPUB, PDF Worker, WASM, and offline mode. Move inline bootstrap to an external file or pin exact hashes.
 
@@ -297,10 +298,11 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F17 — The service worker caches unbounded successful requests
 
+- **Status:** ✅ Implemented (Phase 2 — same-origin shell asset allowlist, bounded entries and cache totals, awaited cache writes, and namespaced cleanup)
 - **Severity:** Medium
 - **Category:** Offline cache / storage exhaustion
-- **Affected:** `public/sw.js:3-34,44-50,58-105`.
-- **Technical description:** The fetch handler caches every successful request outside a small source/CSS bypass, with no same-origin test, pathname allowlist, response-size check, or cache entry cap. Third-party CORS responses with status 200 can enter the cache. Large resources requested by book content or user-selected remote covers can therefore occupy Cache Storage indefinitely until the cache version changes. `cache.put` promises in the network branches are not included in `respondWith`/`waitUntil`, so quota failures may become unhandled rejections. Activation also deletes every cache under the origin whose name differs from `webxreader-shell-v5`, including unrelated caches.
+- **Affected:** `public/sw.js` (install, activate, and fetch handlers).
+- **Technical description:** Before Phase 2, the fetch handler cached successful requests outside a small source/CSS bypass, with no same-origin test, pathname allowlist, response-size check, or cache entry cap. Third-party CORS responses with status 200 could enter the cache. Large resources requested by book content or user-selected remote covers could therefore occupy Cache Storage indefinitely until the cache version changed. `cache.put` promises in the network branches were not included in `respondWith`/`waitUntil`, so quota failures could become unhandled rejections. Activation also deleted every cache under the origin whose name differed from `webxreader-shell-v5`, including unrelated caches.
 - **Real-world impact:** Offline storage can grow unexpectedly or evict IndexedDB data under browser quota pressure; cache writes may fail without useful feedback. Other same-origin apps' caches can be removed on activation.
 - **Suggested fix:** Cache only known same-origin application shell assets and hashed bundles, reject opaque/cross-origin and large responses, cap entries/bytes, await cache writes safely, and delete only cache names with the WebXReader prefix.
 
@@ -383,8 +385,8 @@ For stricter isolation, remove `allow-same-origin` from untrusted EPUB iframes a
 - [x] **Phase 1 — Stop F01:** remove raw EPUB author CSS from main-document `innerHTML`; assign via DOM `textContent`; sanitize against `</style>`, comments, and active markup; add unit and integration regression tests.
 - [x] **Phase 1 — Block book-initiated network traffic (F04 reader layer):** enforce local package-owned blob resolution; strip external network URLs on embedded media/images and in author CSS.
 - [x] **Phase 1 — Keep sanitizer contracts explicit (F14, F15):** fail closed if DOMPurify is unavailable, escape text during chapter splitting with `escapeHtml(...)`, and preserve reader-boundary sanitization.
-- [ ] **Phase 2 — Harden every host (F06):** add the common headers and CSP to Netlify, Vercel, and Firebase; recalculate CSP hashes whenever `index.html` changes.
-- [ ] **Phase 2 — Restrict service worker caching (F17):** restrict service-worker caching to same-origin app shell assets with size caps.
+- [x] **Phase 2 — Harden every host (F06):** add the common headers and CSP to Netlify, Vercel, and Firebase; recalculate CSP hashes whenever `index.html` changes.
+- [x] **Phase 2 — Restrict service worker caching (F17):** restrict service-worker caching to same-origin app shell assets with size caps.
 - [ ] **Phase 3 — Fix lifecycle and races (F07, F08, F11, F13):** destroy import-time PDF.js tasks in `finally`, revoke/evict comic URLs on book changes, serialize progress updates with deletion and metadata edits, and cap remote cover streaming.
 - [ ] **Phase 4 — Contain archive expansion (F02, F03, F10):** enforce pre-extraction and actual-output limits in 7-Zip and all ZIP-family formats, run heavy parsing off the main thread, and make cancellation/exit errors explicit.
 - [ ] **Phase 4 — Upgrade EPUB.js / xmldom (F05):** test the 0.4.2 migration across all three EPUB engines and pin the fixed parser (or configure npm override).
