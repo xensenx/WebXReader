@@ -1,4 +1,9 @@
 import DOMPurify from 'dompurify';
+import { ident, string, tokenize, tokenTypes, url } from 'css-tree';
+
+// Match the URL parser's removal of embedded ASCII tab/newline characters.
+export const normalizeReaderUrl = (value: string): string =>
+  value.replace(/[\t\n\r]/g, '').trim().replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '');
 
 export interface SanitizeReaderHtmlOptions {
   allowImages?: boolean;
@@ -24,7 +29,7 @@ function getPurifyInstance(): any {
           (tag === 'img' || tag === 'image') &&
           (attr === 'src' || attr === 'href' || attr === 'xlink:href' || attr === 'data-src')
         ) {
-          const val = (data.attrValue || '').trim();
+          const val = normalizeReaderUrl(data.attrValue || '');
           if (/^(?:https?:|\/\/)/i.test(val)) {
             data.keepAttr = false;
           }
@@ -143,12 +148,41 @@ export function sanitizeBookCss(cssText: unknown): string {
   // 2. Strip all @import rules (external stylesheet loading).
   css = css.replace(/@import\s+[^;{}]+;?/gi, '/* import-rule removed */');
 
-  // 3. Strip url() values pointing to external http(s) or protocol-relative resources.
-  //    Keep data:, blob:, and fragment-only references intact.
-  css = css.replace(
-    /url\(\s*(['"]?)\s*(?:https?:|\/\/)[^)]*\1\s*\)/gi,
-    '/* url removed */',
-  );
+  // 3. Inspect CSS tokens so escaped names and resource values are decoded.
+  // Apply edits backwards to preserve the spelling of all safe CSS.
+  const edits: { start: number; end: number; value: string }[] = [];
+  const functions: { name: string; start: number; contentStart: number }[] = [];
+  const isExternal = (value: string) => /^(?:https?:|\/\/)/i.test(normalizeReaderUrl(value));
+  tokenize(css, (type, start, end) => {
+    const token = css.slice(start, end);
+    const parent = functions.at(-1);
+    if (type === tokenTypes.Url) {
+      if (isExternal(url.decode(token))) edits.push({ start, end, value: '/* url removed */' });
+    } else if (type === tokenTypes.Function || type === tokenTypes.LeftParenthesis) {
+      functions.push({
+        name: type === tokenTypes.Function ? ident.decode(token.slice(0, -1)).toLowerCase() : '',
+        start,
+        contentStart: end,
+      });
+    } else if (type === tokenTypes.RightParenthesis) {
+      const fn = functions.pop();
+      if (fn?.name === 'url') {
+        const content = css.slice(fn.contentStart, start).trim();
+        const decoded = content.startsWith('"') || content.startsWith("'")
+          ? string.decode(content)
+          : url.decode(`url(${content})`);
+        if (isExternal(decoded)) edits.push({ start: fn.start, end, value: '/* url removed */' });
+      }
+    } else if (type === tokenTypes.String && parent &&
+      /^(?:image|(?:-webkit-)?image-set)$/.test(parent.name) && isExternal(string.decode(token))) {
+      // A bare identifier is not an image source: invalidate the declaration,
+      // keeping image()/image-set() in place rather than exposing its strings.
+      edits.push({ start, end, value: 'invalid-external-image' });
+    }
+  });
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    css = css.slice(0, edit.start) + edit.value + css.slice(edit.end);
+  }
 
   // 4. Remove expression() (legacy IE).
   css = css.replace(/expression\s*\(/gi, '/* expression removed */(');

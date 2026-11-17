@@ -4,7 +4,13 @@ Audit date: 2026-11-17. Scope: `src/`, `public/`, `index.html`, Vite and hosting
 
 ## Executive summary
 
-**Overall posture: elevated risk for untrusted EPUBs and large archives.** The regular HTML, Markdown, DOCX, FB2, MOBI, AZW3, RTF, DOC, and stored-chapter reading paths use a shared DOMPurify boundary. The standard epub.js rendition uses an iframe with scripts disabled. Those are meaningful protections. Two alternate EPUB views, however, copy author CSS from an EPUB document into the application's main DOM using `innerHTML`; XML entity decoding can turn escaped markup into a literal closing `</style>` at this point. Archive extraction and rendering also lack consistent pre-extraction budgets, allowing a small malicious file to exhaust memory or block the UI thread. A strict network policy is absent, so a book can request remote resources despite the local-first claim.
+**Overall posture: elevated risk for untrusted EPUBs and large archives.** The regular HTML, Markdown, DOCX, FB2, MOBI, AZW3, RTF, DOC, and stored-chapter reading paths use a shared DOMPurify boundary. The standard epub.js rendition uses an iframe with scripts disabled. Those are meaningful protections. <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:763cf26488b67fb312a1290eca599d640799f3a7b6c7f18815977e11a67449ae -->
+
+The original audit found that two alternate EPUB views copied author CSS into the application's main DOM using `innerHTML`, allowing XML entity decoding to introduce a literal closing `</style>`. This issue has since been resolved as F01 (Phase 1) using `sanitizeBookCss` and DOM `textContent` assignment.
+
+<!-- /coderabbit-ai-generated:v1 --> Archive extraction and rendering also lack consistent pre-extraction budgets, allowing a small malicious file to exhaust memory or block the UI thread. A strict network policy is absent, so a book can request remote resources despite the local-first claim.
 
 | Severity | Count | Findings | Status |
 | --- | ---: | --- | --- |

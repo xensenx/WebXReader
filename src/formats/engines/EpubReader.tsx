@@ -2,6 +2,7 @@
  * EPUB Reader component powered by epub.js.
  */
 
+import { normalizeReaderUrl } from '../../core/parsing/sanitize-reader-html';
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import type { CSSProperties } from 'react';
 import ePub from 'epubjs';
@@ -87,7 +88,7 @@ export interface EpubSearchSectionIndex {
 }
 
 export const isInlineOrNetworkUrl = (value: string) =>
-  /^(?:data:|blob:|https?:|file:|mailto:|javascript:)/i.test(value.trim());
+  /^(?:data:|blob:|https?:|file:|mailto:|javascript:)/i.test(normalizeReaderUrl(value));
 
 /**
  * Returns true when a URL points to an external network resource that an
@@ -95,7 +96,7 @@ export const isInlineOrNetworkUrl = (value: string) =>
  * `data:` and `blob:` URLs are considered safe inline resources.
  */
 export const isExternalNetworkUrl = (value: string): boolean =>
-  /^(?:https?:|\/\/)/i.test(value.trim());
+  /^(?:https?:|\/\/)/i.test(normalizeReaderUrl(value));
 
 export const withoutFragment = (value: string) => value.split('#')[0].split('?')[0];
 
@@ -390,7 +391,9 @@ const resolveSrcset = async (
   const value = element.getAttribute(attribute);
   if (!value) return;
 
-  const entries = value.split(',');
+  // A data URL can contain commas; consume its URL before the descriptors.
+  const entries = Array.from(value.matchAll(/(?:^|,)\s*((?:data:\S+|[^,\s]+)(?:\s+[^,]*)?)/gi),
+    (match) => match[1].replace(/,$/, ''));
   const resolvedEntries: string[] = [];
   for (const entry of entries) {
     const match = entry.trim().match(/^(\S+)(\s+.*)?$/);
@@ -402,7 +405,7 @@ const resolveSrcset = async (
     const resolved = await resolveEpubResource(book, match[1], contents);
     if (resolved) {
       resolvedEntries.push(`${resolved}${match[2] || ''}`);
-    } else if (!isInlineOrNetworkUrl(match[1])) {
+    } else if (/^(?:data:|blob:)/i.test(normalizeReaderUrl(match[1])) || !isInlineOrNetworkUrl(match[1])) {
       resolvedEntries.push(entry.trim());
     }
   }
