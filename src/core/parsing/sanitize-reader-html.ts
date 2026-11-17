@@ -138,7 +138,7 @@ export function sanitizeBookCss(cssText: unknown): string {
   // 1. Remove any sequence that could close a <style> element or HTML comments.
   css = css.replace(/<\s*\/?\s*style/gi, '/* removed */');
   css = css.replace(/<\s*\/?[a-zA-Z]/g, '/* removed */');
-  css = css.replace(/<!--/g, '/*').replace(/-->/g, '*/');
+  css = css.replace(/<!--/g, '/*').replace(/--\s*!?\s*>/g, '*/');
 
   // 2. Strip all @import rules (external stylesheet loading).
   css = css.replace(/@import\s+[^;{}]+;?/gi, '/* import-rule removed */');
