@@ -1,0 +1,27 @@
+name: Feature Request or UI/UX Idea
+description: Suggest a reader improvement, new language translation, or subtle UI/UX polish
+title: "[Feat]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem or workflow would this improve?
+      description: Describe the reading, library management, or localization experience you'd like to see improved.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Behavior
+      description: How should this work from a user's perspective?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Want to build this yourself?
+      options:
+        - label: I'd like to try implementing this and open a PR (AI-assisted / first-time contributors welcome!)
