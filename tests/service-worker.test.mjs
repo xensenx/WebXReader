@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { test } from 'node:test';
+import path from 'node:path';
 import vm from 'node:vm';
 
-const source = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
+const { test } = process.env.VITEST ? await import('vitest') : await import('node:test');
+
+const swPath = path.resolve(process.cwd(), 'public/sw.js');
+const source = readFileSync(swPath, 'utf8');
 const scope = 'https://reader.test/app/';
 const entryLimit = 5 * 1024 * 1024;
 const sizeHeader = 'X-WebXReader-Cache-Bytes';
