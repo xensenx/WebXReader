@@ -4,15 +4,42 @@ Audit date: 2026-11-17. Scope: `src/`, `public/`, `index.html`, Vite and hosting
 
 ## Executive summary
 
-**Overall posture: elevated risk for untrusted EPUBs and large archives.** The regular HTML, Markdown, DOCX, FB2, MOBI, AZW3, RTF, DOC, and stored-chapter reading paths use a shared DOMPurify boundary. The standard epub.js rendition uses an iframe with scripts disabled. Those are meaningful protections. Two alternate EPUB views, however, copy author CSS from an EPUB document into the application's main DOM using `innerHTML`; XML entity decoding can turn escaped markup into a literal closing `</style>` at this point. Archive extraction and rendering also lack consistent pre-extraction budgets, allowing a small malicious file to exhaust memory or block the UI thread. A strict network policy is absent, so a book can request remote resources despite the local-first claim.
+**Overall posture: elevated risk for untrusted EPUBs and large archives.** The regular HTML, Markdown, DOCX, FB2, MOBI, AZW3, RTF, DOC, and stored-chapter reading paths use a shared DOMPurify boundary. The standard epub.js rendition uses an iframe with scripts disabled. Those are meaningful protections. <!-- coderabbit-ai-generated:v1 -->
 
-| Severity | Count | Findings |
-| --- | ---: | --- |
-| Critical | 1 | F01 |
-| High | 4 | F02–F05 |
-| Medium | 9 | F06–F13, F17 |
-| Low | 2 | F14–F15 |
-| Info / Bug | 1 | F16 |
+<!-- coderabbit-ai-generated-section:v1:763cf26488b67fb312a1290eca599d640799f3a7b6c7f18815977e11a67449ae -->
+
+The original audit found that two alternate EPUB views copied author CSS into the application's main DOM using `innerHTML`, allowing XML entity decoding to introduce a literal closing `</style>`. This issue has since been resolved as F01 (Phase 1) using `sanitizeBookCss` and DOM `textContent` assignment.
+
+<!-- /coderabbit-ai-generated:v1 --> Archive extraction and rendering also lack consistent pre-extraction budgets, allowing a small malicious file to exhaust memory or block the UI thread. A strict network policy is absent, so a book can request remote resources despite the local-first claim.
+
+| Severity | Count | Findings | Status |
+| --- | ---: | --- | --- |
+| Critical | 1 | F01 | ✅ Resolved (Phase 1) |
+| High | 4 | F02–F05 | 🟡 F04 Resolved (Phase 1); F02, F03, F05 Pending |
+| Medium | 9 | F06–F13, F17 | ⏳ Pending (Phase 2 & Phase 3) |
+| Low | 2 | F14–F15 | ✅ Resolved (Phase 1) |
+| Info / Bug | 1 | F16 | ℹ️ Verified Baseline |
+
+## Remediation Roadmap & Phase Tracking
+
+- **Phase 1: Critical Code Execution, Network Containment & Parser Hardening** (Completed on branch `fix/phase1-security-hardening`):
+  - ✅ **F01 (Critical)**: Removed all raw EPUB author CSS interpolation from `innerHTML` in `EpubDoubleSidedReader.tsx` and `EpubHorizontalReader.tsx`. Implemented `sanitizeBookCss(...)` to eliminate `</style>` breakout, HTML comments, `@import`, legacy expressions, and external URLs. Styles are attached strictly via DOM `textContent`.
+  - ✅ **F04 (High - Reader layer)**: Restricted reader image resolution and DOMPurify policies to local `blob:` and `data:` resources. Stripped outbound external `http:`, `https:`, and `//` URLs on embedded media (`<img>`, `<image>`, `srcset`) in all EPUB reader engines while preserving external user navigation links.
+  - ✅ **F14 (Low)**: Replaced unsafe regex fallback in `sanitizeReaderHtml` with a fail-closed return (`return ''`) when DOMPurify is unavailable.
+  - ✅ **F15 (Low)**: Escaped angle brackets via `escapeHtml(...)` when wrapping text nodes in `html-parser.ts`, `markdown-parser.ts`, and `mht-parser.ts`.
+  - ✅ **Automated Regression Tests**: Added unit and integration tests in `src/test/reader-content-security.test.tsx` verifying CSS sanitization, breakout prevention, network containment, and text escaping (all 340 test suite tests pass).
+- **Phase 2: Deployment Hardening & Offline Storage** (Upcoming):
+  - ⏳ **F06 (Medium)**: Content Security Policy (CSP) and uniform HTTP security headers across Netlify, Vercel, and Firebase.
+  - ⏳ **F17 (Medium)**: Service Worker same-origin cache restriction and byte limits.
+- **Phase 3: Lifecycle Cleanup, Memory & Data Concurrency** (Upcoming):
+  - ⏳ **F07 (Medium)**: Comic blob URL cache eviction and session revocation.
+  - ⏳ **F08 (Medium)**: PDF.js import task destruction in `finally`.
+  - ⏳ **F11 (Medium)**: Atomic progress writes and metadata edit race condition protection.
+  - ⏳ **F13 (Medium)**: Remote cover streaming byte cap and removing permanent remote URL dependencies.
+- **Phase 4: Archive Decompression Bombs & Dependency Upgrades** (Upcoming):
+  - ⏳ **F02, F03, F10 (High / Medium)**: Pre-extraction byte, entry, and depth budgets for 7-Zip, RAR, CBZ, and DOCX.
+  - ⏳ **F09, F12 (Medium)**: Top-level import size caps and chunked library backup streaming.
+  - ⏳ **F05 (High)**: EPUB.js / `@xmldom/xmldom` dependency upgrade or overrides.
 
 `npm audit --json` returned **2 vulnerable packages** (1 high, 1 moderate): `@xmldom/xmldom` 0.7.13 and its dependent `epubjs` 0.3.93. The audit output lists multiple XML injection and denial-of-service advisories for `@xmldom/xmldom`; the separate nested copy used by Mammoth is 0.8.15. No audit entries were reported for the other named direct parser dependencies at the installed versions. This is a registry advisory check, not proof that every vulnerable API is reachable here.
 
@@ -20,6 +47,7 @@ Audit date: 2026-11-17. Scope: `src/`, `public/`, `index.html`, Vite and hosting
 
 ### F01 — EPUB author CSS can break out of a `<style>` element in alternate reader views
 
+- **Status:** ✅ Resolved (Phase 1 — `sanitizeBookCss` + DOM `textContent` assignment implemented)
 - **Severity:** Critical
 - **Category:** HTML injection / potential XSS
 - **Affected:** `src/formats/engines/EpubDoubleSidedReader.tsx:65-70,244-256,399-406,744-749`; `src/formats/engines/EpubHorizontalReader.tsx:390-397,568-573,1244-1245`.
@@ -67,6 +95,7 @@ Audit date: 2026-11-17. Scope: `src/`, `public/`, `index.html`, Vite and hosting
 
 ### F04 — A book can initiate third-party requests despite the local-first claim
 
+- **Status:** 🟡 Reader Layer Resolved (Phase 1 — `isExternalNetworkUrl` filtering + DOMPurify network URL stripping implemented; CSP headers follow in Phase 2)
 - **Severity:** High
 - **Category:** Privacy / network containment
 - **Affected:** `src/formats/engines/EpubReader.tsx:89-90,405-429,1246-1261`; `src/formats/engines/EpubHorizontalReader.tsx:568-573,1244-1245`; `src/formats/engines/EpubDoubleSidedReader.tsx:744-749`; `src/core/parsing/sanitize-reader-html.ts:44-72`; `public/sw.js:58-105`.
@@ -223,6 +252,7 @@ Audit date: 2026-11-17. Scope: `src/`, `public/`, `index.html`, Vite and hosting
 
 ### F14 — Regex sanitizer fallback is unsafe if reused outside the browser
 
+- **Status:** ✅ Resolved (Phase 1 — fail-closed return implemented when DOMPurify is unavailable)
 - **Severity:** Low
 - **Category:** Sanitization maintenance risk
 - **Affected:** `src/core/parsing/sanitize-reader-html.ts:23-28,75-88`.
@@ -237,6 +267,7 @@ Audit date: 2026-11-17. Scope: `src/`, `public/`, `index.html`, Vite and hosting
 
 ### F15 — Chapter splitting reintroduces text as markup after sanitization
 
+- **Status:** ✅ Resolved (Phase 1 — `escapeHtml` wrapping on text nodes in `html-parser.ts`, `markdown-parser.ts`, and `mht-parser.ts`)
 - **Severity:** Low
 - **Category:** Encoding / latent injection bug
 - **Affected:** `src/core/parsing/html-parser.ts:83-117`; `src/core/parsing/markdown-parser.ts:96-131`; `src/core/parsing/mht-parser.ts:418-457`.
@@ -349,14 +380,15 @@ For stricter isolation, remove `allow-same-origin` from untrusted EPUB iframes a
 
 ## Prioritized action checklist
 
-1. **Stop F01:** remove raw EPUB author CSS from main-document `innerHTML`; add a crafted XHTML style-breakout browser test for both alternate views.
-2. **Contain archive expansion:** enforce pre-extraction and actual-output limits in 7-Zip and all ZIP-family formats, run heavy parsing off the main thread, and make cancellation/exit errors explicit.
-3. **Block book-initiated network traffic:** resolve only package-owned EPUB resources, reject remote CSS and image URLs, restrict service-worker caching to app assets, and deploy an enforced CSP after report-only compatibility checks.
-4. **Upgrade EPUB.js / xmldom:** test the 0.4.2 migration across all three EPUB engines and pin the fixed parser.
-5. **Bound input and backup memory:** size-check files before reading, reuse buffers, cap nested parse budgets and cover bytes, and stream large backups.
-6. **Fix lifecycle and races:** destroy import-time PDF.js tasks, revoke/evict comic URLs on book changes, and serialize progress updates with deletion and metadata edits.
-7. **Harden every host:** add the common headers to Netlify, Vercel, and Firebase; recalculate CSP hashes whenever `index.html` changes.
-8. **Keep sanitizer contracts explicit:** fail closed if DOMPurify is unavailable, escape text during chapter splitting, and preserve reader-boundary sanitization.
+- [x] **Phase 1 — Stop F01:** remove raw EPUB author CSS from main-document `innerHTML`; assign via DOM `textContent`; sanitize against `</style>`, comments, and active markup; add unit and integration regression tests.
+- [x] **Phase 1 — Block book-initiated network traffic (F04 reader layer):** enforce local package-owned blob resolution; strip external network URLs on embedded media/images and in author CSS.
+- [x] **Phase 1 — Keep sanitizer contracts explicit (F14, F15):** fail closed if DOMPurify is unavailable, escape text during chapter splitting with `escapeHtml(...)`, and preserve reader-boundary sanitization.
+- [ ] **Phase 2 — Harden every host (F06):** add the common headers and CSP to Netlify, Vercel, and Firebase; recalculate CSP hashes whenever `index.html` changes.
+- [ ] **Phase 2 — Restrict service worker caching (F17):** restrict service-worker caching to same-origin app shell assets with size caps.
+- [ ] **Phase 3 — Fix lifecycle and races (F07, F08, F11, F13):** destroy import-time PDF.js tasks in `finally`, revoke/evict comic URLs on book changes, serialize progress updates with deletion and metadata edits, and cap remote cover streaming.
+- [ ] **Phase 4 — Contain archive expansion (F02, F03, F10):** enforce pre-extraction and actual-output limits in 7-Zip and all ZIP-family formats, run heavy parsing off the main thread, and make cancellation/exit errors explicit.
+- [ ] **Phase 4 — Upgrade EPUB.js / xmldom (F05):** test the 0.4.2 migration across all three EPUB engines and pin the fixed parser (or configure npm override).
+- [ ] **Phase 4 — Bound input and backup memory (F09, F12):** size-check files before reading, reuse buffers, cap nested parse budgets and cover bytes, and stream large backups.
 
 ## Audit method and limitations
 

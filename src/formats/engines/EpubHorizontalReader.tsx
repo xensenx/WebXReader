@@ -33,6 +33,7 @@ import {
   buildEpubSearchIndex,
   withoutFragment,
   isInlineOrNetworkUrl,
+  isExternalNetworkUrl,
   resolveEpubResource,
   type EpubReaderHandle,
   type EpubZoomAnchor,
@@ -46,6 +47,7 @@ import {
 } from './epub-flipbook-dimensions';
 import {
   sanitizeReaderHtml,
+  sanitizeBookCss,
   escapeAttr,
 } from '../../core/parsing/sanitize-reader-html';
 import { scopeCss } from './EpubDoubleSidedReader';
@@ -387,14 +389,32 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
           } else {
             let sectionPagesCount = 1;
             try {
-              const scopedSecAuthor = sec.authorStyles
-                ? `<style>${scopeCss(sec.authorStyles, `.${styles.measureRoot}`)}</style>`
-                : '';
               const sanitizedSecContent = sanitizeReaderHtml(sec.htmlContent, {
                 allowImages: true,
                 allowSvg: true,
               });
-              measureContainer.innerHTML = `<style>${measureThemeCss}</style>${scopedSecAuthor}${sanitizedSecContent}`;
+
+              // Clear and rebuild measurement container safely via DOM API
+              measureContainer.innerHTML = '';
+
+              const themeStyleEl = document.createElement('style');
+              themeStyleEl.textContent = measureThemeCss;
+              measureContainer.appendChild(themeStyleEl);
+
+              if (sec.authorStyles) {
+                const authorStyleEl = document.createElement('style');
+                authorStyleEl.textContent = sanitizeBookCss(
+                  scopeCss(sec.authorStyles, `.${styles.measureRoot}`),
+                );
+                measureContainer.appendChild(authorStyleEl);
+              }
+
+              const contentWrapper = document.createElement('div');
+              contentWrapper.innerHTML = sanitizedSecContent;
+              while (contentWrapper.firstChild) {
+                measureContainer.appendChild(contentWrapper.firstChild);
+              }
+
               const scrollW = measureContainer.scrollWidth;
               if (scrollW > dims.printableW) {
                 sectionPagesCount = Math.max(1, Math.ceil(scrollW / dims.printableW));
@@ -607,15 +627,20 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
               }
 
               // Resolve image URL
-              if (imageSrc && !isInlineOrNetworkUrl(imageSrc)) {
-                try {
-                  const resolved = await resolveEpubResource(book, imageSrc, {
-                    document: doc,
-                    sectionIndex: section.index,
-                  });
-                  if (resolved) imageSrc = resolved;
-                } catch {
-                  // ignore
+              if (imageSrc) {
+                if (isExternalNetworkUrl(imageSrc)) {
+                  // Discard external network tracking images (F04)
+                  imageSrc = '';
+                } else if (!isInlineOrNetworkUrl(imageSrc)) {
+                  try {
+                    const resolved = await resolveEpubResource(book, imageSrc, {
+                      document: doc,
+                      sectionIndex: section.index,
+                    });
+                    if (resolved) imageSrc = resolved;
+                  } catch {
+                    // ignore
+                  }
                 }
               }
 
@@ -628,17 +653,23 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
                   ];
                   for (const sImg of innerSvgImgs) {
                     const h = sImg.getAttribute('href') || sImg.getAttribute('xlink:href') || sImg.getAttribute('src');
-                    if (h && !isInlineOrNetworkUrl(h)) {
-                      try {
-                        const r = await resolveEpubResource(book, h, { document: doc, sectionIndex: section.index });
-                        if (r) {
-                          sImg.setAttribute('href', r);
-                          sImg.setAttribute('xlink:href', r);
-                          sImg.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', r);
-                          sImg.setAttributeNS('http://www.w3.org/1999/xlink', 'href', r);
-                          if (!imageSrc) imageSrc = r;
-                        }
-                      } catch {}
+                    if (h) {
+                      if (isExternalNetworkUrl(h)) {
+                        sImg.removeAttribute('href');
+                        sImg.removeAttribute('xlink:href');
+                        sImg.removeAttribute('src');
+                      } else if (!isInlineOrNetworkUrl(h)) {
+                        try {
+                          const r = await resolveEpubResource(book, h, { document: doc, sectionIndex: section.index });
+                          if (r) {
+                            sImg.setAttribute('href', r);
+                            sImg.setAttribute('xlink:href', r);
+                            sImg.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', r);
+                            sImg.setAttributeNS('http://www.w3.org/1999/xlink', 'href', r);
+                            if (!imageSrc) imageSrc = r;
+                          }
+                        } catch {}
+                      }
                     }
                   }
                   imageHtml = svgEl.outerHTML;
@@ -653,18 +684,24 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
                 ];
                 for (const bImg of bodyImgs) {
                   const src = bImg.getAttribute('src') || bImg.getAttribute('href') || bImg.getAttribute('xlink:href');
-                  if (src && !isInlineOrNetworkUrl(src)) {
-                    try {
-                      const r = await resolveEpubResource(book, src, { document: doc, sectionIndex: section.index });
-                      if (r) {
-                        if (bImg.tagName.toLowerCase() === 'image') {
-                          bImg.setAttribute('href', r);
-                          bImg.setAttribute('xlink:href', r);
-                        } else {
-                          bImg.setAttribute('src', r);
+                  if (src) {
+                    if (isExternalNetworkUrl(src)) {
+                      bImg.removeAttribute('src');
+                      bImg.removeAttribute('href');
+                      bImg.removeAttribute('xlink:href');
+                    } else if (!isInlineOrNetworkUrl(src)) {
+                      try {
+                        const r = await resolveEpubResource(book, src, { document: doc, sectionIndex: section.index });
+                        if (r) {
+                          if (bImg.tagName.toLowerCase() === 'image') {
+                            bImg.setAttribute('href', r);
+                            bImg.setAttribute('xlink:href', r);
+                          } else {
+                            bImg.setAttribute('src', r);
+                          }
                         }
-                      }
-                    } catch {}
+                      } catch {}
+                    }
                   }
                 }
               }
@@ -1242,7 +1279,7 @@ export const EpubHorizontalReader = forwardRef<EpubReaderHandle, EpubHorizontalR
           <style>{themeCssRef.current}</style>
         )}
         {authorStylesRef.current && (
-          <style>{scopeCss(authorStylesRef.current, `.${styles.columnSlider}`)}</style>
+          <style>{sanitizeBookCss(scopeCss(authorStylesRef.current, `.${styles.columnSlider}`))}</style>
         )}
 
         {loading && (

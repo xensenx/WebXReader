@@ -2,6 +2,7 @@
  * EPUB Reader component powered by epub.js.
  */
 
+import { normalizeReaderUrl } from '../../core/parsing/sanitize-reader-html';
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import type { CSSProperties } from 'react';
 import ePub from 'epubjs';
@@ -87,7 +88,15 @@ export interface EpubSearchSectionIndex {
 }
 
 export const isInlineOrNetworkUrl = (value: string) =>
-  /^(?:data:|blob:|https?:|file:|mailto:|javascript:)/i.test(value.trim());
+  /^(?:data:|blob:|https?:|file:|mailto:|javascript:)/i.test(normalizeReaderUrl(value));
+
+/**
+ * Returns true when a URL points to an external network resource that an
+ * untrusted book should NOT be allowed to load (privacy / tracking risk).
+ * `data:` and `blob:` URLs are considered safe inline resources.
+ */
+export const isExternalNetworkUrl = (value: string): boolean =>
+  /^(?:https?:|\/\/)/i.test(normalizeReaderUrl(value));
 
 export const withoutFragment = (value: string) => value.split('#')[0].split('?')[0];
 
@@ -382,14 +391,29 @@ const resolveSrcset = async (
   const value = element.getAttribute(attribute);
   if (!value) return;
 
-  const entries = value.split(',');
-  const resolvedEntries = await Promise.all(entries.map(async (entry) => {
+  // A data URL can contain commas; consume its URL before the descriptors.
+  const entries = Array.from(value.matchAll(/(?:^|,)\s*((?:data:\S+|[^,\s]+)(?:\s+[^,]*)?)/gi),
+    (match) => match[1].replace(/,$/, ''));
+  const resolvedEntries: string[] = [];
+  for (const entry of entries) {
     const match = entry.trim().match(/^(\S+)(\s+.*)?$/);
-    if (!match) return entry;
+    if (!match) continue;
+    if (isExternalNetworkUrl(match[1])) {
+      // Discard external network tracking images in srcset (F04)
+      continue;
+    }
     const resolved = await resolveEpubResource(book, match[1], contents);
-    return resolved ? `${resolved}${match[2] || ''}` : entry;
-  }));
-  element.setAttribute(attribute, resolvedEntries.join(','));
+    if (resolved) {
+      resolvedEntries.push(`${resolved}${match[2] || ''}`);
+    } else if (/^(?:data:|blob:)/i.test(normalizeReaderUrl(match[1])) || !isInlineOrNetworkUrl(match[1])) {
+      resolvedEntries.push(entry.trim());
+    }
+  }
+  if (resolvedEntries.length > 0) {
+    element.setAttribute(attribute, resolvedEntries.join(', '));
+  } else {
+    element.removeAttribute(attribute);
+  }
 };
 
 export const prepareEpubImageSources = async (
@@ -413,8 +437,15 @@ export const prepareEpubImageSources = async (
       ? lazySource
       : declaredSource || lazySource;
     if (source) {
-      const replacement = await resolveEpubResource(book, source, contents);
-      if (replacement) image.setAttribute('src', replacement);
+      if (isExternalNetworkUrl(source)) {
+        // Discard external network tracking images (F04)
+        image.removeAttribute('src');
+        image.removeAttribute('data-src');
+        image.removeAttribute('data-original');
+      } else {
+        const replacement = await resolveEpubResource(book, source, contents);
+        if (replacement) image.setAttribute('src', replacement);
+      }
     }
     await resolveSrcset(book, contents, image, 'srcset');
   }));
@@ -422,10 +453,16 @@ export const prepareEpubImageSources = async (
   await Promise.all(svgImages.map(async (image) => {
     const source = image.getAttribute('href') || image.getAttribute('xlink:href');
     if (!source) return;
-    const replacement = await resolveEpubResource(book, source, contents);
-    if (replacement) {
-      image.setAttribute('href', replacement);
-      image.setAttribute('xlink:href', replacement);
+    if (isExternalNetworkUrl(source)) {
+      // Discard external network tracking images (F04)
+      image.removeAttribute('href');
+      image.removeAttribute('xlink:href');
+    } else {
+      const replacement = await resolveEpubResource(book, source, contents);
+      if (replacement) {
+        image.setAttribute('href', replacement);
+        image.setAttribute('xlink:href', replacement);
+      }
     }
   }));
 

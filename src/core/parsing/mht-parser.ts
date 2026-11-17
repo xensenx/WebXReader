@@ -11,7 +11,7 @@
 
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
-import { sanitizeReaderHtml } from './sanitize-reader-html';
+import { sanitizeReaderHtml, escapeHtml } from './sanitize-reader-html';
 
 export interface MhtParseOptions {
   autoDetectChapters?: boolean;
@@ -454,7 +454,7 @@ export function splitHtmlIntoChapters(cleanHtml: string, documentTitle?: string)
             currentContent.push(el.outerHTML);
           }
         } else if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
-          currentContent.push(`<p>${node.textContent.trim()}</p>`);
+          currentContent.push(`<p>${escapeHtml(node.textContent.trim())}</p>`);
         }
       }
 
