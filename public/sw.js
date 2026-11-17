@@ -6,6 +6,9 @@ const MAX_CACHE_ENTRY_BYTES = 5 * 1024 * 1024;
 const MAX_CACHE_TOTAL_BYTES = 64 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 200;
 
+// Share one write queue across cache handles and fetch events.
+let cacheWriteQueue = Promise.resolve();
+
 const SHELL_FILES = new Set([
   'index.html',
   'apple-touch-icon.png',
@@ -77,7 +80,7 @@ async function copyResponseWithinLimit(response) {
 
       bytes += value.byteLength;
       if (bytes > MAX_CACHE_ENTRY_BYTES) {
-        await reader.cancel();
+        void reader.cancel().catch(() => {});
         return undefined;
       }
       chunks.push(value);
@@ -102,36 +105,41 @@ async function cacheResponseWithinLimits(cache, cacheKey, response) {
     const bounded = await copyResponseWithinLimit(response);
     if (!bounded) return false;
 
-    const request = cacheKey instanceof Request ? cacheKey : new Request(cacheKey);
-    const existing = [];
-    for (const key of await cache.keys()) {
-      if (key.url === request.url) continue;
+    const write = cacheWriteQueue.then(async () => {
+      const request = cacheKey instanceof Request ? cacheKey : new Request(cacheKey);
+      const existing = [];
+      for (const key of await cache.keys()) {
+        if (key.url === request.url) continue;
 
-      const cached = await cache.match(key);
-      const storedBytes = cached?.headers.get(CACHE_SIZE_HEADER);
-      const bytes = storedBytes === null || storedBytes === undefined ? NaN : Number(storedBytes);
-      if (!Number.isSafeInteger(bytes) || bytes < 0) {
-        await cache.delete(key);
-        continue;
+        const cached = await cache.match(key);
+        const storedBytes = cached?.headers.get(CACHE_SIZE_HEADER);
+        const bytes = storedBytes === null || storedBytes === undefined ? NaN : Number(storedBytes);
+        if (!Number.isSafeInteger(bytes) || bytes < 0) {
+          await cache.delete(key);
+          continue;
+        }
+        existing.push({ request: key, bytes });
       }
-      existing.push({ request: key, bytes });
-    }
 
-    let totalBytes = existing.reduce((total, entry) => total + entry.bytes, 0);
-    while (existing.length + 1 > MAX_CACHE_ENTRIES || totalBytes + bounded.bytes > MAX_CACHE_TOTAL_BYTES) {
-      // Keep the offline app entry even when the cache has to evict other assets.
-      const oldestIndex = existing.findIndex((entry) => entry.request.url !== appUrl('index.html'));
-      if (oldestIndex < 0) return false;
+      let totalBytes = existing.reduce((total, entry) => total + entry.bytes, 0);
+      while (existing.length + 1 > MAX_CACHE_ENTRIES || totalBytes + bounded.bytes > MAX_CACHE_TOTAL_BYTES) {
+        // Keep the offline app entry even when the cache has to evict other assets.
+        const oldestIndex = existing.findIndex((entry) => entry.request.url !== appUrl('index.html'));
+        if (oldestIndex < 0) return false;
 
-      const [oldest] = existing.splice(oldestIndex, 1);
-      await cache.delete(oldest.request);
-      totalBytes -= oldest.bytes;
-    }
+        const [oldest] = existing.splice(oldestIndex, 1);
+        await cache.delete(oldest.request);
+        totalBytes -= oldest.bytes;
+      }
 
-    const headers = new Headers(bounded.response.headers);
-    headers.set(CACHE_SIZE_HEADER, String(bounded.bytes));
-    await cache.put(request, new Response(bounded.response.body, { status: 200, headers }));
-    return true;
+      const headers = new Headers(bounded.response.headers);
+      headers.set(CACHE_SIZE_HEADER, String(bounded.bytes));
+      await cache.put(request, new Response(bounded.response.body, { status: 200, headers }));
+      return true;
+    });
+    // A failed write must not prevent subsequent cache updates.
+    cacheWriteQueue = write.catch(() => {});
+    return await write;
   } catch (error) {
     console.warn('[SW] Could not update the bounded shell cache:', error);
     return false;
@@ -243,7 +251,7 @@ self.addEventListener('fetch', (event) => {
     url.pathname.includes('/src/') ||
     url.pathname.includes('/@vite/') ||
     url.pathname.includes('/node_modules/.vite/') ||
-    /\.(?:tsx?|jsx?)$/i.test(url.pathname)
+    (/\.(?:tsx?|jsx?)$/i.test(url.pathname) && !isKnownShellAsset(url))
   ) return;
 
   if (request.mode === 'navigate' || request.destination === 'document') {
