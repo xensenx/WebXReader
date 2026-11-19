@@ -43,11 +43,11 @@ export async function getSevenZipWasmBinary(): Promise<ArrayBuffer> {
   return wasmBinaryPromise;
 }
 
-export async function createSevenZipInstance(): Promise<SevenZipModule> {
+export async function createSevenZipInstance(onOutput?: (line: string) => void): Promise<SevenZipModule> {
   const wasmBinary = await getSevenZipWasmBinary();
   const module = await SevenZipFactory({
     wasmBinary,
-    print: () => {},
+    print: (line: string) => onOutput?.(line),
     printErr: (msg: string) => {
       if (!msg.includes('Everything is Ok')) {
         console.warn('[7z-wasm]:', msg);

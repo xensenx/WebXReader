@@ -4,7 +4,7 @@
  * chapters, extracts metadata, covers, tables, poems, and footnotes.
  */
 
-import JSZip from 'jszip';
+import { openBudgetedZip, readZipEntryLimited } from './zip-budget';
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId, escapeHtml } from '../../utils';
 import { sanitizeReaderHtml } from './sanitize-reader-html';
@@ -32,7 +32,8 @@ export interface Fb2ParseOptions {
  */
 async function extractXmlString(
   input: string | ArrayBuffer,
-  defaultEncoding = 'utf-8'
+  defaultEncoding = 'utf-8',
+  depth = 0,
 ): Promise<string> {
   if (typeof input === 'string') {
     return input;
@@ -48,7 +49,8 @@ async function extractXmlString(
     bytes[2] === 0x03 &&
     bytes[3] === 0x04
   ) {
-    const zip = await JSZip.loadAsync(input);
+    if (depth >= 2) throw new Error('FB2 archive nesting limit exceeded.');
+    const zip = await openBudgetedZip(input);
     // Find the first .fb2 or .xml file in the archive
     let fb2File = Object.values(zip.files).find(
       (f) => !f.dir && (f.name.toLowerCase().endsWith('.fb2') || f.name.toLowerCase().endsWith('.xml'))
@@ -60,8 +62,8 @@ async function extractXmlString(
     if (!fb2File) {
       throw new Error('Invalid FB2 archive: no files found inside ZIP');
     }
-    const unzippedBuffer = await fb2File.async('arraybuffer');
-    return extractXmlString(unzippedBuffer, defaultEncoding);
+    const unzippedBuffer = await readZipEntryLimited(fb2File);
+    return extractXmlString(unzippedBuffer.buffer as ArrayBuffer, defaultEncoding, depth + 1);
   }
 
   // Detect encoding from initial XML declaration

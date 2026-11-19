@@ -310,6 +310,11 @@ export function ReaderView() {
           setLoading(false);
           return;
         }
+        if (c.format === 'epub' && c.originalFile) {
+          const { openBudgetedZip } = await import('../../core/parsing/zip-budget');
+          await openBudgetedZip(c.originalFile);
+          if (!isMounted) return;
+        }
 
         // Optimization: strip dead originalFile buffer and re-split oversized single chapter
         if (c.format === 'mht') {

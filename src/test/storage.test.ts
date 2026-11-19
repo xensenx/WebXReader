@@ -4,6 +4,7 @@ import {
   getBook,
   listBooks,
   updateBook,
+  updateBookAndCover,
   deleteBook,
   deleteBooks,
   saveProgress,
@@ -86,6 +87,7 @@ describe('IndexedDB Storage Operations', () => {
   });
 
   it('saves and restores reading progress', async () => {
+    await addBook(dummyBook);
     const prog: ReadingProgress = {
       bookId: 'book-1',
       chapterId: 'ch-1',
@@ -102,6 +104,25 @@ describe('IndexedDB Storage Operations', () => {
     expect(restored).toBeDefined();
     expect(restored?.overallProgress).toBe(0.25);
     expect(restored?.scrollPosition).toBe(400);
+    expect((await getBook('book-1'))?.readingStatus).toBe('reading');
+    await deleteBook('book-1');
+    await saveProgress(prog);
+    expect(await getProgress('book-1')).toBeUndefined();
+  });
+
+  it('preserves newer progress when stale metadata is saved', async () => {
+    await addBook(dummyBook);
+    const staleEdit = { ...dummyBook, title: 'Edited title' };
+    await saveProgress({
+      bookId: dummyBook.id, chapterId: 'ch-1', chapterProgress: 0.5,
+      overallProgress: 0.5, scrollPosition: 0, pageIndex: 1,
+      readingMode: 'scroll', lastUpdatedAt: Date.now(),
+    });
+    await updateBookAndCover(staleEdit);
+    const stored = await getBook(dummyBook.id);
+    expect(stored?.title).toBe('Edited title');
+    expect(stored?.readingStatus).toBe('reading');
+    expect(stored?.lastOpenedAt).not.toBeNull();
   });
 
   it('saves, lists, and deletes bookmarks', async () => {

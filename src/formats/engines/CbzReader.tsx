@@ -25,6 +25,7 @@ import {
   type CSSProperties,
 } from 'react';
 import JSZip from 'jszip';
+import { openBudgetedZip, readZipEntryLimited } from '../../core/parsing/zip-budget';
 import { AlertCircle } from 'lucide-react';
 import {
   naturalCompare,
@@ -323,6 +324,8 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   const previewTransformRef = useRef<ComicZoomPreviewTransform | null>(null);
   const lastZoomAnchorRef = useRef<CbzZoomAnchor | undefined>(undefined);
   const blobUrlsRef = useRef<Map<number, string>>(new Map());
+  const pendingPagesRef = useRef<Map<number, Promise<string | undefined>>>(new Map());
+  const archiveGenerationRef = useRef(0);
   const onProgressUpdateRef = useRef(onProgressUpdate);
   const scrollFrameRef = useRef<number | null>(null);
   const previousReaderZoomRef = useRef(readerZoom);
@@ -375,6 +378,8 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
         } catch {}
       });
       urls.clear();
+      archiveGenerationRef.current++;
+      pendingPagesRef.current.clear();
       if (scrollFrameRef.current !== null) {
         cancelAnimationFrame(scrollFrameRef.current);
       }
@@ -391,17 +396,24 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       if (pageIndex < 0 || pageIndex >= totalPages) return undefined;
       const cached = blobUrlsRef.current.get(pageIndex);
       if (cached) return cached;
+      const pending = pendingPagesRef.current.get(pageIndex);
+      if (pending) return pending;
 
-      try {
+      const generation = archiveGenerationRef.current;
+      const load = (async () => { try {
         const blob = await pageLoaderRef.current(pageIndex);
-        if (!blob) return undefined;
+        if (!blob || generation !== archiveGenerationRef.current) return undefined;
         const url = URL.createObjectURL(blob);
         blobUrlsRef.current.set(pageIndex, url);
         return url;
       } catch (err) {
         console.error(`Failed to load comic page ${pageIndex + 1}:`, err);
         return undefined;
-      }
+      } finally {
+        pendingPagesRef.current.delete(pageIndex);
+      } })();
+      pendingPagesRef.current.set(pageIndex, load);
+      return load;
     },
     [totalPages]
   );
@@ -409,6 +421,10 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
   // Parse archive and extract sorted image entries (ZIP, RAR, or 7z)
   useEffect(() => {
     let active = true;
+    archiveGenerationRef.current++;
+    pendingPagesRef.current.clear();
+    blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    blobUrlsRef.current.clear();
     setLoading(true);
     setError(null);
     hasRestoredInitialRef.current = false;
@@ -434,7 +450,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
           setTotalPages(session.pageNames.length);
           setLoading(false);
         } else {
-          const zip = await JSZip.loadAsync(fileData);
+          const zip = await openBudgetedZip(fileData);
           const images: { path: string; entry: JSZip.JSZipObject }[] = [];
 
           zip.forEach((path, entry) => {
@@ -453,7 +469,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
           const entries = images.map((i) => i.entry);
           pageLoaderRef.current = async (idx) => {
             const entry = entries[idx];
-            return entry ? await entry.async('blob') : undefined;
+            return entry ? new Blob([await readZipEntryLimited(entry) as BlobPart]) : undefined;
           };
           setTotalPages(entries.length);
           setLoading(false);
@@ -476,6 +492,15 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
       }
     };
   }, [fileData, format]);
+
+  useEffect(() => {
+    for (const [index, url] of blobUrlsRef.current) {
+      if (Math.abs(index + 1 - currentPage) > 3) {
+        URL.revokeObjectURL(url);
+        blobUrlsRef.current.delete(index);
+      }
+    }
+  }, [currentPage]);
 
   // ResizeObserver triggers re-render when container dimensions change
   useEffect(() => {

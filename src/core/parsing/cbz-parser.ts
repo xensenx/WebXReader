@@ -5,6 +5,7 @@
  */
 
 import JSZip from 'jszip';
+import { openBudgetedZip, readZipEntryLimited, ZIP_LIMITS } from './zip-budget';
 import type { BookMetadata } from '../../types/book';
 import {
   naturalCompare,
@@ -45,7 +46,7 @@ async function parseComicInfo(
   }
 
   try {
-    const xmlText = await (comicInfoEntry as JSZip.JSZipObject).async('text');
+    const xmlText = new TextDecoder().decode(await readZipEntryLimited(comicInfoEntry as JSZip.JSZipObject, 1024 * 1024));
     return parseComicInfoXml(xmlText);
   } catch (err) {
     console.warn('Could not parse ComicInfo.xml:', err);
@@ -60,7 +61,7 @@ async function parseComicInfo(
  * @returns Metadata, Table of Contents, cover image, and page filenames
  */
 export async function parseCbz(arrayBuffer: ArrayBuffer): Promise<ComicParseResult> {
-  const zip = await JSZip.loadAsync(arrayBuffer);
+  const zip = await openBudgetedZip(arrayBuffer);
 
   // 1. Gather all valid image file entries
   const imageEntries: { path: string; entry: JSZip.JSZipObject }[] = [];
@@ -98,7 +99,7 @@ export async function parseCbz(arrayBuffer: ArrayBuffer): Promise<ComicParseResu
 
   let coverImage: string | undefined;
   try {
-    const coverBlob = await coverEntry.async('blob');
+    const coverBlob = new Blob([await readZipEntryLimited(coverEntry, ZIP_LIMITS.coverBytes) as BlobPart]);
     coverImage = await extractCoverDataUrl(coverBlob, getImageMimeType(coverEntry.name));
   } catch (err) {
     console.warn('Could not extract CBZ cover:', err);

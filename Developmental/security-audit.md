@@ -1,22 +1,22 @@
 # WebXReader security, robustness, and bug audit
 
-Audit date: 2026-11-17. Scope: `src/`, `public/`, `index.html`, Vite and hosting configuration, `package.json`, and `package-lock.json`. This was a read-only source audit; no application code was changed. `npm audit --json` was run against the lockfile. Findings describe reachable code paths and their limits, not a claim that every payload was exercised in a browser.
+Audit date: 2026-11-17. Remediation verified: 2026-11-19. Scope: `src/`, `public/`, `index.html`, Vite and hosting configuration, `package.json`, and `package-lock.json`. The detailed findings below describe the original audit state; status lines and the roadmap record the completed remediation. Findings describe reachable code paths and their limits, not a claim that every payload was exercised in a browser.
 
 ## Executive summary
 
-**Overall posture: elevated risk for untrusted EPUBs and large archives.** The regular HTML, Markdown, DOCX, FB2, MOBI, AZW3, RTF, DOC, and stored-chapter reading paths use a shared DOMPurify boundary. The standard epub.js rendition uses an iframe with scripts disabled. Those are meaningful protections. <!-- coderabbit-ai-generated:v1 -->
+**Remediation status: complete for the tracked Phase 1–4 findings.** The reader sanitizes untrusted content, blocks book-initiated network loads, and applies a live response CSP. Archive input, expanded entries, covers, and backups now have explicit byte budgets. <!-- coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated-section:v1:763cf26488b67fb312a1290eca599d640799f3a7b6c7f18815977e11a67449ae -->
 
-The original audit found that two alternate EPUB views copied author CSS into the application's main DOM using `innerHTML`, allowing XML entity decoding to introduce a literal closing `</style>`. This issue has since been resolved as F01 (Phase 1) using `sanitizeBookCss` and DOM `textContent` assignment.
+The original audit found that two alternate EPUB views copied author CSS into the application's main DOM using `innerHTML`, allowing XML entity decoding to introduce a literal closing `</style>`. This issue was resolved as F01 (Phase 1) using `sanitizeBookCss` and DOM `textContent` assignment.
 
-<!-- /coderabbit-ai-generated:v1 --> Archive extraction and rendering still lack consistent pre-extraction budgets, allowing a small malicious file to exhaust memory or block the UI thread. Phase 1 reader filtering and Phase 2 response CSP now restrict book-initiated network loads; remote cover handling remains a separate F13 item.
+<!-- /coderabbit-ai-generated:v1 --> Phase 3 added lifecycle cleanup, atomic progress writes, and local-only cover copies. Phase 4 added archive preflight and actual ZIP/7-Zip output limits, import and backup bounds, streamed backup serialization, and a fixed XML parser override. Heavy archive work still runs on the main thread; the budget reduces worst-case work but does not make a valid archive nonblocking.
 
 | Severity | Count | Findings | Status |
 | --- | ---: | --- | --- |
 | Critical | 1 | F01 | ✅ Resolved (Phase 1) |
-| High | 4 | F02–F05 | 🟡 F04 Resolved (Phase 1); F02, F03, F05 Pending |
-| Medium | 7 | F07–F13 | ⏳ Pending (Phase 3 & Phase 4) |
+| High | 4 | F02–F05 | ✅ Mitigated (Phases 1, 2 & 4) |
+| Medium | 7 | F07–F13 | ✅ Mitigated (Phases 3 & 4) |
 | Low | 2 | F14–F15 | ✅ Resolved (Phase 1) |
 | Info / Bug | 1 | F16 | ℹ️ Verified Baseline |
 
@@ -31,17 +31,17 @@ The original audit found that two alternate EPUB views copied author CSS into th
 - **Phase 2: Deployment Hardening & Offline Storage** (Completed on branch `fix/phase2-security-hardening`):
   - ✅ **F06 (Medium)**: Added a CSP and uniform HTTP security headers across Netlify, Vercel, and Firebase; disabled production source maps.
   - ✅ **F17 (Medium)**: Restricted the Service Worker to same-origin shell assets, bounded each cached response to 5 MiB, capped the cache at 64 MiB and 200 entries, and scoped cache cleanup to WebXReader caches.
-- **Phase 3: Lifecycle Cleanup, Memory & Data Concurrency** (Upcoming):
-  - ⏳ **F07 (Medium)**: Comic blob URL cache eviction and session revocation.
-  - ⏳ **F08 (Medium)**: PDF.js import task destruction in `finally`.
-  - ⏳ **F11 (Medium)**: Atomic progress writes and metadata edit race condition protection.
-  - ⏳ **F13 (Medium)**: Remote cover streaming byte cap and removing permanent remote URL dependencies.
-- **Phase 4: Archive Decompression Bombs & Dependency Upgrades** (Upcoming):
-  - ⏳ **F02, F03, F10 (High / Medium)**: Pre-extraction byte, entry, and depth budgets for 7-Zip, RAR, CBZ, and DOCX.
-  - ⏳ **F09, F12 (Medium)**: Top-level import size caps and chunked library backup streaming.
-  - ⏳ **F05 (High)**: EPUB.js / `@xmldom/xmldom` dependency upgrade or overrides.
+- **Phase 3: Lifecycle Cleanup, Memory & Data Concurrency** (Completed 2026-11-19):
+  - ✅ **F07**: Comic URL caches now coalesce loads, evict distant pages, revoke on session changes, and ignore late results.
+  - ✅ **F08**: PDF.js import loading tasks are destroyed in `finally`.
+  - ✅ **F11**: Progress and book status update in one IndexedDB transaction; metadata edits merge with the latest stored record.
+  - ✅ **F13**: Remote covers require a bounded local download; persistent URL fallback was removed.
+- **Phase 4: Archive Decompression Bombs & Dependency Upgrades** (Completed 2026-11-19):
+  - ✅ **F02, F03, F10**: ZIP-family formats, including zipped FB2, and 7-Zip paths validate entry count, depth, and expanded bytes before extraction. ZIP entry streams and 7-Zip MEMFS writes are capped during expansion; cover reads have a separate 5 MiB cap.
+  - ✅ **F09, F12**: Imports have format-based top-level caps and reuse their initial read buffer. Backup downloads serialize records as a stream; restore limits file size, record counts, and decoded bytes.
+  - ✅ **F05**: The `epubjs` dependency retains its compatible API while npm overrides its vulnerable `@xmldom/xmldom` copy with 0.9.12. `npm audit` now reports zero advisories.
 
-`npm audit --json` returned **2 vulnerable packages** (1 high, 1 moderate): `@xmldom/xmldom` 0.7.13 and its dependent `epubjs` 0.3.93. The audit output lists multiple XML injection and denial-of-service advisories for `@xmldom/xmldom`; the separate nested copy used by Mammoth is 0.8.15. No audit entries were reported for the other named direct parser dependencies at the installed versions. This is a registry advisory check, not proof that every vulnerable API is reachable here.
+The original `npm audit --json` returned **2 vulnerable packages** (1 high, 1 moderate): `@xmldom/xmldom` 0.7.13 and its dependent `epubjs` 0.3.93. After the override, `npm audit --json` returned **zero vulnerabilities**. This is a registry advisory check, not proof that every parser path is free of defects.
 
 ## Detailed findings
 
@@ -64,6 +64,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F02 — RAR/7z extraction expands before size checks, and comic extraction has no budget
 
+- **Status:** ✅ Mitigated (Phase 4 — technical listing preflight, MEMFS write cap, explicit exit handling, and session cleanup)
 - **Severity:** High
 - **Category:** Archive bomb / UI denial of service
 - **Affected:** `src/core/parsing/sevenzip-extractor.ts:47-79,116-145`; `src/core/parsing/rar-parser.ts:95-125,154-168,265-320`; `src/core/parsing/sevenzip-common.ts:60-85,90-121`.
@@ -79,6 +80,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F03 — CBZ, DOCX, and EPUB bypass the ZIP safety limits
 
+- **Status:** ✅ Mitigated (Phase 4 — shared ZIP metadata validation and bounded entry reads; EPUB validated before import and opening)
 - **Severity:** High
 - **Category:** Decompression / resource exhaustion
 - **Affected:** `src/core/parsing/cbz-parser.ts:48,62-69,99-102`; `src/formats/engines/CbzReader.tsx:437-456`; `src/core/parsing/docx-parser.ts:114-119,151-176`; `src/core/parsing/epub-parser.ts:90-95`; compare `src/core/parsing/zip-parser.ts:14-24,175-227`.
@@ -95,7 +97,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F04 — A book can initiate third-party requests despite the local-first claim
 
-- **Status:** 🟡 Reader Layer Resolved (Phase 1 — `isExternalNetworkUrl` filtering + DOMPurify network URL stripping implemented; CSP headers follow in Phase 2)
+- **Status:** ✅ Resolved (Phases 1 and 2 — reader URL filtering and deployed CSP)
 - **Severity:** High
 - **Category:** Privacy / network containment
 - **Affected:** `src/formats/engines/EpubReader.tsx:89-90,405-429,1246-1261`; `src/formats/engines/EpubHorizontalReader.tsx:568-573,1244-1245`; `src/formats/engines/EpubDoubleSidedReader.tsx:744-749`; `src/core/parsing/sanitize-reader-html.ts:44-72`; `public/sw.js:58-105`.
@@ -111,6 +113,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F05 — Vulnerable `@xmldom/xmldom` is installed through EPUB.js
 
+- **Status:** ✅ Resolved (Phase 4 — compatible npm override to `@xmldom/xmldom` 0.9.12; zero `npm audit` advisories)
 - **Severity:** High
 - **Category:** Dependency / supply chain
 - **Affected:** `package.json:51` (`epubjs` declaration); `package-lock.json:1391-1400,1713-1726,2402-2410`; `src/core/parsing/epub-parser.ts:90-95`.
@@ -140,6 +143,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F07 — Comic Blob URLs are cached for the whole session and can outlive book switches
 
+- **Status:** ✅ Resolved (Phase 3 — generation checks, coalesced page loads, nearby-page eviction, and revocation)
 - **Severity:** Medium
 - **Category:** Memory lifecycle / concurrency
 - **Affected:** `src/formats/engines/CbzReader.tsx:368-405,409-478`; `src/formats/engines/ZipReader.tsx:150-162,385-417,828-843`.
@@ -157,6 +161,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F08 — PDF import leaves the PDF.js loading task/document alive
 
+- **Status:** ✅ Resolved (Phase 3 — loading task destroyed in `finally`)
 - **Severity:** Medium
 - **Category:** Worker and memory cleanup
 - **Affected:** `src/core/parsing/pdf-parser.ts:59-67,152-167`; compare `src/formats/engines/PdfReader.tsx:378-402` and `src/formats/engines/PdfPageView.tsx:300-304`.
@@ -176,6 +181,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F09 — Import reads the full file more than once and has no top-level size cap
 
+- **Status:** ✅ Mitigated (Phase 4 — 100 MiB default / 200 MiB fixed-layout and comic caps; hash and parser reuse one file buffer)
 - **Severity:** Medium
 - **Category:** Input bounds / browser freeze
 - **Affected:** `src/features/import/import-service.ts:123-141,168-193,217-227`; representative parsers `src/formats/definitions/docx.ts:26-30`, `src/formats/definitions/pdf.ts:25-32`; `src/core/parsing/pdf-parser.ts:60-64`.
@@ -192,6 +198,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F10 — ZIP entry checks do not impose a cumulative budget across nested formats
 
+- **Status:** ✅ Mitigated (Phase 4 — shared 300 MiB archive cap, 50 MiB nested entry read cap, and 5 MiB cover cap)
 - **Severity:** Medium
 - **Category:** Nested archive / resource exhaustion
 - **Affected:** `src/core/parsing/zip-parser.ts:14-24,199-227,285-290`; `src/formats/engines/ZipReader.tsx:203-275,311-337`.
@@ -207,6 +214,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F11 — Progress writes and metadata edits can race with deletion or each other
 
+- **Status:** ✅ Resolved (Phase 3 — atomic existence check, progress and book update; metadata merges with latest book)
 - **Severity:** Medium
 - **Category:** IndexedDB concurrency / data integrity
 - **Affected:** `src/hooks/useReadingProgress.ts:29-57,59-107`; `src/core/storage/database.ts:207-212,256-301,346-352`; `src/components/reader/ReaderView.tsx:298-356`.
@@ -225,6 +233,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F12 — Backup import/export materializes unbounded data in memory
 
+- **Status:** ✅ Mitigated (Phase 4 — streamed per-record export, 150 MiB output cap, 100 MiB restore input and decoded-content caps, and record-count checks)
 - **Severity:** Medium
 - **Category:** Storage / memory exhaustion
 - **Affected:** `src/core/storage/database.ts:450-498,501-535,544-568,619-659`; `src/features/export/backup-service.ts:27-55`.
@@ -239,6 +248,7 @@ The original audit found that two alternate EPUB views copied author CSS into th
 
 ### F13 — Remote cover fallback bypasses the intended local copy and size controls
 
+- **Status:** ✅ Resolved (Phase 3 — bounded response streaming, no persistent remote URL fallback)
 - **Severity:** Medium
 - **Category:** Privacy / input validation
 - **Affected:** `src/utils/cover-image.ts:23-32,98-132`; `src/components/library/BookCard.tsx:61,133-135`; `src/components/library/BookDetailsDialog.tsx:214-215`.
@@ -387,11 +397,11 @@ For stricter isolation, remove `allow-same-origin` from untrusted EPUB iframes a
 - [x] **Phase 1 — Keep sanitizer contracts explicit (F14, F15):** fail closed if DOMPurify is unavailable, escape text during chapter splitting with `escapeHtml(...)`, and preserve reader-boundary sanitization.
 - [x] **Phase 2 — Harden every host (F06):** add the common headers and CSP to Netlify, Vercel, and Firebase; recalculate CSP hashes whenever `index.html` changes.
 - [x] **Phase 2 — Restrict service worker caching (F17):** restrict service-worker caching to same-origin app shell assets with size caps.
-- [ ] **Phase 3 — Fix lifecycle and races (F07, F08, F11, F13):** destroy import-time PDF.js tasks in `finally`, revoke/evict comic URLs on book changes, serialize progress updates with deletion and metadata edits, and cap remote cover streaming.
-- [ ] **Phase 4 — Contain archive expansion (F02, F03, F10):** enforce pre-extraction and actual-output limits in 7-Zip and all ZIP-family formats, run heavy parsing off the main thread, and make cancellation/exit errors explicit.
-- [ ] **Phase 4 — Upgrade EPUB.js / xmldom (F05):** test the 0.4.2 migration across all three EPUB engines and pin the fixed parser (or configure npm override).
-- [ ] **Phase 4 — Bound input and backup memory (F09, F12):** size-check files before reading, reuse buffers, cap nested parse budgets and cover bytes, and stream large backups.
+- [x] **Phase 3 — Fix lifecycle and races (F07, F08, F11, F13):** destroy import-time PDF.js tasks in `finally`, revoke/evict comic URLs on book changes, serialize progress updates with deletion and metadata edits, and cap remote cover streaming.
+- [x] **Phase 4 — Contain archive expansion (F02, F03, F10):** enforce pre-extraction and actual-output limits in 7-Zip and ZIP-family formats, bound nested reads, and make extraction errors explicit.
+- [x] **Phase 4 — Fix EPUB.js / xmldom (F05):** use a compatible npm override for the fixed XML parser and run EPUB regression tests.
+- [x] **Phase 4 — Bound input and backup memory (F09, F12):** size-check files before reading, reuse import buffers, cap cover and restore bytes, and serialize backup downloads as a stream.
 
 ## Audit method and limitations
 
-Reviewed source call sites for `dangerouslySetInnerHTML`, `innerHTML`, `outerHTML`, `DOMParser`, iframe usage, `DOMPurify`, URL creation/revocation, archive extraction, storage, network calls, Worker/PDF cleanup, and deployment configuration. `npm audit --json` completed against the installed lockfile. No application build was run, no live browser/network capture was performed, and no exploit payload or 200 MB archive was executed. Live response headers on deployed mirrors were not queried, so the configuration conclusion applies to the checked-in files; platform-level headers could differ.
+Reviewed source call sites for `dangerouslySetInnerHTML`, `innerHTML`, `outerHTML`, `DOMParser`, iframe usage, `DOMPurify`, URL creation/revocation, archive extraction, storage, network calls, Worker/PDF cleanup, and deployment configuration. On 2026-11-19, `npm audit --json` reported zero advisories; 358 Vitest tests, six dedicated service-worker tests, TypeScript checking, and lint completed. The live Netlify site returned the expected CSP, `nosniff`, referrer, permissions, and frame headers. No application build was run, no live browser network capture was performed, and no 200 MiB archive bomb was executed. Archive extraction remains synchronous on the main thread, so a large valid archive can still pause the UI within the enforced limits. Browsers without the File System Access API assemble the capped backup stream into a Blob for download.

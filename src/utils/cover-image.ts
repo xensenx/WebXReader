@@ -110,10 +110,7 @@ export async function importCoverFromUrl(rawUrl: string): Promise<CoverImageResu
   try {
     response = await fetch(url.href, { mode: 'cors', credentials: 'omit' });
   } catch {
-    // Some image hosts allow display in an <img> but block cross-origin downloads.
-    // Keep the validated URL in that case instead of preventing the cover change.
-    const { width, height } = await readImageDimensions(url.href);
-    return { data: url.href, width, height, isRemote: true };
+    throw new Error('This image host does not allow a local cover copy. Choose another image URL or upload the file.');
   }
 
   if (!response.ok) {
@@ -127,7 +124,25 @@ export async function importCoverFromUrl(rawUrl: string): Promise<CoverImageResu
   if (contentLength > MAX_COVER_FILE_SIZE) {
     throw new Error('Choose an image smaller than 20 MB.');
   }
-  const blob = await response.blob();
+  if (!response.body) throw new Error('The image response could not be read.');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_COVER_FILE_SIZE) {
+        await reader.cancel();
+        throw new Error('Choose an image smaller than 20 MB.');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const blob = new Blob(chunks as BlobPart[], { type: contentType });
   const optimized = await optimizeImage(blob);
   return { ...optimized, isRemote: false };
 }

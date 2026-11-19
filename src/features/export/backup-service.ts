@@ -3,7 +3,7 @@
  * Provides functions to export/restore backups and download original book files.
  */
 
-import { exportBackup, restoreBackup, getBook, getBookContent } from '../../core/storage/database';
+import { exportBackupStream, restoreBackup, getBook, getBookContent } from '../../core/storage/database';
 import type { BackupData } from '../../types/book';
 import { getFormatMimeType } from '../../formats';
 
@@ -25,18 +25,23 @@ function downloadBlob(blob: Blob, filename: string): void {
  * Exports entire library metadata, bookmarks, annotations, progress and settings to a JSON file.
  */
 export async function downloadLibraryBackup(): Promise<void> {
-  const backup = await exportBackup();
+  const stream = await exportBackupStream();
   const dateStr = new Date().toISOString().split('T')[0];
   const filename = `webxreader-backup-${dateStr}.json`;
-  const json = JSON.stringify(backup, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  downloadBlob(blob, filename);
+  const savePicker = (window as Window & { showSaveFilePicker?: (options: { suggestedName: string }) => Promise<{ createWritable: () => Promise<WritableStream<Uint8Array>> }> }).showSaveFilePicker;
+  if (savePicker) {
+    const handle = await savePicker.call(window, { suggestedName: filename });
+    await stream.pipeTo(await handle.createWritable());
+  } else {
+    downloadBlob(await new Response(stream, { headers: { 'content-type': 'application/json' } }).blob(), filename);
+  }
 }
 
 /**
  * Restores a library from a JSON backup file.
  */
 export async function restoreLibraryBackup(file: File): Promise<{ booksRestored: number; errors: string[] }> {
+  if (file.size > 100 * 1024 * 1024) throw new Error('Backup exceeds the 100 MB limit.');
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async () => {

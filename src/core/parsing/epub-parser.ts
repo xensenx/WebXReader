@@ -4,6 +4,7 @@
  */
 
 import ePub from 'epubjs';
+import { openBudgetedZip, ZIP_LIMITS } from './zip-budget';
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
 
@@ -58,22 +59,36 @@ async function extractCoverImage(book: ReturnType<typeof ePub>): Promise<string 
   try {
     const coverUrl = await book.coverUrl();
     if (coverUrl) {
-      // coverUrl() returns a blob URL; fetch it and convert to data URL
-      const response = await fetch(coverUrl);
-      const blob = await response.blob();
-      return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          // Revoke the blob URL to free memory
-          URL.revokeObjectURL(coverUrl);
-          resolve(reader.result as string);
-        };
-        reader.onerror = () => {
-          URL.revokeObjectURL(coverUrl);
-          reject(new Error('Failed to read cover image'));
-        };
-        reader.readAsDataURL(blob);
-      });
+      try {
+        const response = await fetch(coverUrl);
+        if (!response.body) return undefined;
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.byteLength;
+            if (total > ZIP_LIMITS.coverBytes) {
+              await reader.cancel();
+              return undefined;
+            }
+            chunks.push(value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        const blob = new Blob(chunks as BlobPart[], { type: response.headers.get('content-type') || 'image/jpeg' });
+        return await new Promise<string>((resolve, reject) => {
+          const fileReader = new FileReader();
+          fileReader.onloadend = () => resolve(fileReader.result as string);
+          fileReader.onerror = () => reject(new Error('Failed to read cover image'));
+          fileReader.readAsDataURL(blob);
+        });
+      } finally {
+        URL.revokeObjectURL(coverUrl);
+      }
     }
   } catch {
     // Cover image extraction is optional; fail silently
@@ -88,6 +103,7 @@ async function extractCoverImage(book: ReturnType<typeof ePub>): Promise<string 
  * @returns Parsed metadata, table of contents, and optional cover image
  */
 export async function parseEpub(arrayBuffer: ArrayBuffer): Promise<EpubParseResult> {
+  await openBudgetedZip(arrayBuffer);
   const book = ePub(arrayBuffer);
 
   try {

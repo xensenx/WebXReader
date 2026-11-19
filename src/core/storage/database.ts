@@ -217,12 +217,22 @@ export async function updateBookAndCover(book: Book, coverData?: string): Promis
   const db = await getDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([STORES.books, STORES.covers], 'readwrite');
-    tx.objectStore(STORES.books).put(book);
-    if (coverData) {
-      tx.objectStore(STORES.covers).put({ bookId: book.id, data: coverData });
-    } else {
-      tx.objectStore(STORES.covers).delete(book.id);
-    }
+    const books = tx.objectStore(STORES.books);
+    const request = books.get(book.id);
+    request.onsuccess = () => {
+      const latest = request.result as Book | undefined;
+      if (!latest) { tx.abort(); return; }
+      books.put({ ...latest,
+        title: book.title, author: book.author, description: book.description,
+        coverImage: book.coverImage, originalCoverImage: book.originalCoverImage,
+        userTags: book.userTags, updatedAt: Date.now(),
+      });
+      if (coverData) {
+        tx.objectStore(STORES.covers).put({ bookId: book.id, data: coverData });
+      } else {
+        tx.objectStore(STORES.covers).delete(book.id);
+      }
+    };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(new Error(`Failed to save book details: ${tx.error?.message ?? 'transaction failed'}`));
     tx.onabort = () => reject(new Error(`Book details were not saved: ${tx.error?.message ?? 'transaction aborted'}`));
@@ -348,7 +358,26 @@ export async function getProgress(bookId: string): Promise<ReadingProgress | und
 }
 
 export async function saveProgress(progress: ReadingProgress): Promise<void> {
-  await withTransaction(STORES.progress, 'readwrite', (store) => store.put(progress));
+  const db = await getDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction([STORES.books, STORES.progress], 'readwrite');
+    const books = tx.objectStore(STORES.books);
+    const request = books.get(progress.bookId);
+    request.onsuccess = () => {
+      const book = request.result as Book | undefined;
+      if (!book) return;
+      tx.objectStore(STORES.progress).put(progress);
+      const readingStatus = progress.overallProgress >= 0.98 ? 'completed'
+        : progress.overallProgress > 0 ? 'reading' : book.readingStatus;
+      const now = Date.now();
+      if (readingStatus !== book.readingStatus || now - (book.lastOpenedAt ?? 0) > 30_000) {
+        books.put({ ...book, readingStatus, lastOpenedAt: now, updatedAt: now });
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(new Error(`Failed to save progress: ${tx.error?.message ?? 'transaction failed'}`));
+    tx.onabort = () => reject(new Error(`Failed to save progress: ${tx.error?.message ?? 'transaction aborted'}`));
+  });
 }
 
 export async function listProgress(): Promise<ReadingProgress[]> {
@@ -449,6 +478,10 @@ export async function saveBookSettings(settings: BookSettings): Promise<void> {
 
 export async function exportBackup(): Promise<BackupData> {
   const [db, settings] = await Promise.all([getDb(), getSettings()]);
+  const books = await listBooks();
+  if (books.length > 1000 || books.reduce((sum, book) => sum + (book.fileSize || 0), 0) > 100 * 1024 * 1024) {
+    throw new Error('Library exceeds the 100 MB JSON backup limit. Export books individually.');
+  }
   
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
@@ -495,6 +528,77 @@ export async function exportBackup(): Promise<BackupData> {
     contentReq.onerror = () => reject(new Error(`Backup export failed: ${contentReq.error?.message ?? 'content read failed'}`));
 
     tx.onerror = () => reject(new Error(`Backup export failed: ${tx.error?.message ?? 'transaction failed'}`));
+  });
+}
+
+/** Serialize one IndexedDB record at a time, preserving the version 2 JSON format. */
+export async function exportBackupStream(): Promise<ReadableStream<Uint8Array>> {
+  const [db, settings, books] = await Promise.all([getDb(), getSettings(), listBooks()]);
+  if (books.length > 1000 || books.reduce((sum, book) => sum + (book.fileSize || 0), 0) > 100 * 1024 * 1024) {
+    throw new Error('Library exceeds the 100 MB JSON backup limit. Export books individually.');
+  }
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      const stores = [
+        [STORES.books, 'books'], [STORES.progress, 'progress'],
+        [STORES.bookmarks, 'bookmarks'], [STORES.annotations, 'annotations'],
+        [STORES.bookSettings, 'bookSettings'], [STORES.bookContent, 'contents'],
+      ] as const;
+      const tx = db.transaction(stores.map(([name]) => name), 'readonly');
+      let emittedBytes = 0;
+      let failed = false;
+      const emit = (value: string) => {
+        const bytes = encoder.encode(value);
+        emittedBytes += bytes.byteLength;
+        if (emittedBytes > 150 * 1024 * 1024) throw new Error('Backup exceeds the 150 MB output limit.');
+        controller.enqueue(bytes);
+      };
+      try {
+        emit(`{"version":2,"exportedAt":${Date.now()},"appVersion":"1.0.0","settings":${JSON.stringify(settings ?? null)},`);
+      } catch (error) {
+        controller.error(error);
+        tx.abort();
+        return;
+      }
+      const fail = (error: unknown) => {
+        if (failed) return;
+        failed = true;
+        controller.error(error);
+      };
+      const readStore = (index: number) => {
+        if (index === stores.length) {
+          emit('}');
+          return;
+        }
+        const [storeName, key] = stores[index];
+        emit(`${index ? ',' : ''}"${key}":[`);
+        let first = true;
+        const request = tx.objectStore(storeName).openCursor();
+        request.onsuccess = () => {
+          try {
+            const cursor = request.result;
+            if (!cursor) {
+              emit(']');
+              readStore(index + 1);
+              return;
+            }
+            const value = key === 'contents' ? serializeBookContent(cursor.value as BookContent) : cursor.value;
+            emit(`${first ? '' : ','}${JSON.stringify(value)}`);
+            first = false;
+            cursor.continue();
+          } catch (error) {
+            fail(error);
+            tx.abort();
+          }
+        };
+        request.onerror = () => fail(request.error ?? new Error('Backup read failed.'));
+      };
+      readStore(0);
+      tx.oncomplete = () => { if (!failed) controller.close(); };
+      tx.onerror = () => fail(tx.error ?? new Error('Backup export failed.'));
+      tx.onabort = () => fail(tx.error ?? new Error('Backup export was cancelled.'));
+    },
   });
 }
 
@@ -619,6 +723,27 @@ function hasBookId(value: unknown): value is { bookId: string } {
 export async function restoreBackup(backup: BackupData): Promise<{ booksRestored: number; errors: string[] }> {
   if (!isBackupObject(backup)) {
     throw new Error('Invalid or unsupported backup format');
+  }
+  if (backup.books.length > 1000 || backup.progress.length > 1000 ||
+      backup.bookmarks.length > 100000 || backup.annotations.length > 100000 ||
+      backup.bookSettings.length > 1000 || (backup.contents?.length ?? 0) > 1000) {
+    throw new Error('Backup contains too many records.');
+  }
+  let decodedBytes = 0;
+  let chapterCount = 0;
+  for (const content of backup.contents ?? []) {
+    if (!isBackupBookContent(content)) throw new Error('Invalid content payload in backup');
+    decodedBytes += Math.ceil((content.originalFileBase64?.length ?? 0) * 3 / 4);
+    decodedBytes += content.rawText?.length ?? 0;
+    const stack = [...(content.chapters ?? [])];
+    while (stack.length) {
+      const chapter = stack.pop()!;
+      chapterCount++;
+      if (chapterCount > 100000) throw new Error('Backup contains too many chapters.');
+      decodedBytes += chapter.content?.length ?? 0;
+      if (chapter.children) for (const child of chapter.children) stack.push(child);
+    }
+    if (decodedBytes > 100 * 1024 * 1024) throw new Error('Backup content exceeds the 100 MB limit.');
   }
 
   const errors: string[] = [];

@@ -21,6 +21,7 @@ import {
 } from './zip-parser';
 import { naturalCompare, shouldIgnoreEntry, getImageMimeType } from './comic-archive';
 import { removeDirRecursive, walkDirectoryWithStats } from './sevenzip-common';
+import { extractSevenZipWithBudget, inspectSevenZipArchive } from './sevenzip-budget';
 
 export interface RarParseResult {
   metadata: {
@@ -81,7 +82,8 @@ export async function parseRar(
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   validateRarSignature(bytes);
 
-  const sevenZip = await createSevenZipInstance();
+  const listing: string[] = [];
+  const sevenZip = await createSevenZipInstance((line) => listing.push(line));
   const FS = sevenZip.FS;
 
   const sessionId = `parse_rar_${Date.now()}_${++sessionCounter}`;
@@ -95,17 +97,8 @@ export async function parseRar(
   try {
     FS.writeFile(inputFile, bytes);
 
-    let hadExitError = false;
-    try {
-      // Extract with 7z ('x' handles solid RAR4 and RAR5, -p- disables password prompt to detect encrypted)
-      sevenZip.callMain(['x', inputFile, `-o${outDir}`, '-y', '-p-']);
-    } catch (err: unknown) {
-      hadExitError = true;
-      const msg = String((err as { message?: string })?.message || err || '');
-      if (msg.includes('Wrong password') || msg.includes('password') || msg.includes('Encrypted')) {
-        throw new Error('This RAR archive is password-protected or encrypted. Encrypted archives cannot be opened without a password.');
-      }
-    }
+    inspectSevenZipArchive(sevenZip, inputFile, listing);
+    extractSevenZipWithBudget(sevenZip, outDir, ['x', inputFile, `-o${outDir}`, '-y', '-p-']);
 
     try {
       FS.unlink(inputFile);
@@ -115,9 +108,6 @@ export async function parseRar(
 
     const items = walkDirectoryWithStats(FS, outDir);
     if (items.length === 0) {
-      if (hadExitError) {
-        throw new Error('Failed to read RAR archive: corrupted, encrypted, or unsupported RAR format.');
-      }
       throw new Error('RAR archive contains no entries.');
     }
 
@@ -251,7 +241,8 @@ export async function openRarArchiveSession(
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   validateRarSignature(bytes);
 
-  const sevenZip = await createSevenZipInstance();
+  const listing: string[] = [];
+  const sevenZip = await createSevenZipInstance((line) => listing.push(line));
   const FS = sevenZip.FS;
 
   const sessionId = `session_rar_${Date.now()}_${++sessionCounter}`;
@@ -262,17 +253,13 @@ export async function openRarArchiveSession(
   FS.mkdir(baseDir);
   FS.mkdir(outDir);
 
-  FS.writeFile(inputFile, bytes);
-
   try {
-    // Extract archive with 7-Zip
-    sevenZip.callMain(['x', inputFile, `-o${outDir}`, '-y', '-p-']);
-  } catch (err: unknown) {
-    const msg = String((err as { message?: string })?.message || err || '');
-    if (msg.includes('Wrong password') || msg.includes('password') || msg.includes('Encrypted')) {
-      removeDirRecursive(FS, baseDir);
-      throw new Error('This RAR archive is password-protected or encrypted. Encrypted archives cannot be opened without a password.');
-    }
+    FS.writeFile(inputFile, bytes);
+    inspectSevenZipArchive(sevenZip, inputFile, listing);
+    extractSevenZipWithBudget(sevenZip, outDir, ['x', inputFile, `-o${outDir}`, '-y', '-p-']);
+  } catch (error) {
+    removeDirRecursive(FS, baseDir);
+    throw error;
   }
 
   try {
@@ -282,6 +269,11 @@ export async function openRarArchiveSession(
   }
 
   const items = walkDirectoryWithStats(FS, outDir);
+  if (items.length > MAX_ZIP_ENTRIES || items.some((item) => item.size > MAX_SINGLE_ENTRY_SIZE) ||
+      items.reduce((sum, item) => sum + item.size, 0) > MAX_ZIP_DECOMPRESSED_SIZE) {
+    removeDirRecursive(FS, baseDir);
+    throw new Error('RAR archive exceeds the expanded size limit.');
+  }
   const entries: ZipEntryItem[] = [];
   const pathToFullMap = new Map<string, string>();
 

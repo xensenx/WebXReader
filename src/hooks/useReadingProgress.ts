@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ReadingProgress } from '../types/book';
-import { getProgress, saveProgress, getBook, updateBook } from '../core/storage/database';
+import { getProgress, saveProgress } from '../core/storage/database';
 import { debounce } from '../utils';
 
 interface UseReadingProgressResult {
@@ -30,27 +30,6 @@ export function useReadingProgress(bookId: string): UseReadingProgressResult {
   const persistProgress = useCallback(async (p: ReadingProgress) => {
     try {
       await saveProgress(p);
-
-      // Update book's lastOpenedAt and readingStatus
-      const book = await getBook(p.bookId);
-      if (book) {
-        let statusChanged = false;
-        const newStatus = p.overallProgress >= 0.98 ? 'completed' :
-                          p.overallProgress > 0 ? 'reading' : book.readingStatus;
-
-        if (newStatus !== book.readingStatus) {
-          statusChanged = true;
-        }
-
-        if (statusChanged || Date.now() - (book.lastOpenedAt ?? 0) > 30_000) {
-          await updateBook({
-            ...book,
-            lastOpenedAt: Date.now(),
-            readingStatus: newStatus,
-            updatedAt: Date.now(),
-          });
-        }
-      }
     } catch (err) {
       console.error('Failed to persist reading progress:', err);
     }

@@ -7,18 +7,19 @@
  */
 
 import JSZip from 'jszip';
+import { openBudgetedZip, readZipEntryLimited, bytesToBase64, ZIP_LIMITS } from './zip-budget';
 import type { Chapter } from '../../types/book';
 import { generateId } from '../../utils';
 import { naturalCompare, shouldIgnoreEntry, getImageMimeType } from './comic-archive';
 
 /** Maximum total entries permitted in a single ZIP archive to prevent DoS */
-export const MAX_ZIP_ENTRIES = 10000;
+export const MAX_ZIP_ENTRIES = ZIP_LIMITS.entries;
 
 /** Maximum cumulative decompressed size (500 MB) to guard against ZIP bombs */
-export const MAX_ZIP_DECOMPRESSED_SIZE = 500 * 1024 * 1024;
+export const MAX_ZIP_DECOMPRESSED_SIZE = ZIP_LIMITS.totalBytes;
 
 /** Maximum decompressed size for a single entry (100 MB) */
-export const MAX_SINGLE_ENTRY_SIZE = 100 * 1024 * 1024;
+export const MAX_SINGLE_ENTRY_SIZE = ZIP_LIMITS.entryBytes;
 
 /** Maximum ratio between decompressed and compressed size for large files */
 export const MAX_COMPRESSION_RATIO = 100;
@@ -162,7 +163,7 @@ export async function parseZip(
 
   let zip: JSZip;
   try {
-    zip = await JSZip.loadAsync(buffer);
+    zip = await openBudgetedZip(buffer);
   } catch (err) {
     throw new Error(`Failed to read ZIP archive: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -285,7 +286,7 @@ export async function parseZip(
     try {
       const imgZipObj = zip.file(coverCandidate.path);
       if (imgZipObj) {
-        const base64 = await imgZipObj.async('base64');
+        const base64 = bytesToBase64(await readZipEntryLimited(imgZipObj, ZIP_LIMITS.coverBytes));
         const mime = getImageMimeType(coverCandidate.name);
         coverImage = `data:${mime};base64,${base64}`;
       }
