@@ -11,6 +11,7 @@ import {
   computeHash,
   getFileExtension,
   readFileAsArrayBuffer,
+  reuseImportBuffer,
 } from '../../utils';
 import {
   findBookByHash,
@@ -128,6 +129,11 @@ export async function importFile(
         error: 'The selected file is empty (0 bytes).',
       };
     }
+    const maxInputBytes = /\.(?:pdf|cbz|cbr|cb7|djvu)$/i.test(file.name)
+      ? 200 * 1024 * 1024 : 100 * 1024 * 1024;
+    if (file.size > maxInputBytes) {
+      return { success: false, error: `This file exceeds the ${maxInputBytes / 1048576} MB import limit.` };
+    }
 
     // 2. Validate format using extension or MIME type
     let formatDef: FormatDefinition | null = detectFormatFromFilename(file.name);
@@ -139,6 +145,7 @@ export async function importFile(
     let arrayBuffer: ArrayBuffer;
     try {
       arrayBuffer = await readFileAsArrayBuffer(file);
+      reuseImportBuffer(file, arrayBuffer);
     } catch (readError) {
       return {
         success: false,

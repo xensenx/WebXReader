@@ -87,9 +87,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setCoverImage(result.data);
     setCoverDimensions({ width: result.width, height: result.height });
     setCoverError('');
-    setCoverNotice(result.isRemote
-      ? 'This host does not allow local importing, so the original image link will be used.'
-      : 'A resized copy is ready and will be stored in your library.');
+    setCoverNotice('A resized copy is ready and will be stored in your library.');
   };
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {

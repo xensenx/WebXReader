@@ -17,7 +17,7 @@ import {
   lazy,
   Suspense,
 } from 'react';
-import JSZip from 'jszip';
+import { openBudgetedZip, readZipEntryLimited } from '../../core/parsing/zip-budget';
 import {
   Folder,
   BookOpen,
@@ -149,8 +149,12 @@ export const ArchiveReader = memo(function ArchiveReader({
 
   // Blob URLs for image collection caching and revocation
   const activeBlobUrlsRef = useRef<Map<string, string>>(new Map());
+  const blobGenerationRef = useRef(0);
+  const pendingBlobUrlsRef = useRef<Map<string, Promise<string | undefined>>>(new Map());
 
   const revokeActiveBlobUrls = () => {
+    blobGenerationRef.current++;
+    pendingBlobUrlsRef.current.clear();
     activeBlobUrlsRef.current.forEach((url) => {
       try {
         URL.revokeObjectURL(url);
@@ -210,6 +214,7 @@ export const ArchiveReader = memo(function ArchiveReader({
         entry.kind === 'cb7'
       ) {
         const buffer = await session.getEntryData(entry.path);
+        if (entry.kind === 'epub') await openBudgetedZip(buffer);
         setActiveCollection(null);
         setActiveDoc({
           entry,
@@ -310,7 +315,7 @@ export const ArchiveReader = memo(function ArchiveReader({
           };
         } else {
           const [loadedZip, parsedResult] = await Promise.all([
-            JSZip.loadAsync(fileData),
+            openBudgetedZip(fileData),
             parseZip(fileData, { filename: book?.originalFilename || book?.title }),
           ]);
 
@@ -321,18 +326,18 @@ export const ArchiveReader = memo(function ArchiveReader({
             getEntryData: async (p) => {
               const fileObj = loadedZip.file(p);
               if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
-              return fileObj.async('arraybuffer');
+              return (await readZipEntryLimited(fileObj)).buffer as ArrayBuffer;
             },
             getEntryBlob: async (p, mime) => {
               const fileObj = loadedZip.file(p);
               if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
-              const blob = await fileObj.async('blob');
+              const blob = new Blob([await readZipEntryLimited(fileObj) as BlobPart]);
               return mime && blob.type !== mime ? new Blob([blob], { type: mime }) : blob;
             },
             getEntryText: async (p) => {
               const fileObj = loadedZip.file(p);
               if (!fileObj) throw new Error(`File "${p}" not found in archive.`);
-              return fileObj.async('string');
+              return new TextDecoder().decode(await readZipEntryLimited(fileObj));
             },
             close: () => {},
           };
@@ -404,18 +409,39 @@ export const ArchiveReader = memo(function ArchiveReader({
       if (!archiveSession) return undefined;
       const cached = activeBlobUrlsRef.current.get(entry.path);
       if (cached) return cached;
+      const pending = pendingBlobUrlsRef.current.get(entry.path);
+      if (pending) return pending;
 
-      try {
+      const generation = blobGenerationRef.current;
+      const load = (async () => { try {
         const blob = await archiveSession.getEntryBlob(entry.path);
+        if (generation !== blobGenerationRef.current) return undefined;
         const url = URL.createObjectURL(blob);
         activeBlobUrlsRef.current.set(entry.path, url);
         return url;
       } catch {
         return undefined;
-      }
+      } finally {
+        pendingBlobUrlsRef.current.delete(entry.path);
+      } })();
+      pendingBlobUrlsRef.current.set(entry.path, load);
+      return load;
     },
     [archiveSession]
   );
+
+  useEffect(() => {
+    if (!activeCollection) return;
+    const visiblePaths = new Set(activeCollection.images
+      .slice(Math.max(0, activeCollection.currentIndex - 2), activeCollection.currentIndex + 3)
+      .map((image) => image.path));
+    for (const [path, url] of activeBlobUrlsRef.current) {
+      if (!visiblePaths.has(path)) {
+        URL.revokeObjectURL(url);
+        activeBlobUrlsRef.current.delete(path);
+      }
+    }
+  }, [activeCollection]);
 
   // Compute items displayed in current directory
   const currentDirectoryItems = useMemo(() => {

@@ -6,6 +6,7 @@
 
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
+import { openBudgetedZip, readZipEntryLimited, bytesToBase64, ZIP_LIMITS } from './zip-budget';
 import type { Chapter, BookMetadata } from '../../types/book';
 import { sanitizeReaderHtml } from './sanitize-reader-html';
 
@@ -76,7 +77,7 @@ async function extractDocxMetadata(zip: JSZip): Promise<{ metadata: Partial<Book
   const coreFile = zip.file('docProps/core.xml');
   if (coreFile) {
     try {
-      const xml = await coreFile.async('text');
+      const xml = new TextDecoder().decode(await readZipEntryLimited(coreFile, 1024 * 1024));
       const getTag = (tag: string): string | undefined => {
         const regex = new RegExp(`<(?:[a-zA-Z0-9]+:)?${tag}[^>]*>([\\s\\S]*?)<\\/(?:[a-zA-Z0-9]+:)?${tag}>`, 'i');
         const match = xml.match(regex);
@@ -113,7 +114,7 @@ async function extractDocxMetadata(zip: JSZip): Promise<{ metadata: Partial<Book
     if (mediaFiles.length > 0) {
       const firstImg = zip.file(mediaFiles[0]);
       if (firstImg) {
-        const base64 = await firstImg.async('base64');
+        const base64 = bytesToBase64(await readZipEntryLimited(firstImg, ZIP_LIMITS.coverBytes));
         const ext = mediaFiles[0].split('.').pop()?.toLowerCase();
         const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
         coverImage = `data:${mime};base64,${base64}`;
@@ -151,7 +152,7 @@ export async function parseDocx(
   // 2. Open ZIP Package and extract Dublin Core metadata
   let zip: JSZip;
   try {
-    zip = await JSZip.loadAsync(buffer);
+    zip = await openBudgetedZip(buffer);
   } catch (err) {
     throw new Error(`Failed to read DOCX package: ${err instanceof Error ? err.message : String(err)}`);
   }

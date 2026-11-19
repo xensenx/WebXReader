@@ -180,7 +180,15 @@ export async function readFileAsText(file: File, encoding?: string): Promise<str
 /**
  * Reads a File as ArrayBuffer.
  */
+const importedFileBuffers = new WeakMap<File, ArrayBuffer>();
+
+export function reuseImportBuffer(file: File, buffer: ArrayBuffer): void {
+  importedFileBuffers.set(file, buffer);
+}
+
 export async function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
+  const cached = importedFileBuffers.get(file);
+  if (cached) return cached;
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as ArrayBuffer);

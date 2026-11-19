@@ -1,4 +1,9 @@
 // Polyfill Uint8Array.prototype.toHex and Uint8Array.fromHex if not supported by runtime
+if (!(Promise as typeof Promise & { try?: (callback: (...args: unknown[]) => unknown, ...args: unknown[]) => Promise<unknown> }).try) {
+  (Promise as typeof Promise & { try?: (callback: (...args: unknown[]) => unknown, ...args: unknown[]) => Promise<unknown> }).try =
+    (callback, ...args) => Promise.resolve().then(() => callback(...args));
+}
+
 if (typeof Uint8Array !== 'undefined') {
   if (!(Uint8Array.prototype as any).toHex) {
     (Uint8Array.prototype as any).toHex = function () {

@@ -63,105 +63,109 @@ export async function parsePdf(arrayBuffer: ArrayBuffer): Promise<PdfParseResult
     useSystemFonts: true,
   });
 
-  const pdfDoc = await loadingTask.promise;
-  const totalPages = pdfDoc.numPages;
-
-  // 1. Extract metadata
-  const metadata: Partial<BookMetadata> = {};
   try {
-    const metaDataObj = await pdfDoc.getMetadata();
-    const info = metaDataObj?.info as Record<string, unknown> | undefined;
+    const pdfDoc = await loadingTask.promise;
+    const totalPages = pdfDoc.numPages;
 
-    if (info) {
-      if (typeof info.Title === 'string' && info.Title.trim()) {
-        metadata.title = info.Title.trim();
-      }
-      if (typeof info.Author === 'string' && info.Author.trim()) {
-        metadata.author = info.Author.trim();
-      }
-      if (typeof info.Subject === 'string' && info.Subject.trim()) {
-        metadata.description = info.Subject.trim();
-      }
-      if (typeof info.Producer === 'string' && info.Producer.trim()) {
-        metadata.publisher = info.Producer.trim();
-      }
-      if (typeof info.CreationDate === 'string') {
-        metadata.publicationDate = info.CreationDate;
-      }
-    }
-  } catch {
-    // Non-critical: metadata might not exist
-  }
+    // 1. Extract metadata
+    const metadata: Partial<BookMetadata> = {};
+    try {
+      const metaDataObj = await pdfDoc.getMetadata();
+      const info = metaDataObj?.info as Record<string, unknown> | undefined;
 
-  // 2. Extract outline / Table of Contents
-  const tableOfContents: Chapter[] = [];
-  try {
-    const outline = (await pdfDoc.getOutline()) as OutlineNode[] | null;
-
-    if (outline && outline.length > 0) {
-      let order = 0;
-      for (const item of outline) {
-        let pageNum = 1;
-        if (Array.isArray(item.dest) && item.dest.length > 0) {
-          try {
-            const pageIndex = await pdfDoc.getPageIndex(item.dest[0] as any);
-            pageNum = pageIndex + 1;
-          } catch {
-            // fallback
-          }
-        } else if (typeof item.dest === 'string') {
-          try {
-            const destArr = await pdfDoc.getDestination(item.dest);
-            if (destArr && destArr.length > 0) {
-              const pageIndex = await pdfDoc.getPageIndex(destArr[0] as any);
-              pageNum = pageIndex + 1;
-            }
-          } catch {
-            // fallback
-          }
+      if (info) {
+        if (typeof info.Title === 'string' && info.Title.trim()) {
+          metadata.title = info.Title.trim();
         }
+        if (typeof info.Author === 'string' && info.Author.trim()) {
+          metadata.author = info.Author.trim();
+        }
+        if (typeof info.Subject === 'string' && info.Subject.trim()) {
+          metadata.description = info.Subject.trim();
+        }
+        if (typeof info.Producer === 'string' && info.Producer.trim()) {
+          metadata.publisher = info.Producer.trim();
+        }
+        if (typeof info.CreationDate === 'string') {
+          metadata.publicationDate = info.CreationDate;
+        }
+      }
+    } catch {
+      // Non-critical: metadata might not exist
+    }
 
+    // 2. Extract outline / Table of Contents
+    const tableOfContents: Chapter[] = [];
+    try {
+      const outline = (await pdfDoc.getOutline()) as OutlineNode[] | null;
+
+      if (outline && outline.length > 0) {
+        let order = 0;
+        for (const item of outline) {
+          let pageNum = 1;
+          if (Array.isArray(item.dest) && item.dest.length > 0) {
+            try {
+              const pageIndex = await pdfDoc.getPageIndex(item.dest[0] as any);
+              pageNum = pageIndex + 1;
+            } catch {
+              // fallback
+            }
+          } else if (typeof item.dest === 'string') {
+            try {
+              const destArr = await pdfDoc.getDestination(item.dest);
+              if (destArr && destArr.length > 0) {
+                const pageIndex = await pdfDoc.getPageIndex(destArr[0] as any);
+                pageNum = pageIndex + 1;
+              }
+            } catch {
+              // fallback
+            }
+          }
+
+          tableOfContents.push({
+            id: generateId(),
+            title: item.title?.trim() || `Section ${order + 1}`,
+            href: `${pageNum}`,
+            level: 0,
+            order: order++,
+          });
+        }
+      }
+    } catch {
+      // Outline extraction failed or empty
+    }
+
+    // If no outline was available, build page list for chapters (up to 500 pages)
+    if (tableOfContents.length === 0) {
+      const step = totalPages > 100 ? 5 : 1;
+      let order = 0;
+      for (let p = 1; p <= totalPages; p += step) {
         tableOfContents.push({
           id: generateId(),
-          title: item.title?.trim() || `Section ${order + 1}`,
-          href: `${pageNum}`,
+          title: step > 1 ? `Pages ${p}–${Math.min(totalPages, p + step - 1)}` : `Page ${p}`,
+          href: `${p}`,
           level: 0,
           order: order++,
         });
       }
     }
-  } catch {
-    // Outline extraction failed or empty
-  }
 
-  // If no outline was available, build page list for chapters (up to 500 pages)
-  if (tableOfContents.length === 0) {
-    const step = totalPages > 100 ? 5 : 1;
-    let order = 0;
-    for (let p = 1; p <= totalPages; p += step) {
-      tableOfContents.push({
-        id: generateId(),
-        title: step > 1 ? `Pages ${p}–${Math.min(totalPages, p + step - 1)}` : `Page ${p}`,
-        href: `${p}`,
-        level: 0,
-        order: order++,
-      });
+    // 3. Extract cover image from page 1
+    let coverImage: string | undefined;
+    try {
+      const page1 = await pdfDoc.getPage(1);
+      coverImage = await extractCoverFromPage1(page1);
+    } catch {
+      // optional
     }
-  }
 
-  // 3. Extract cover image from page 1
-  let coverImage: string | undefined;
-  try {
-    const page1 = await pdfDoc.getPage(1);
-    coverImage = await extractCoverFromPage1(page1);
-  } catch {
-    // optional
+    return {
+      metadata,
+      tableOfContents,
+      coverImage,
+      totalPages,
+    };
+  } finally {
+    await loadingTask.destroy();
   }
-
-  return {
-    metadata,
-    tableOfContents,
-    coverImage,
-    totalPages,
-  };
 }

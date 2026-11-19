@@ -9,6 +9,7 @@ import {
   saveBookContent,
   getBook,
   getBookContent,
+  exportBackupStream,
   clearDatabase,
 } from '../core/storage/database';
 import type { Book, BookContent } from '../types/book';
@@ -93,6 +94,16 @@ describe('Backup and Export Service', () => {
     expect(createdElements.length).toBe(1);
     expect(clickedLinks.length).toBe(1);
     expect(clickedLinks[0]).toMatch(/^webxreader-backup-\d{4}-\d{2}-\d{2}\.json$/);
+  });
+
+  it('streams a restorable version 2 backup record by record', async () => {
+    await addBook(createMockBook());
+    await saveBookContent({ bookId: 'test-book-id', format: 'txt', rawText: 'sample text' });
+    const json = await new Response(await exportBackupStream()).text();
+    const backup = JSON.parse(json);
+    expect(backup.books).toHaveLength(1);
+    expect(backup.contents[0].rawText).toBe('sample text');
+    expect(backup.version).toBe(2);
   });
 
   it('restores library backup from valid JSON File', async () => {

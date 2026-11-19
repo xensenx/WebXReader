@@ -10,6 +10,7 @@ import {
   getImageMimeType,
 } from './comic-archive';
 import { removeDirRecursive, walkDirectory } from './sevenzip-common';
+import { extractSevenZipWithBudget, inspectSevenZipArchive } from './sevenzip-budget';
 
 export interface ExtractedComicArchive {
   imagePaths: string[];
@@ -33,7 +34,8 @@ export async function extractComicArchive(
   arrayBuffer: ArrayBuffer,
   fileExtension: string = '7z'
 ): Promise<ExtractedComicArchive> {
-  const sevenZip = await createSevenZipInstance();
+  const listing: string[] = [];
+  const sevenZip = await createSevenZipInstance((line) => listing.push(line));
   const FS = sevenZip.FS;
 
   const sessionId = `parse_${Date.now()}_${++sessionCounter}`;
@@ -48,11 +50,8 @@ export async function extractComicArchive(
     const bytes = new Uint8Array(arrayBuffer);
     FS.writeFile(inputFile, bytes);
 
-    try {
-      sevenZip.callMain(['x', inputFile, `-o${outDir}`, '-y']);
-    } catch {
-      // callMain throws ExitStatus on completion or error
-    }
+    inspectSevenZipArchive(sevenZip, inputFile, listing);
+    extractSevenZipWithBudget(sevenZip, outDir, ['x', inputFile, `-o${outDir}`, '-y']);
 
     // Remove input file immediately to save memory
     try {
@@ -102,7 +101,8 @@ export async function openComicArchiveSession(
   arrayBuffer: ArrayBuffer,
   fileExtension: string = '7z'
 ): Promise<ComicArchiveSession> {
-  const sevenZip = await createSevenZipInstance();
+  const listing: string[] = [];
+  const sevenZip = await createSevenZipInstance((line) => listing.push(line));
   const FS = sevenZip.FS;
 
   const sessionId = `session_${Date.now()}_${++sessionCounter}`;
@@ -113,13 +113,14 @@ export async function openComicArchiveSession(
   FS.mkdir(baseDir);
   FS.mkdir(outDir);
 
-  const bytes = new Uint8Array(arrayBuffer);
-  FS.writeFile(inputFile, bytes);
-
   try {
-    sevenZip.callMain(['x', inputFile, `-o${outDir}`, '-y']);
-  } catch {
-    // callMain throws ExitStatus on completion
+    const bytes = new Uint8Array(arrayBuffer);
+    FS.writeFile(inputFile, bytes);
+    inspectSevenZipArchive(sevenZip, inputFile, listing);
+    extractSevenZipWithBudget(sevenZip, outDir, ['x', inputFile, `-o${outDir}`, '-y']);
+  } catch (error) {
+    removeDirRecursive(FS, baseDir);
+    throw error;
   }
 
   try {
