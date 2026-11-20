@@ -132,12 +132,49 @@ Date: Wed, 12 Oct 2022 14:32:00 +0000`;
       expect(result.rawText).not.toContain('Auxiliary HTML');
     });
 
+    it.each([
+      ['<p>Nested start</p>', 'Nested start'],
+      ['<p>&nbsp;</p>', 'Snapshot location'],
+    ])('uses the nested start before the snapshot location for %s', async (html, expected) => {
+      const location = 'https://example.com/snapshot.html';
+      const archive = multipart('multipart/related; start="<root>"', 'outer', [
+        multipart('multipart/related; start="<page>"', 'inner', [
+          entity('text/html', '<p>Snapshot location</p>', [`Content-Location: ${location}`]),
+          entity('text/html', html, ['Content-ID: <page>']),
+        ], ['Content-ID: <root>']),
+      ], [`Snapshot-Content-Location: ${location}`]);
+      expect((await parseMht(archive)).rawText).toBe(expected);
+    });
+
+    it('tries visible exact and resolved locations before filename aliases', async () => {
+      const archive = multipart('multipart/related', 'outer', [
+        multipart('multipart/related', 'inner', [
+          entity('text/html',
+            '<p>Main</p><img src="cover.png"><img src="https://example.com/page/cover.png">' +
+            '<img src="somewhere/cover.png"><img src="shared.png">',
+            ['Content-Location: https://example.com/page/index.html']),
+          image('image/jpeg', SAMPLE_JPEG_BASE64, 'https://example.com/other/cover.png'),
+          image('image/jpeg', SAMPLE_JPEG_BASE64, 'shared.png'),
+        ]),
+        image('image/png', SAMPLE_PNG_BASE64, 'https://example.com/page/cover.png'),
+        image('image/png', SAMPLE_PNG_BASE64, 'shared.png'),
+      ]);
+      const { fullHtml } = await parseMht(archive);
+      const template = document.createElement('template');
+      template.innerHTML = fullHtml;
+      const png = `data:image/png;base64,${SAMPLE_PNG_BASE64}`;
+      const jpeg = `data:image/jpeg;base64,${SAMPLE_JPEG_BASE64}`;
+      expect(Array.from(template.content.querySelectorAll('img'), (img) => img.getAttribute('src')))
+        .toEqual([png, png, jpeg, jpeg]);
+    });
+
     it('falls back to plain text when the preferred HTML sanitizes to an empty body', async () => {
       const archive = multipart('multipart/related; start="<root>"', 'outer', [
         entity('text/html', '<p>Auxiliary HTML</p>'),
-        multipart('multipart/alternative', 'alternative', [
+        multipart('multipart/alternative; start="<empty>"', 'alternative', [
           entity('text/plain', 'Readable fallback'),
-          entity('text/html', '<html><head><title>Empty page</title></head><body>&nbsp;<img src=missing.png></body></html>'),
+          entity('text/html', '<html><head><title>Empty page</title></head><body>&nbsp;<img src=missing.png></body></html>',
+            ['Content-ID: <empty>']),
         ], ['Content-ID: <root>']),
       ]);
       expect((await parseMht(archive)).rawText).toBe('Readable fallback');

@@ -46,6 +46,7 @@ interface ParsedMimePart {
   transferEncoding: string;
   location?: string;
   contentId?: string;
+  startId?: string;
   bodyRaw: string;
   parent?: ParsedMimePart;
   children?: ParsedMimePart[];
@@ -213,7 +214,7 @@ export function latin1StringToBuffer(str: string): Uint8Array {
 /**
  * Resolves a URL or CID against the resource map with multiple lookup strategies.
  */
-function findResource(url: string, resourceMap: Map<string, MhtResource>, baseUrl?: string): MhtResource | null {
+function findExactResource(url: string, resourceMap: Map<string, MhtResource>, baseUrl?: string): MhtResource | null {
   if (!url) return null;
   const cleanUrl = url.trim();
 
@@ -240,26 +241,38 @@ function findResource(url: string, resourceMap: Map<string, MhtResource>, baseUr
     }
   }
 
-  // 4. Filename / basename match (e.g. "header.png" from "https://example.com/assets/header.png")
-  const filename = cleanUrl.split(/[/\\]/).pop()?.split('?')[0].split('#')[0];
-  if (filename && resourceMap.has(filename)) {
-    return resourceMap.get(filename) || null;
-  }
-
-  // 5. Clean without query/hash
-  const stripped = cleanUrl.split('?')[0].split('#')[0];
-  if (resourceMap.has(stripped)) {
-    return resourceMap.get(stripped) || null;
-  }
-
   return null;
+}
+
+function findResourceFallback(
+  url: string,
+  resourceMap: Map<string, MhtResource>,
+  aliases = resourceMap,
+): MhtResource | null {
+  if (!url) return null;
+  const cleanUrl = url.trim();
+  if (cleanUrl.toLowerCase().startsWith('cid:')) return null;
+
+  const alias = aliases.get(cleanUrl);
+  if (alias) return alias;
+
+  // Filename / basename match (e.g. "header.png" from "https://example.com/assets/header.png")
+  const filename = cleanUrl.split(/[/\\]/).pop()?.split('?')[0].split('#')[0];
+  if (filename && aliases.has(filename)) {
+    return aliases.get(filename) || null;
+  }
+
+  // Clean without query/hash
+  const stripped = cleanUrl.split('?')[0].split('#')[0];
+  return resourceMap.get(stripped) || aliases.get(stripped) || null;
 }
 
 /**
  * Inlines external resources (images, stylesheets, fonts) into the root HTML as data URIs and inline styles.
  */
 export function inlineMhtmlResources(html: string, resourceMap: Map<string, MhtResource>, baseUrl?: string): string {
-  return inlineResources(html, (url) => findResource(url, resourceMap, baseUrl));
+  return inlineResources(html, (url) =>
+    findExactResource(url, resourceMap, baseUrl) || findResourceFallback(url, resourceMap));
 }
 
 function inlineResources(html: string, lookup: (url: string) => MhtResource | null): string {
@@ -484,7 +497,7 @@ function collectMimeParts(
   depth = 0,
 ): ParsedMimePart[] {
   if (depth > 24) return [];
-  const { mimeType, charset, boundary } = parseContentType(headers.get('content-type') ?? '');
+  const { mimeType, charset, boundary, parameters } = parseContentType(headers.get('content-type') ?? '');
   const transferEncoding = headers.get('content-transfer-encoding')?.toLowerCase() ?? '7bit';
   const node: ParsedMimePart = {
     contentType: mimeType || 'application/octet-stream',
@@ -492,6 +505,7 @@ function collectMimeParts(
     transferEncoding,
     location: headers.get('content-location'),
     contentId: normalizeContentId(headers.get('content-id')),
+    startId: normalizeContentId(parameters.get('start')),
     bodyRaw: body,
     parent,
   };
@@ -534,8 +548,15 @@ function normalizeContentId(id?: string): string | undefined {
   return id?.trim().replace(/^cid:/i, '').replace(/^<|>$/g, '');
 }
 
+function preferredDocumentGroups(part: ParsedMimePart): ParsedMimePart[][] {
+  const target = part.children && part.startId ? findMimePart(part.children, part.startId) : undefined;
+  const leaves = mimeLeaves([part]);
+  return target ? [...preferredDocumentGroups(target), leaves] : [leaves];
+}
+
 interface MimeResourceScope {
   resourceMap: Map<string, MhtResource>;
+  aliases: Map<string, MhtResource>;
   coverImage?: string;
 }
 
@@ -548,10 +569,10 @@ function indexMimeResources(parts: ParsedMimePart[]): Map<ParsedMimePart, MimeRe
     if (!part.parent || (!isImage && !isCss && !isFont)) continue;
     let scope = scopes.get(part.parent);
     if (!scope) {
-      scope = { resourceMap: new Map() };
+      scope = { resourceMap: new Map(), aliases: new Map() };
       scopes.set(part.parent, scope);
     }
-    const { resourceMap } = scope;
+    const { resourceMap, aliases } = scope;
     let dataUrl: string | undefined;
     let text: string | undefined;
 
@@ -575,19 +596,19 @@ function indexMimeResources(parts: ParsedMimePart[]): Map<ParsedMimePart, MimeRe
       contentId: part.contentId,
     };
 
-    // Index under various key patterns for robust resolution
+    // Keep derived paths and filenames separate from explicit locations.
     if (part.location) {
       resourceMap.set(part.location.trim(), resource);
       // Normalized path without origin
       try {
         const u = new URL(part.location);
-        resourceMap.set(u.pathname, resource);
-        resourceMap.set(u.pathname.replace(/^\//, ''), resource);
+        aliases.set(u.pathname, resource);
+        aliases.set(u.pathname.replace(/^\//, ''), resource);
         const fname = u.pathname.split('/').pop();
-        if (fname) resourceMap.set(fname, resource);
+        if (fname) aliases.set(fname, resource);
       } catch {
         const fname = part.location.split(/[/\\]/).pop();
-        if (fname) resourceMap.set(fname, resource);
+        if (fname) aliases.set(fname, resource);
       }
     }
 
@@ -603,7 +624,7 @@ function indexMimeResources(parts: ParsedMimePart[]): Map<ParsedMimePart, MimeRe
 
 function selectDocument(
   parts: ParsedMimePart[],
-  preferredParts: ParsedMimePart[],
+  preferredGroups: ParsedMimePart[][],
   rootLocation: string | undefined,
   defaultCharset: string | undefined,
   prepare: (part: ParsedMimePart, html: string) => string,
@@ -615,8 +636,8 @@ function selectDocument(
     decodeTextWithCharset(decodeMimeBody(part.bodyRaw, part.transferEncoding), part.charset || defaultCharset);
   const checked = new Set<ParsedMimePart>();
 
-  // A matched start container gets first choice, including its plain alternative.
-  for (const group of [preferredParts, parts]) {
+  // Try each explicit start target before using the snapshot location in its enclosing group.
+  for (const group of [...preferredGroups, parts]) {
     const readable = group.filter((part) => part.bodyRaw.length > 0);
     const candidates = new Set([
       ...(rootLocation ? readable.filter((part) => part.location === rootLocation) : []),
@@ -672,9 +693,8 @@ export async function parseMht(
 
   // Strip a UTF-8 BOM from the MIME envelope while keeping body bytes intact.
   const { headers: topHeaders, body } = splitMimeEntity(rawText.replace(/^(?:\uFEFF|\xEF\xBB\xBF)/, ''));
-  const contentType = parseContentType(topHeaders.get('content-type') ?? '');
   const mimeTree = collectMimeParts(topHeaders, body);
-  const startId = normalizeContentId(contentType.parameters.get('start'));
+  const startId = mimeTree[0]?.startId;
   const preferred = startId ? findMimePart(mimeTree, startId) : undefined;
   const parsedParts = mimeLeaves(mimeTree);
   if (parsedParts.length === 0) {
@@ -692,13 +712,17 @@ export async function parseMht(
     return visible;
   };
   const root = selectDocument(
-    parsedParts, preferred ? mimeLeaves([preferred]) : [], rootLocation, options?.defaultCharset,
+    parsedParts, preferred ? preferredDocumentGroups(preferred) : [], rootLocation, options?.defaultCharset,
     (part, html) => {
       const visible = scopesFor(part);
       const baseUrl = part.location || rootLocation;
       return inlineResources(html, (url) => {
         for (const scope of visible) {
-          const resource = findResource(url, scope.resourceMap, baseUrl);
+          const resource = findExactResource(url, scope.resourceMap, baseUrl);
+          if (resource) return resource;
+        }
+        for (const scope of visible) {
+          const resource = findResourceFallback(url, scope.resourceMap, scope.aliases);
           if (resource) return resource;
         }
         return null;
