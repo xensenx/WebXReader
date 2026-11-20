@@ -5,21 +5,9 @@
   overflow-y: auto;
   overflow-x: auto;
   overflow-anchor: auto;
-  background-color: var(--reader-backdrop, #111215);
+  background-color: var(--reader-flow-backdrop, #111215);
   color: var(--reader-text);
   scroll-behavior: auto;
-}
-
-:global([data-theme='light']) .container {
-  --reader-backdrop: #e5e7eb;
-}
-
-:global([data-theme='sepia']) .container {
-  --reader-backdrop: #e8dfc8;
-}
-
-:global([data-theme='dark']) .container {
-  --reader-backdrop: #111215;
 }
 
 .contentWrapper {
@@ -50,6 +38,7 @@
 
 /* 3 Canvas Sheet Colors */
 .sheetPaper {
+  --reader-sheet-link: var(--reader-paper-link, var(--reader-link));
   --reader-inset-background: #f0f2f5;
   --reader-inset-border: #cdd4dc;
   background-color: #ffffff;
@@ -59,6 +48,7 @@
 }
 
 .sheetArchive {
+  --reader-sheet-link: var(--reader-archive-link, var(--reader-link));
   --reader-inset-background: #e9e0c9;
   --reader-inset-border: #c9b78c;
   background-color: #f7f1e1;
@@ -68,6 +58,7 @@
 }
 
 .sheetDark {
+  --reader-sheet-link: var(--reader-dark-link, var(--reader-link));
   --reader-inset-background: #34363d;
   --reader-inset-border: #51545e;
   background-color: #27282d;
@@ -148,7 +139,7 @@
 }
 
 .chapterBody a {
-  color: var(--reader-link);
+  color: var(--reader-sheet-link);
   text-decoration: underline;
 }
 

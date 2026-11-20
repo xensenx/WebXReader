@@ -32,7 +32,11 @@ const SECONDARY_PAGE_LINKS = [
   { path: '/about', label: 'About', icon: <Info size={18} /> },
 ];
 
-export function MainPageHeader() {
+interface MainPageHeaderProps {
+  libraryName?: string;
+}
+
+export function MainPageHeader({ libraryName }: MainPageHeaderProps) {
   const { isOpen, setIsOpen } = useSidePanelContext();
   const navigate = useNavigate();
   const location = useLocation();
@@ -129,11 +133,14 @@ export function MainPageHeader() {
 
   return (
     <>
-      <header className={styles.header}>
+      <header className={libraryName ? `${styles.header} ${styles.namedHeader}` : styles.header}>
         <div className={styles.brand}>
           <img src="/webxreader.svg" alt="" className={styles.brandLogo} aria-hidden="true" />
-          <span>WebXReader</span>
+          <span className={styles.brandName}>WebXReader</span>
         </div>
+        {libraryName && (
+          <span className={styles.libraryName} title={libraryName} dir="auto">{libraryName}</span>
+        )}
         <button
           ref={toggleRef}
           className={styles.iconButton}

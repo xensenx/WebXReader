@@ -5,8 +5,8 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#fafafa",
-  "theme_color": "#2563eb",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
   "categories": [
     "books",
     "entertainment",

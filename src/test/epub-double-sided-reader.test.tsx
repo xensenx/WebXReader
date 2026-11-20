@@ -23,7 +23,7 @@ describe('EPUB Double Sided FlipBook Reader', () => {
     maxContentWidth: 794,
     contentMargin: 24,
     readingMode: 'vertical',
-    theme: 'light',
+    theme: 'dark',
     readerSheetColor: 'paper',
     expandContent: false,
   };

@@ -23,7 +23,7 @@ describe('PDF Reader Enhancements', () => {
     maxContentWidth: 720,
     contentMargin: 24,
     readingMode: 'scroll',
-    theme: 'light',
+    theme: 'dark',
     readerSheetColor: 'paper',
     expandContent: false,
   };

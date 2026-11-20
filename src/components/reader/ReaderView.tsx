@@ -681,7 +681,6 @@ export function ReaderView() {
   return (
     <div
       className={styles.container}
-      data-theme={readerSettings.theme}
     >
       {/* Reader Header */}
       <header

@@ -10,27 +10,12 @@
   width: 100%;
   height: 100%;
   position: relative;
-  background-color: var(--color-reader-bg, #1a1a1c);
-  color: var(--color-reader-text, #f1f1f1);
+  background-color: var(--reader-stage-backdrop, #121214);
+  color: var(--reader-control-text, #e4e4e7);
   overflow: hidden;
   min-height: 0;
   user-select: none;
   outline: none;
-}
-
-[data-theme='light'] .container {
-  background-color: #e5e7eb;
-  color: #1f2937;
-}
-
-[data-theme='sepia'] .container {
-  background-color: #eeddbb;
-  color: #4a3f35;
-}
-
-[data-theme='dark'] .container {
-  background-color: #121214;
-  color: #e4e4e7;
 }
 
 /* The viewport is the scroll surface */
@@ -170,9 +155,9 @@
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(24, 24, 27, 0.88);
+  background: var(--reader-control-bg, rgba(24, 24, 27, 0.88));
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--reader-control-border, rgba(255, 255, 255, 0.12));
   border-radius: 24px;
   color: var(--color-text, #f4f4f5);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
@@ -200,17 +185,17 @@
 }
 
 .toolBtn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: var(--reader-control-hover, rgba(255, 255, 255, 0.12));
+  color: var(--reader-control-text, #ffffff);
 }
 
 .toolBtnActive {
-  background: var(--color-primary, #6366f1);
-  color: #ffffff;
+  background: var(--reader-control-selected, var(--color-primary, #6366f1));
+  color: var(--reader-control-selected-text, #ffffff);
 }
 
 .toolBtnActive:hover {
-  background: var(--color-primary-hover, #4f46e5);
+  background: var(--reader-control-selected, var(--color-primary-hover, #4f46e5));
 }
 
 .divider {
@@ -238,11 +223,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(24, 24, 27, 0.7);
+  background: var(--reader-control-bg, rgba(24, 24, 27, 0.7));
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--reader-control-border, rgba(255, 255, 255, 0.1));
   border-radius: 50%;
-  color: #ffffff;
+  color: var(--reader-control-text, #ffffff);
   cursor: pointer;
   z-index: 8;
   opacity: 0.4;
@@ -251,7 +236,7 @@
 
 .navArrow:hover {
   opacity: 1;
-  background: rgba(24, 24, 27, 0.95);
+  background: var(--reader-control-hover, rgba(24, 24, 27, 0.95));
   transform: translateY(-50%) scale(1.05);
 }
 

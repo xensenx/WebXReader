@@ -15,15 +15,11 @@ interface UseSettingsResult {
   resetSettings: () => Promise<void>;
 }
 
-function getSystemTheme(): ThemeName {
-  if (typeof window !== 'undefined' && window.matchMedia) {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-  return 'light';
-}
-
 function applyTheme(theme: ThemeName): void {
-  document.documentElement.setAttribute('data-theme', theme);
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  const background = getComputedStyle(root).getPropertyValue('--color-bg').trim();
+  if (background) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', background);
 }
 
 export function useSettings(): UseSettingsResult {
@@ -38,31 +34,13 @@ export function useSettings(): UseSettingsResult {
     async function loadSettings() {
       try {
         const stored = await getSettings();
-        if (cancelled) return;
-
-        if (!settingsChangedRef.current) {
-          if (stored) {
-            const merged = { ...DEFAULT_SETTINGS, ...stored };
-            settingsRef.current = merged;
-            setSettings(merged);
-            applyTheme(merged.theme);
-          } else {
-            // No stored settings — apply system theme as default
-            const systemTheme = getSystemTheme();
-            const initial: UserSettings = { ...DEFAULT_SETTINGS, theme: systemTheme };
-            settingsRef.current = initial;
-            setSettings(initial);
-            applyTheme(systemTheme);
-          }
-        }
+        if (cancelled || settingsChangedRef.current) return;
+        const initial = stored ?? DEFAULT_SETTINGS;
+        settingsRef.current = initial;
+        setSettings(initial);
+        applyTheme(initial.theme);
       } catch {
-        if (!settingsChangedRef.current) {
-          const systemTheme = getSystemTheme();
-          const initial: UserSettings = { ...DEFAULT_SETTINGS, theme: systemTheme };
-          settingsRef.current = initial;
-          setSettings(initial);
-          applyTheme(systemTheme);
-        }
+        if (!cancelled && !settingsChangedRef.current) applyTheme(DEFAULT_SETTINGS.theme);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -75,31 +53,15 @@ export function useSettings(): UseSettingsResult {
     };
   }, []);
 
-  // Listen for system theme changes
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-
-    function handleChange(_e: MediaQueryListEvent) {
-      // Only auto-switch if user hasn't explicitly chosen a theme
-      // We detect this by checking if settings haven't been persisted yet
-      // In practice the user's explicit choice is always persisted
-    }
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
-
   const resetSettings = useCallback(async () => {
     settingsChangedRef.current = true;
-    const systemTheme = getSystemTheme();
     const initial: UserSettings = {
       ...DEFAULT_SETTINGS,
-      theme: systemTheme,
       updatedAt: Date.now(),
     };
     settingsRef.current = initial;
     setSettings(initial);
-    applyTheme(systemTheme);
+    applyTheme(initial.theme);
 
     try {
       await saveSettings(initial);

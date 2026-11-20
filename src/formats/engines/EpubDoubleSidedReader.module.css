@@ -213,12 +213,12 @@
   width: 44px;
   height: 44px;
   border-radius: var(--radius-full, 9999px);
-  background-color: rgba(30, 30, 36, 0.78);
+  background-color: var(--reader-control-bg, rgba(30, 30, 36, 0.78));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--reader-control-border, rgba(255, 255, 255, 0.18));
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  color: #ffffff;
+  color: var(--reader-control-text, #ffffff);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -228,8 +228,8 @@
 .navZone:hover .navButton,
 .navButton:hover {
   transform: scale(1.1);
-  background-color: rgba(45, 45, 55, 0.95);
-  border-color: rgba(255, 255, 255, 0.35);
+  background-color: var(--reader-control-hover, rgba(45, 45, 55, 0.95));
+  border-color: var(--reader-control-border, rgba(255, 255, 255, 0.35));
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
 }
 
@@ -253,10 +253,10 @@
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
-  background-color: rgba(22, 22, 26, 0.88);
+  background-color: var(--reader-control-bg, rgba(22, 22, 26, 0.88));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--reader-control-border, rgba(255, 255, 255, 0.18));
   border-radius: var(--radius-full, 9999px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   z-index: 30;
@@ -283,7 +283,7 @@
   border: none;
   border-radius: var(--radius-full, 9999px);
   background: transparent;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--reader-control-muted, rgba(255, 255, 255, 0.75));
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -292,13 +292,13 @@
 }
 
 .sideFocusBtn:hover {
-  color: #ffffff;
-  background-color: rgba(255, 255, 255, 0.15);
+  color: var(--reader-control-text, #ffffff);
+  background-color: var(--reader-control-hover, rgba(255, 255, 255, 0.15));
 }
 
 .sideFocusBtnActive {
-  background-color: var(--color-accent, #3b82f6) !important;
-  color: #ffffff !important;
+  background-color: var(--reader-control-selected, var(--color-accent, #3b82f6)) !important;
+  color: var(--reader-control-selected-text, #ffffff) !important;
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.45);
 }
 

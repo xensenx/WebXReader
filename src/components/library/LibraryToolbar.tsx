@@ -2,8 +2,10 @@
  * LibraryToolbar component for searching, filtering, sorting, and layout switching.
  */
 
+import { useId } from 'react';
 import {
   Upload,
+  SlidersHorizontal,
   CheckSquare,
   LayoutGrid,
   List,
@@ -11,20 +13,27 @@ import {
 } from 'lucide-react';
 import type {
   LibraryLayout,
-  LibraryFilter,
+  Book,
   SortField,
   SortDirection,
 } from '../../types/book';
 import { SearchInput } from '../common/SearchInput';
 import { Button } from '../common/Button';
 import { DropdownSelect } from '../common/DropdownSelect';
+import type { LibraryFilters } from '../../features/library/library-filters';
+import { LibraryFilterPanel } from './LibraryFilterPanel';
 import styles from './LibraryToolbar.module.css';
 
 interface LibraryToolbarProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  filter: LibraryFilter;
-  onFilterChange: (filter: LibraryFilter) => void;
+  books: readonly Book[];
+  filters: LibraryFilters;
+  filtersOpen: boolean;
+  onFiltersOpenChange: (open: boolean) => void;
+  onFilterChange: (filters: LibraryFilters) => void;
+  activeFilterCount: number;
+  resultCount: number;
   sortField: SortField;
   onSortFieldChange: (field: SortField) => void;
   sortDirection: SortDirection;
@@ -36,15 +45,6 @@ interface LibraryToolbarProps {
   onToggleSelectionMode: () => void;
 }
 
-const FILTERS: { id: LibraryFilter; label: string }[] = [
-  { id: 'all', label: 'All Books' },
-  { id: 'reading', label: 'Reading' },
-  { id: 'unread', label: 'Unread' },
-  { id: 'completed', label: 'Completed' },
-  { id: 'favorites', label: 'Favorites' },
-  { id: 'archived', label: 'Archived' },
-];
-
 const SORT_OPTIONS = [
   { value: 'custom', label: 'Custom Order' },
   { value: 'importedAt', label: 'Recently Added' },
@@ -55,8 +55,13 @@ const SORT_OPTIONS = [
 export function LibraryToolbar({
   searchQuery,
   onSearchChange,
-  filter,
+  books,
+  filters,
+  filtersOpen,
+  onFiltersOpenChange,
   onFilterChange,
+  activeFilterCount,
+  resultCount,
   sortField,
   onSortFieldChange,
   sortDirection,
@@ -67,61 +72,67 @@ export function LibraryToolbar({
   selectionMode,
   onToggleSelectionMode,
 }: LibraryToolbarProps) {
+  const panelId = useId();
+  const triggerId = `${panelId}-trigger`;
   const sortDirectionLabel = sortField === 'custom'
     ? sortDirection === 'asc' ? 'Reverse Custom Order' : 'Use Custom Order'
     : `Sort ${sortDirection === 'asc' ? 'Descending' : 'Ascending'}`;
 
   return (
-    <div className={styles.toolbar}>
-      <div className={styles.topRow}>
-        <div className={styles.searchContainer}>
-          <SearchInput
-            value={searchQuery}
-            onChange={onSearchChange}
-            placeholder="Search by title, author, or tags…"
-          />
-        </div>
-
-        <div className={styles.actionsRight}>
+    <div className={styles.toolbar} onKeyDown={(event) => {
+      if (event.key === 'Escape' && filtersOpen && !event.defaultPrevented) {
+        onFiltersOpenChange(false);
+        document.getElementById(triggerId)?.focus();
+      }
+    }}>
+      <div className={styles.controls}>
+        <div className={styles.searchGroup}>
+          <div className={styles.searchContainer}>
+            <SearchInput
+              value={searchQuery}
+              onChange={onSearchChange}
+              placeholder="Search by title, author, or tags"
+            />
+          </div>
           <Button
-            variant="primary"
-            icon={<Upload size={16} />}
-            onClick={onImportClick}
+            id={triggerId}
+            type="button"
+            variant="secondary"
+            icon={<SlidersHorizontal size={16} />}
+            aria-expanded={filtersOpen}
+            aria-controls={filtersOpen ? panelId : undefined}
+            className={activeFilterCount > 0 ? styles.activeFilterButton : undefined}
+            onClick={() => onFiltersOpenChange(!filtersOpen)}
           >
-            Import Book
+            Filters
+            {activeFilterCount > 0 && <span className={styles.filterCount}>{activeFilterCount}</span>}
           </Button>
         </div>
-      </div>
 
-      <div className={styles.controlsRow}>
-        <div className={styles.filtersGroup} role="tablist" aria-label="Library filters">
-          {FILTERS.map((f) => (
+        <div className={styles.tools}>
+          <div className={styles.sortGroup} role="group" aria-label="Sorting">
+            <DropdownSelect
+              className={styles.sortSelect}
+              value={sortField}
+              options={SORT_OPTIONS}
+              onChange={(value) => onSortFieldChange(value as SortField)}
+              ariaLabel="Sort books by"
+            />
             <button
-              key={f.id}
-              role="tab"
-              aria-selected={filter === f.id}
-              className={`${styles.filterChip} ${
-                filter === f.id ? styles.filterChipActive : ''
-              }`}
-              onClick={() => onFilterChange(f.id)}
+              className={styles.sortDirection}
+              onClick={onToggleSortDirection}
+              title={sortDirectionLabel}
+              aria-label={sortDirectionLabel}
               type="button"
             >
-              {f.label}
+              <ArrowDownUp size={16} />
             </button>
-          ))}
-        </div>
-
-        <div className={styles.sortingGroup}>
-          <DropdownSelect
-            className={styles.sortSelect}
-            value={sortField}
-            options={SORT_OPTIONS}
-            onChange={(value) => onSortFieldChange(value as SortField)}
-            ariaLabel="Sort books by"
-          />
+          </div>
 
           <Button
+            className={styles.selectButton}
             variant="secondary"
+            type="button"
             icon={<CheckSquare size={16} />}
             onClick={onToggleSelectionMode}
             aria-pressed={selectionMode}
@@ -129,41 +140,47 @@ export function LibraryToolbar({
             {selectionMode ? 'Done' : 'Select'}
           </Button>
 
-          <button
-            className={styles.iconBtn}
-            onClick={onToggleSortDirection}
-            title={sortDirectionLabel}
-            aria-label={sortDirectionLabel}
-            type="button"
-          >
-            <ArrowDownUp size={14} />
-          </button>
-
-          <div className={styles.divider} />
-
-          <button
-            className={`${styles.iconBtn} ${layout === 'grid' ? styles.iconBtnActive : ''}`}
-            onClick={() => onLayoutChange('grid')}
-            title="Grid view"
-            aria-label="Grid view"
-            aria-pressed={layout === 'grid'}
-            type="button"
-          >
-            <LayoutGrid size={15} />
-          </button>
-
-          <button
-            className={`${styles.iconBtn} ${layout === 'list' ? styles.iconBtnActive : ''}`}
-            onClick={() => onLayoutChange('list')}
-            title="List view"
-            aria-label="List view"
-            aria-pressed={layout === 'list'}
-            type="button"
-          >
-            <List size={15} />
-          </button>
+          <div className={styles.viewGroup} role="group" aria-label="Library layout">
+            <button
+              className={styles.viewButton}
+              onClick={() => onLayoutChange('grid')}
+              title="Grid view"
+              aria-label="Grid view"
+              aria-pressed={layout === 'grid'}
+              type="button"
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              className={styles.viewButton}
+              onClick={() => onLayoutChange('list')}
+              title="List view"
+              aria-label="List view"
+              aria-pressed={layout === 'list'}
+              type="button"
+            >
+              <List size={16} />
+            </button>
+          </div>
         </div>
+
+        <Button
+          className={styles.importButton}
+          variant="primary"
+          type="button"
+          icon={<Upload size={16} />}
+          aria-label="Import Book"
+          title="Import Book"
+          onClick={onImportClick}
+        >
+          <span className={styles.importLabel}>Import Book</span>
+        </Button>
       </div>
+
+      {filtersOpen && (
+        <LibraryFilterPanel id={panelId} books={books} filters={filters} onChange={onFilterChange}
+          activeCount={activeFilterCount} resultCount={resultCount} />
+      )}
     </div>
   );
 }

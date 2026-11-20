@@ -79,7 +79,7 @@
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  background: linear-gradient(135deg, #2b3a4a 0%, #1e2631 100%);
+  background: linear-gradient(135deg, var(--cover-placeholder-start, #2b3a4a) 0%, var(--cover-placeholder-end, #1e2631) 100%);
   color: #ffffff;
   text-align: center;
   user-select: none;

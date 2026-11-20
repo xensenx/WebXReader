@@ -18,7 +18,7 @@ describe('EPUB Vertical Scroll Pointer-Anchored Zoom', () => {
     maxContentWidth: 720,
     contentMargin: 24,
     readingMode: 'scroll',
-    theme: 'light',
+    theme: 'dark',
     readerSheetColor: 'paper',
     expandContent: false,
   };

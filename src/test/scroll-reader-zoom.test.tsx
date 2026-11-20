@@ -19,7 +19,7 @@ describe('ScrollReader Canvas Zoom & Layout Modes', () => {
     maxContentWidth: 720,
     contentMargin: 24,
     readingMode: 'scroll',
-    theme: 'light',
+    theme: 'dark',
     readerSheetColor: 'paper',
     expandContent: false,
   };
@@ -113,7 +113,7 @@ it('retains the saved paginated position through MHT image remeasurements', () =
           content: '<img src="data:image/png;base64,AAAA" alt="Loaded"><img src="data:image/png;base64,BBBB" alt="Failed">' }]}
         settings={{ fontFamily: 'serif', fontSize: 18, lineHeight: 1.7, paragraphSpacing: 1,
           letterSpacing: 0, wordSpacing: 0, textAlign: 'left', textIndent: 0, maxContentWidth: 720,
-          contentMargin: 0, readingMode: 'scroll', theme: 'light', readerSheetColor: 'paper', expandContent: false }}
+          contentMargin: 0, readingMode: 'scroll', theme: 'dark', readerSheetColor: 'paper', expandContent: false }}
         initialPageIndex={2} initialProgressFraction={0.5} onProgressUpdate={onProgressUpdate}
       />,
     );

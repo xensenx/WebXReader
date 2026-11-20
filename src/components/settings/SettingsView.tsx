@@ -31,11 +31,13 @@ import {
   restoreLibraryBackup,
 } from '../../features/export/backup-service';
 import { formatFileSize } from '../../utils';
-import type { ThemeName, ReadingMode } from '../../types/book';
+import type { ReadingMode } from '../../types/book';
 
 import { Button } from '../common/Button';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { LibraryNameField } from './LibraryNameField';
+import { ThemePicker } from './ThemePicker';
 import styles from './SettingsView.module.css';
 
 export type SettingsSectionId =
@@ -57,7 +59,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     id: 'appearance',
     label: 'Appearance',
     icon: Palette,
-    description: 'Customize application themes and visual styling',
+    description: 'Choose a color palette for the app and reader controls',
   },
   {
     id: 'reading-options',
@@ -286,27 +288,12 @@ export function SettingsView() {
                 <Palette size={18} aria-hidden="true" />
                 <div className={styles.cardTitleGroup}>
                   <h2 className={styles.cardTitle}>Appearance</h2>
-                  <p className={styles.cardDesc}>Customize application themes and visual styling</p>
+                  <p className={styles.cardDesc}>Choose a color palette for the app and reader controls</p>
                 </div>
               </div>
 
-              <div className={styles.row}>
-                <div className={styles.rowCol}>
-                  <span className={styles.rowLabel}>Application Theme</span>
-                  <span className={styles.rowDesc}>Global color palette for reader and library</span>
-                </div>
-                <DropdownSelect
-                  className={styles.select}
-                  value={settings.theme}
-                  onChange={(value) => updateSettings({ theme: value as ThemeName })}
-                  ariaLabel="Application Theme"
-                  options={[
-                    { value: 'light', label: 'Light' },
-                    { value: 'dark', label: 'Dark' },
-                    { value: 'sepia', label: 'Warm Sepia' },
-                  ]}
-                />
-              </div>
+              <ThemePicker theme={settings.theme} onChange={(theme) => updateSettings({ theme })} />
+              <LibraryNameField value={settings.libraryName ?? ''} onSave={(libraryName) => updateSettings({ libraryName })} />
             </div>
           )}
 

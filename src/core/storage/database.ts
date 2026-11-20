@@ -3,7 +3,8 @@
  * Provides a typed interface over the library IndexedDB and separate browser-local preferences.
  */
 
-import { DEFAULT_SETTINGS } from '../../types/book';
+import { normalizeLibraryName } from '../../features/library/library-name';
+import { APP_THEME_OPTIONS, DEFAULT_SETTINGS } from '../../types/book';
 import type {
   Book,
   BookContent,
@@ -23,8 +24,10 @@ const DB_NAME = 'webxreader';
 const DB_VERSION = 1;
 const SETTINGS_STORAGE_KEY = 'webxreader.preferences.v1';
 
-function normalizeUserSettings(settings: Partial<UserSettings>): UserSettings {
-  return { ...DEFAULT_SETTINGS, ...settings, id: 'global' };
+function normalizeUserSettings(settings: Omit<Partial<UserSettings>, 'theme'> & { theme?: unknown }): UserSettings {
+  const savedTheme = settings.theme === 'light' ? 'dark' : settings.theme;
+  const theme = APP_THEME_OPTIONS.find(({ value }) => value === savedTheme)?.value ?? DEFAULT_SETTINGS.theme;
+  return { ...DEFAULT_SETTINGS, ...settings, theme, libraryName: normalizeLibraryName(settings.libraryName), id: 'global' };
 }
 
 function readLocalUserSettings(): UserSettings | undefined {

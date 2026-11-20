@@ -1,3 +1,5 @@
+import { renderHook, waitFor } from '@testing-library/react';
+import { useSettings } from '../hooks/useSettings';
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   addBook,
@@ -20,8 +22,9 @@ import {
   exportBackup,
   restoreBackup,
   clearDatabase,
+  clearSettings,
 } from '../core/storage/database';
-import type { Book, ReadingProgress, Bookmark, UserSettings } from '../types/book';
+import { DEFAULT_SETTINGS, type Book, type ReadingProgress, type Bookmark, type UserSettings } from '../types/book';
 
 describe('IndexedDB Storage Operations', () => {
   beforeEach(async () => {
@@ -146,6 +149,47 @@ describe('IndexedDB Storage Operations', () => {
     expect(afterDelete.length).toBe(0);
   });
 
+  it('starts new users in Midnight Blue and honors a saved Dark preference', async () => {
+    const previousTheme = document.documentElement.getAttribute('data-theme');
+    await clearSettings();
+    try {
+      const fresh = renderHook(() => useSettings());
+      await waitFor(() => expect(fresh.result.current.loading).toBe(false));
+      expect(fresh.result.current.settings.theme).toBe('midnight');
+      expect(document.documentElement.dataset.theme).toBe('midnight');
+      fresh.unmount();
+
+      await saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' });
+      const returning = renderHook(() => useSettings());
+      await waitFor(() => expect(returning.result.current.loading).toBe(false));
+      expect(returning.result.current.settings.theme).toBe('dark');
+      expect(document.documentElement.dataset.theme).toBe('dark');
+      returning.unmount();
+    } finally {
+      await clearSettings();
+      if (previousTheme === null) delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = previousTheme;
+    }
+  });
+
+  it('maps removed Light preferences to Dark and keeps the other settings', async () => {
+    const key = 'webxreader.preferences.v1';
+    const previous = localStorage.getItem(key);
+    try {
+      localStorage.setItem(key, JSON.stringify({ theme: 'light', fontSize: 22, readerSheetColor: 'archive' }));
+      expect(await getSettings()).toMatchObject({ theme: 'dark', fontSize: 22, readerSheetColor: 'archive' });
+    } finally {
+      if (previous === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, previous);
+    }
+  });
+
+  it.each(['solarized-dark', 'dark-orchid'] as const)('persists the %s theme', async (theme) => {
+    const settings = await getSettings();
+    await saveSettings({ ...DEFAULT_SETTINGS, ...settings, theme });
+    expect((await getSettings())?.theme).toBe(theme);
+  });
+
   it('exports and restores complete library backup', async () => {
     await addBook(dummyBook);
     await saveBookContent({
@@ -156,7 +200,8 @@ describe('IndexedDB Storage Operations', () => {
     });
     const settings: UserSettings = {
       id: 'global',
-      theme: 'dark',
+      theme: 'midnight',
+      libraryName: '  \u{1f4da} Reading Room  ',
       defaultReadingMode: 'paginated',
       fontFamily: 'Verdana',
       fontSize: 20,
@@ -181,7 +226,8 @@ describe('IndexedDB Storage Operations', () => {
 
     const backup = await exportBackup();
     expect(backup.books.length).toBe(1);
-    expect(backup.settings?.theme).toBe('dark');
+    expect(backup.settings?.theme).toBe('midnight');
+    expect(backup.settings?.libraryName).toBe('\u{1f4da} Reading Room');
     expect(backup.version).toBe(2);
     expect(backup.contents?.[0]?.rawText).toContain('complete local backup');
 
@@ -199,7 +245,8 @@ describe('IndexedDB Storage Operations', () => {
     expect((await getBookContent('book-1'))?.rawText).toContain('complete local backup');
 
     const restoredSettings = await getSettings();
-    expect(restoredSettings?.theme).toBe('dark');
+    expect(restoredSettings?.theme).toBe('midnight');
+    expect(restoredSettings?.libraryName).toBe('\u{1f4da} Reading Room');
   });
 
   it('atomically deletes multiple books and their associated progress and content in batch', async () => {

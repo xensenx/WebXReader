@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { DEFAULT_LIBRARY_FILTERS } from '../features/library/library-filters';
 import {
   getLibraryViewState,
   saveLibraryViewState,
@@ -19,7 +20,7 @@ describe('Library View State Persistence', () => {
     expect(state.scrollY).toBe(0);
     expect(state.lastOpenedBookId).toBeNull();
     expect(state.searchQuery).toBe('');
-    expect(state.filter).toBe('all');
+    expect(state.filters).toEqual(DEFAULT_LIBRARY_FILTERS);
     expect(state.timestamp).toBeGreaterThan(0);
   });
 
@@ -38,14 +39,15 @@ describe('Library View State Persistence', () => {
       scrollY: 600,
       lastOpenedBookId: 'book-uuid-123',
       searchQuery: 'manga',
-      filter: 'reading',
+      filters: { ...DEFAULT_LIBRARY_FILTERS, statuses: ['reading'], formats: ['epub', 'pdf'] },
     });
 
     const state = getLibraryViewState();
     expect(state.scrollY).toBe(600);
     expect(state.lastOpenedBookId).toBe('book-uuid-123');
     expect(state.searchQuery).toBe('manga');
-    expect(state.filter).toBe('reading');
+    expect(state.filters.statuses).toEqual(['reading']);
+    expect(state.filters.formats).toEqual(['epub', 'pdf']);
   });
 
   it('restores state from sessionStorage across in-memory resets', () => {
@@ -53,7 +55,8 @@ describe('Library View State Persistence', () => {
       scrollY: 1250,
       lastOpenedBookId: 'book-uuid-999',
       searchQuery: 'solitary',
-      filter: 'favorites',
+      filtersOpen: true,
+      filters: { ...DEFAULT_LIBRARY_FILTERS, favorite: true, tags: ['fiction'], initial: 'M', archive: 'all' },
     });
 
     // Clear only in-memory cache to simulate fresh page load
@@ -67,7 +70,19 @@ describe('Library View State Persistence', () => {
     expect(restored.scrollY).toBe(1250);
     expect(restored.lastOpenedBookId).toBe('book-uuid-999');
     expect(restored.searchQuery).toBe('solitary');
-    expect(restored.filter).toBe('favorites');
+    expect(restored.filtersOpen).toBe(true);
+    expect(restored.filters).toMatchObject({ favorite: true, tags: ['fiction'], initial: 'M', archive: 'all' });
+  });
+
+  it.each([
+    ['reading', { statuses: ['reading'] }],
+    ['favorites', { favorite: true }],
+    ['archived', { archive: 'archived' }],
+    ['all', DEFAULT_LIBRARY_FILTERS],
+  ])('migrates the old %s filter after refresh', (filter, expected) => {
+    window.sessionStorage.setItem('webxreader_library_view_state', JSON.stringify({ filter, scrollY: 420 }));
+    expect(getLibraryViewState().filters).toMatchObject(expected);
+    expect(getLibraryViewState().scrollY).toBe(420);
   });
 
   it('clears state cleanly on demand', () => {
