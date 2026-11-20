@@ -95,3 +95,27 @@ npm run preview
 ```
 
 </details>
+
+
+# So what can WebXReader actually do?
+
+WebXReader is built around a simple idea: your digital library should be private, fast, and accessible anywhere without needing an account or an internet connection.
+
+### What's working right now
+* **100% Local & Private:** Your books, reading progress, and bookmarks stay directly in your browser. Nothing is ever uploaded to a server, and there are no accounts or tracking.
+* **Works Completely Offline:** Once you open any mirror, you can read your entire library without an internet connection—and even install it on your device like a native app.
+* **20 Formats Out of the Box:** Drop in ebooks, documents, comics, plain text, or archives directly without converting them first.
+* **Tailored Reading Experiences:** Dedicated reader views and layouts designed around the type of content you're opening, with ongoing refinements to make every format feel smooth.
+* **Distraction-Free Interface:** Clean, dark-mode-first design built to keep the focus on your reading rather than clutter.
+
+<strong>Supported File Formats (20 total)</strong>
+
+<br>
+
+| Category | Formats |
+| :--- | :--- |
+| **Ebooks** | `EPUB`, `MOBI`, `AZW3`, `FB2` |
+| **Documents** | `PDF`, `DOCX`, `DOC`, `RTF`, `DJVU` |
+| **Comics** | `CBZ`, `CBR`, `CB7` |
+| **Plain Text & Web** | `TXT`, `MD`, `HTML`, `MHT` |
+| **Archives & Images** | `ZIP`, `RAR`, `PNG`, `JPEG` |
