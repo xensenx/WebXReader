@@ -12,8 +12,16 @@ export type ReadingStatus = 'unread' | 'reading' | 'completed';
 /** Reading mode preference */
 export type ReadingMode = 'scroll' | 'paginated' | 'vertical' | 'horizontal';
 
-/** Theme preference */
-export type ThemeName = 'light' | 'dark' | 'sepia';
+/** Application themes, in the order shown in Settings. */
+export const APP_THEME_OPTIONS = [
+  { value: 'dark', label: 'Dark' },
+  { value: 'midnight', label: 'Midnight Blue' },
+  { value: 'solarized-dark', label: 'Solarized Dark' },
+  { value: 'dark-orchid', label: 'Dark Orchid' },
+  { value: 'sepia', label: 'Warm Sepia' },
+] as const;
+
+export type ThemeName = (typeof APP_THEME_OPTIONS)[number]['value'];
 
 /** Sheet background color options */
 export type ReaderSheetColor = 'paper' | 'archive' | 'dark';
@@ -29,9 +37,6 @@ export type SortField = 'custom' | 'title' | 'author' | 'importedAt' | 'lastOpen
 
 /** Sort direction */
 export type SortDirection = 'asc' | 'desc';
-
-/** Filter for library view */
-export type LibraryFilter = 'all' | 'reading' | 'unread' | 'completed' | 'favorites' | 'archived';
 
 /** Highlight color options */
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink' | 'orange';
@@ -310,6 +315,8 @@ export interface UserSettings {
   expandContent: boolean;
   /** Format-specific reader settings overrides */
   formatSettings?: Partial<Record<BookFormat, FormatSettings>>;
+  /** Optional display name for this local library */
+  libraryName?: string;
   /** Library layout preference */
   libraryLayout: LibraryLayout;
   /** Library sort field preference */
@@ -413,7 +420,7 @@ export interface BackupData {
 /** Default user settings */
 export const DEFAULT_SETTINGS: UserSettings = {
   id: 'global',
-  theme: 'light',
+  theme: 'midnight',
   defaultReadingMode: 'scroll',
   fontFamily: 'Georgia, serif',
   fontSize: 18,
@@ -428,6 +435,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   readerSheetColor: 'paper',
   expandContent: false,
   formatSettings: {},
+  libraryName: '',
   libraryLayout: 'grid',
   librarySortField: 'importedAt',
   librarySortDirection: 'desc',

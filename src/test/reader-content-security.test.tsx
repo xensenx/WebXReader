@@ -114,7 +114,7 @@ describe('Reader chapter HTML security', () => {
       maxContentWidth: 720,
       contentMargin: 24,
       readingMode: 'scroll' as const,
-      theme: 'light' as const,
+      theme: 'dark' as const,
       readerSheetColor: 'paper' as const,
       expandContent: false,
     };

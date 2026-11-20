@@ -22,7 +22,7 @@ describe('EPUB Reader Typography Enhancements', () => {
     maxContentWidth: 794,
     contentMargin: 24,
     readingMode: 'scroll',
-    theme: 'light',
+    theme: 'dark',
     readerSheetColor: 'paper',
     expandContent: false,
   };

@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { act, render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { SettingsView } from '../components/settings/SettingsView';
 import { SettingsProvider } from '../app/providers/SettingsContext';
+import * as database from '../core/storage/database';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 function renderSettingsView(initialEntries = ['/settings']) {
   return render(
@@ -52,6 +56,38 @@ describe('SettingsView master-detail browser-style navigation', () => {
     expect(screen.queryByText('Toggle Fullscreen')).not.toBeInTheDocument();
     expect(screen.queryByText('100% Local-First Promise:')).not.toBeInTheDocument();
     expect(screen.queryByText('Export Library Backup')).not.toBeInTheDocument();
+  });
+
+  it('retains the library name draft after a storage failure and allows a retry', async () => {
+    const user = userEvent.setup();
+    let rejectSave!: (error: Error) => void;
+    const pendingSave = new Promise<void>((_resolve, reject) => { rejectSave = reject; });
+    const saveSettings = vi.spyOn(database, 'saveSettings')
+      .mockReturnValueOnce(pendingSave)
+      .mockResolvedValueOnce(undefined);
+    const logError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderSettingsView();
+
+    const input = screen.getByRole('textbox', { name: 'Name your library' });
+    const save = screen.getByRole('button', { name: 'Save name' });
+    await user.type(input, '  My library  ');
+    await user.click(save);
+    expect(save).toBeDisabled();
+    expect(input).toHaveValue('  My library  ');
+    expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ libraryName: 'My library' }));
+
+    const error = new Error('Storage unavailable');
+    await act(async () => rejectSave(error));
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not save the library name');
+    expect(input).toHaveValue('  My library  ');
+    expect(save).toBeEnabled();
+    expect(logError).toHaveBeenCalledWith('Failed to save settings:', error);
+
+    await user.click(save);
+    await waitFor(() => expect(input).toHaveValue('My library'));
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(save).toBeDisabled();
   });
 
   it('switches to Reading options section and displays only its settings', async () => {

@@ -54,7 +54,7 @@
   width: 48px;
   height: 64px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #2b3a4a 0%, #1e2631 100%);
+  background: linear-gradient(135deg, var(--cover-placeholder-start, #2b3a4a) 0%, var(--cover-placeholder-end, #1e2631) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -209,7 +209,7 @@
   gap: var(--space-2);
   overflow: hidden;
   border-radius: inherit;
-  background: linear-gradient(135deg, #2b3a4a 0%, #1e2631 100%);
+  background: linear-gradient(135deg, var(--cover-placeholder-start, #2b3a4a) 0%, var(--cover-placeholder-end, #1e2631) 100%);
   color: #fff;
 }
 

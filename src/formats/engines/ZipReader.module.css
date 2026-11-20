@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Styles for ZIP Archive Reader & Navigator.
  */
 
@@ -8,26 +8,11 @@
   width: 100%;
   height: 100%;
   position: relative;
-  background-color: var(--color-bg-primary, #121212);
-  color: var(--color-text-primary, #ffffff);
+  background-color: var(--reader-stage-backdrop, #121214);
+  color: var(--reader-control-text, #f4f4f5);
   overflow: hidden;
   min-height: 0;
   outline: none;
-}
-
-[data-theme='light'] .container {
-  background-color: #f8fafc;
-  color: #0f172a;
-}
-
-[data-theme='sepia'] .container {
-  background-color: #f6eedb;
-  color: #3d3226;
-}
-
-[data-theme='dark'] .container {
-  background-color: #121214;
-  color: #f4f4f5;
 }
 
 /* Sub-Reader View Container */
@@ -55,16 +40,6 @@
   min-height: 48px;
 }
 
-[data-theme='light'] .subNavBar {
-  background-color: #ffffff;
-  border-bottom-color: #e2e8f0;
-}
-
-[data-theme='sepia'] .subNavBar {
-  background-color: #ede2cb;
-  border-bottom-color: #dbc9a8;
-}
-
 .subNavBarLeft {
   display: flex;
   align-items: center;
@@ -89,7 +64,7 @@
   font-size: 0.85rem;
   font-weight: 500;
   background-color: var(--color-surface-hover, rgba(255, 255, 255, 0.06));
-  color: var(--color-text-primary, #ffffff);
+  color: var(--reader-control-text, #ffffff);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
@@ -154,16 +129,6 @@
   flex-wrap: wrap;
 }
 
-[data-theme='light'] .archiveInfoCard {
-  background-color: #ffffff;
-  border-color: #e2e8f0;
-}
-
-[data-theme='sepia'] .archiveInfoCard {
-  background-color: #ede2cb;
-  border-color: #dbc9a8;
-}
-
 .archiveTitleBlock {
   display: flex;
   align-items: center;
@@ -178,7 +143,7 @@
   width: 48px;
   height: 48px;
   border-radius: 10px;
-  background-color: rgba(99, 102, 241, 0.12);
+  background-color: var(--reader-control-hover, rgba(99, 102, 241, 0.12));
   color: var(--color-accent, #6366f1);
   flex-shrink: 0;
 }
@@ -214,7 +179,7 @@
   font-size: 0.88rem;
   font-weight: 500;
   background-color: var(--color-accent, #6366f1);
-  color: #ffffff;
+  color: var(--reader-control-selected-text, #ffffff);
   border: none;
   cursor: pointer;
   transition: opacity 0.15s ease, transform 0.1s ease;
@@ -260,13 +225,13 @@
 }
 
 .breadcrumbItem:hover {
-  color: var(--color-text-primary, #ffffff);
+  color: var(--reader-control-text, #ffffff);
   background-color: var(--color-surface-hover, rgba(255, 255, 255, 0.06));
 }
 
 .breadcrumbActive {
   font-weight: 600;
-  color: var(--color-text-primary, #ffffff);
+  color: var(--reader-control-text, #ffffff);
   cursor: default;
 }
 
@@ -287,22 +252,12 @@
   max-width: 100%;
 }
 
-[data-theme='light'] .searchBox {
-  background-color: #ffffff;
-  border-color: #cbd5e1;
-}
-
-[data-theme='sepia'] .searchBox {
-  background-color: #ede2cb;
-  border-color: #dbc9a8;
-}
-
 .searchInput {
   border: none;
   background: transparent;
   outline: none;
   font-size: 0.85rem;
-  color: var(--color-text-primary, #ffffff);
+  color: var(--reader-control-text, #ffffff);
   width: 100%;
 }
 
@@ -330,19 +285,9 @@
   gap: 14px;
 }
 
-[data-theme='light'] .entryRow {
-  background-color: #ffffff;
-  border-color: #f1f5f9;
-}
-
-[data-theme='sepia'] .entryRow {
-  background-color: #ede2cb;
-  border-color: #e5dac1;
-}
-
 .entryRow:hover {
   background-color: var(--color-surface-hover, rgba(255, 255, 255, 0.06));
-  border-color: var(--color-border-hover, rgba(255, 255, 255, 0.15));
+  border-color: var(--reader-control-border, rgba(255, 255, 255, 0.15));
 }
 
 .entryLeft {
@@ -422,13 +367,21 @@
 .badgeImage { background-color: rgba(52, 211, 153, 0.15); color: #34d399; }
 .badgeUnsupported { background-color: rgba(113, 113, 122, 0.15); color: #71717a; }
 
+:global([data-theme='sepia']) :is(.folderIcon, .imageIcon, .docIcon, .bookIcon, .badge) {
+  color: var(--color-text-secondary);
+}
+
+:global([data-theme='sepia']) .badge {
+  background-color: var(--color-accent-light);
+}
+
 .openBtn {
   padding: 5px 12px;
   border-radius: 6px;
   font-size: 0.82rem;
   font-weight: 500;
   background-color: var(--color-surface-hover, rgba(255, 255, 255, 0.08));
-  color: var(--color-text-primary, #ffffff);
+  color: var(--reader-control-text, #ffffff);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
   cursor: pointer;
   transition: all 0.15s ease;
@@ -436,7 +389,7 @@
 
 .openBtn:hover {
   background-color: var(--color-accent, #6366f1);
-  color: #ffffff;
+  color: var(--reader-control-selected-text, #ffffff);
   border-color: var(--color-accent, #6366f1);
 }
 
@@ -487,7 +440,7 @@
 .imagePageBtn {
   background: none;
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.15));
-  color: var(--color-text-primary, #ffffff);
+  color: var(--reader-control-text, #ffffff);
   border-radius: 4px;
   padding: 4px 8px;
   cursor: pointer;
@@ -505,7 +458,7 @@
   left: 50%;
   transform: translateX(-50%);
   background-color: var(--color-surface, #1e1e24);
-  color: var(--color-text-primary, #ffffff);
+  color: var(--reader-control-text, #ffffff);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.15));
   padding: 10px 20px;
   border-radius: 8px;

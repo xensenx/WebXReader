@@ -228,7 +228,7 @@
   padding: 0 var(--space-4);
   border-radius: var(--radius-md);
   background-color: var(--color-accent);
-  color: #fff;
+  color: var(--reader-control-selected-text, #fff);
   font-size: var(--text-sm);
   font-weight: 600;
   text-decoration: none;
@@ -254,5 +254,41 @@
   .overlay,
   .panel {
     transition: none;
+  }
+}
+
+.namedHeader {
+  display: grid;
+  grid-template-columns: minmax(132px, 1fr) minmax(0, 2fr) minmax(132px, 1fr);
+  column-gap: var(--space-3);
+}
+
+.namedHeader .iconButton {
+  justify-self: end;
+}
+
+.libraryName {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .namedHeader {
+    grid-template-columns: 36px minmax(0, 1fr) 36px;
+    padding-inline: var(--space-3);
+  }
+
+  .namedHeader .brandName {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }

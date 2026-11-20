@@ -19,7 +19,7 @@ describe('EPUB Horizontal Scroll Reader', () => {
     maxContentWidth: 794,
     contentMargin: 24,
     readingMode: 'horizontal',
-    theme: 'light',
+    theme: 'dark',
     readerSheetColor: 'paper',
     expandContent: false,
   };

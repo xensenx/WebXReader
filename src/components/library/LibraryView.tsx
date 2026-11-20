@@ -16,6 +16,7 @@ import {
   saveLibraryViewState,
   updateLibraryScroll,
 } from '../../features/library/library-state';
+import { countLibraryFilters, DEFAULT_LIBRARY_FILTERS, filterLibraryBooks, type LibraryFilters } from '../../features/library/library-filters';
 import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
@@ -34,7 +35,6 @@ import { updateBook, updateBookAndCover } from '../../core/storage/database';
 import { downloadOriginalBook } from '../../features/export/backup-service';
 import type {
   Book,
-  LibraryFilter,
 } from '../../types/book';
 
 import { BookCard } from './BookCard';
@@ -116,6 +116,11 @@ export function LibraryView() {
   const { books, loading, refreshBooks, removeBook, removeBooks, toggleFavorite, updateReadingStatus, toggleArchive } = useBooks();
   const { settings, updateSettings } = useSettingsContext();
 
+  const applySettings = (partial: Parameters<typeof updateSettings>[0]) => {
+    // The settings hook already logs persistence failures.
+    void updateSettings(partial).catch(() => {});
+  };
+
   // Synchronously load saved library state (survives reader visits, format switches & page refreshes)
   const initialSavedStateRef = useRef(getLibraryViewState());
   const isRestoredRef = useRef(false);
@@ -124,7 +129,9 @@ export function LibraryView() {
 
   // Search, filter, and sort state
   const [searchQuery, setSearchQuery] = useState(() => initialSavedStateRef.current.searchQuery);
-  const [filter, setFilter] = useState<LibraryFilter>(() => initialSavedStateRef.current.filter);
+  const [filters, setFilters] = useState(() => initialSavedStateRef.current.filters);
+  const [filtersOpen, setFiltersOpen] = useState(() => initialSavedStateRef.current.filtersOpen);
+  const activeFilterCount = countLibraryFilters(filters);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedBookIds, setSelectedBookIds] = useState<Set<string>>(() => new Set());
 
@@ -167,7 +174,7 @@ export function LibraryView() {
   // Layout preference
   const layout = settings.libraryLayout || 'grid';
   const handleLayoutChange = (newLayout: 'grid' | 'list') => {
-    updateSettings({ libraryLayout: newLayout });
+    applySettings({ libraryLayout: newLayout });
   };
 
   // Find most recent book to "Continue Reading"
@@ -180,43 +187,7 @@ export function LibraryView() {
 
   // Filtered & sorted book collection
   const filteredBooks = useMemo(() => {
-    let result = [...books];
-
-    // Filter
-    switch (filter) {
-      case 'reading':
-        result = result.filter((b) => b.readingStatus === 'reading' && !b.archived);
-        break;
-      case 'unread':
-        result = result.filter((b) => b.readingStatus === 'unread' && !b.archived);
-        break;
-      case 'completed':
-        result = result.filter((b) => b.readingStatus === 'completed' && !b.archived);
-        break;
-      case 'favorites':
-        result = result.filter((b) => b.favorite && !b.archived);
-        break;
-      case 'archived':
-        result = result.filter((b) => b.archived);
-        break;
-      case 'all':
-      default:
-        result = result.filter((b) => !b.archived);
-        break;
-    }
-
-    // Search query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      result = result.filter(
-        (b) =>
-          b.title.toLowerCase().includes(q) ||
-          b.author.toLowerCase().includes(q) ||
-          (b.userTags && b.userTags.some((t) => t.toLowerCase().includes(q))) ||
-          (b.originalFilename && b.originalFilename.toLowerCase().includes(q)) ||
-          b.sourceFormat.toLowerCase().includes(q)
-      );
-    }
+    const result = filterLibraryBooks(books, filters, searchQuery);
 
     // Sorting
     if (sortField === 'custom' || dragSortPreview) {
@@ -249,7 +220,7 @@ export function LibraryView() {
     }
 
     return result;
-  }, [books, filter, searchQuery, sortField, sortDirection, customOrder, dragSortPreview]);
+  }, [books, filters, searchQuery, sortField, sortDirection, customOrder, dragSortPreview]);
 
   useLayoutEffect(() => {
     const previousPositions = pendingReorderPositionsRef.current;
@@ -497,9 +468,14 @@ export function LibraryView() {
     saveLibraryViewState({ searchQuery: query, scrollY: 0, lastOpenedBookId: null });
   };
 
-  const handleFilterChange = (newFilter: LibraryFilter) => {
-    setFilter(newFilter);
-    saveLibraryViewState({ filter: newFilter, scrollY: 0, lastOpenedBookId: null });
+  const handleFilterChange = (next: LibraryFilters) => {
+    setFilters(next);
+    saveLibraryViewState({ filters: next, scrollY: 0, lastOpenedBookId: null });
+  };
+
+  const handleFiltersOpenChange = (open: boolean) => {
+    setFiltersOpen(open);
+    saveLibraryViewState({ filtersOpen: open });
   };
 
   // Custom drag-and-drop book reordering handlers
@@ -840,7 +816,7 @@ export function LibraryView() {
         const nextCustomOrder = sortDirection === 'desc' ? [...finalOrder].reverse() : finalOrder;
         setCustomOrder(nextCustomOrder);
         setDragSortPreview(false);
-        void updateSettings({ librarySortField: 'custom', customBookOrder: nextCustomOrder });
+        applySettings({ librarySortField: 'custom', customBookOrder: nextCustomOrder });
       } else {
         pendingReorderPositionsRef.current = captureBookPositions();
         cancelBookReorderAnimations();
@@ -889,7 +865,7 @@ export function LibraryView() {
       scrollY: currentY,
       lastOpenedBookId: id,
       searchQuery,
-      filter,
+      filters,
     });
     navigate(`/read/${id}`);
   };
@@ -959,12 +935,12 @@ export function LibraryView() {
         if (pointerDragRef.current) e.preventDefault();
       }}
     >
-      <MainPageHeader />
+      <MainPageHeader libraryName={settings.libraryName} />
 
       {/* Main Content Area */}
       <main className={styles.main}>
         {/* Continue Reading Section */}
-        {continueBook && filter === 'all' && !searchQuery && (
+        {continueBook && activeFilterCount === 0 && !searchQuery.trim() && (
           <section
             className={styles.continueSection}
             onClick={() => handleOpenBook(continueBook.id)}
@@ -1014,13 +990,18 @@ export function LibraryView() {
         <LibraryToolbar
           searchQuery={searchQuery}
           onSearchChange={handleSearchChange}
-          filter={filter}
+          filters={filters}
+          filtersOpen={filtersOpen}
+          onFiltersOpenChange={handleFiltersOpenChange}
+          books={books}
+          resultCount={filteredBooks.length}
+          activeFilterCount={activeFilterCount}
           onFilterChange={handleFilterChange}
           sortField={sortField}
-          onSortFieldChange={(field) => updateSettings({ librarySortField: field })}
+          onSortFieldChange={(field) => applySettings({ librarySortField: field })}
           sortDirection={sortDirection}
           onToggleSortDirection={() =>
-            updateSettings({ librarySortDirection: sortDirection === 'asc' ? 'desc' : 'asc' })
+            applySettings({ librarySortDirection: sortDirection === 'asc' ? 'desc' : 'asc' })
           }
           layout={layout}
           onLayoutChange={handleLayoutChange}
@@ -1106,11 +1087,13 @@ export function LibraryView() {
           />
         )}
 
-        {!loading && books.length > 0 && filteredBooks.length === 0 && searchQuery && (
+        {!loading && books.length > 0 && filteredBooks.length === 0 && searchQuery.trim() && (
           <EmptyState
             icon={SearchX}
             title="No Results Found"
-            description={`No books matched "${searchQuery}". Try searching by another keyword.`}
+            description={activeFilterCount
+              ? 'No books match this search and the selected filters.'
+              : `No books matched "${searchQuery}". Try another keyword.`}
             action={{
               label: 'Clear Search',
               onClick: () => handleSearchChange(''),
@@ -1118,14 +1101,16 @@ export function LibraryView() {
           />
         )}
 
-        {!loading && books.length > 0 && filteredBooks.length === 0 && !searchQuery && (
+        {!loading && books.length > 0 && filteredBooks.length === 0 && !searchQuery.trim() && (
           <EmptyState
             icon={BookX}
-            title={`No ${filter} books`}
-            description={`You don't have any books matching the "${filter}" filter.`}
+            title={activeFilterCount ? 'No Matching Books' : 'No Active Books'}
+            description={activeFilterCount ? 'Try removing one or more filters.' : 'Your books are in the archive.'}
             action={{
-              label: 'Show All Books',
-              onClick: () => handleFilterChange('all'),
+              label: activeFilterCount ? 'Clear Filters' : 'Show Archived Books',
+              onClick: () => handleFilterChange(activeFilterCount
+                ? DEFAULT_LIBRARY_FILTERS
+                : { ...DEFAULT_LIBRARY_FILTERS, archive: 'archived' }),
             }}
           />
         )}

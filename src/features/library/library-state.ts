@@ -5,7 +5,7 @@
  * and last-opened book across navigation, page refreshes, and all book formats.
  */
 
-import type { LibraryFilter } from '../../types/book';
+import { DEFAULT_LIBRARY_FILTERS, restoreLibraryFilters, type LibraryFilters } from './library-filters';
 
 const STORAGE_KEY = 'webxreader_library_view_state';
 
@@ -13,7 +13,8 @@ export interface LibraryViewState {
   scrollY: number;
   lastOpenedBookId?: string | null;
   searchQuery: string;
-  filter: LibraryFilter;
+  filters: LibraryFilters;
+  filtersOpen: boolean;
   timestamp: number;
 }
 
@@ -37,7 +38,8 @@ export function getLibraryViewState(): LibraryViewState {
           scrollY: typeof parsed.scrollY === 'number' ? Math.max(0, parsed.scrollY) : 0,
           lastOpenedBookId: typeof parsed.lastOpenedBookId === 'string' ? parsed.lastOpenedBookId : null,
           searchQuery: typeof parsed.searchQuery === 'string' ? parsed.searchQuery : '',
-          filter: typeof parsed.filter === 'string' ? (parsed.filter as LibraryFilter) : 'all',
+          filters: restoreLibraryFilters(parsed.filters, parsed.filter),
+          filtersOpen: parsed.filtersOpen === true,
           timestamp: typeof parsed.timestamp === 'number' ? parsed.timestamp : Date.now(),
         };
         return { ...inMemoryState };
@@ -51,7 +53,8 @@ export function getLibraryViewState(): LibraryViewState {
     scrollY: 0,
     lastOpenedBookId: null,
     searchQuery: '',
-    filter: 'all',
+    filters: DEFAULT_LIBRARY_FILTERS,
+    filtersOpen: false,
     timestamp: Date.now(),
   };
 

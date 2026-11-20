@@ -31,11 +31,13 @@ import {
   restoreLibraryBackup,
 } from '../../features/export/backup-service';
 import { formatFileSize } from '../../utils';
-import type { ThemeName, ReadingMode } from '../../types/book';
+import type { ReadingMode } from '../../types/book';
 
 import { Button } from '../common/Button';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { LibraryNameField } from './LibraryNameField';
+import { ThemePicker } from './ThemePicker';
 import styles from './SettingsView.module.css';
 
 export type SettingsSectionId =
@@ -57,7 +59,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     id: 'appearance',
     label: 'Appearance',
     icon: Palette,
-    description: 'Customize application themes and visual styling',
+    description: 'Choose a color palette for the app and reader controls',
   },
   {
     id: 'reading-options',
@@ -89,6 +91,11 @@ export function SettingsView() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { settings, updateSettings, resetSettings } = useSettingsContext();
+
+  const applySettings = (partial: Parameters<typeof updateSettings>[0]) => {
+    // The settings hook already logs persistence failures.
+    void updateSettings(partial).catch(() => {});
+  };
 
   const sectionParam = searchParams.get('section') as SettingsSectionId | null;
   const initialSection =
@@ -286,27 +293,12 @@ export function SettingsView() {
                 <Palette size={18} aria-hidden="true" />
                 <div className={styles.cardTitleGroup}>
                   <h2 className={styles.cardTitle}>Appearance</h2>
-                  <p className={styles.cardDesc}>Customize application themes and visual styling</p>
+                  <p className={styles.cardDesc}>Choose a color palette for the app and reader controls</p>
                 </div>
               </div>
 
-              <div className={styles.row}>
-                <div className={styles.rowCol}>
-                  <span className={styles.rowLabel}>Application Theme</span>
-                  <span className={styles.rowDesc}>Global color palette for reader and library</span>
-                </div>
-                <DropdownSelect
-                  className={styles.select}
-                  value={settings.theme}
-                  onChange={(value) => updateSettings({ theme: value as ThemeName })}
-                  ariaLabel="Application Theme"
-                  options={[
-                    { value: 'light', label: 'Light' },
-                    { value: 'dark', label: 'Dark' },
-                    { value: 'sepia', label: 'Warm Sepia' },
-                  ]}
-                />
-              </div>
+              <ThemePicker theme={settings.theme} onChange={(theme) => applySettings({ theme })} />
+              <LibraryNameField value={settings.libraryName ?? ''} onSave={(libraryName) => updateSettings({ libraryName })} />
             </div>
           )}
 
@@ -331,7 +323,7 @@ export function SettingsView() {
                 <DropdownSelect
                   className={styles.select}
                   value={settings.defaultReadingMode}
-                  onChange={(value) => updateSettings({ defaultReadingMode: value as ReadingMode })}
+                  onChange={(value) => applySettings({ defaultReadingMode: value as ReadingMode })}
                   ariaLabel="Default Reading Mode"
                   options={[
                     { value: 'scroll', label: 'Vertical Scroll' },
@@ -352,7 +344,7 @@ export function SettingsView() {
                 <input
                   type="checkbox"
                   checked={settings.autoDetectChapters}
-                  onChange={(e) => updateSettings({ autoDetectChapters: e.target.checked })}
+                  onChange={(e) => applySettings({ autoDetectChapters: e.target.checked })}
                   style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
                   aria-label="Plain Text Chapter Detection"
                 />
@@ -368,7 +360,7 @@ export function SettingsView() {
                 <input
                   type="checkbox"
                   checked={settings.autoDetectChaptersRtf ?? true}
-                  onChange={(e) => updateSettings({ autoDetectChaptersRtf: e.target.checked })}
+                  onChange={(e) => applySettings({ autoDetectChaptersRtf: e.target.checked })}
                   style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
                   aria-label="Rich Text Chapter Detection"
                 />
@@ -384,7 +376,7 @@ export function SettingsView() {
                 <input
                   type="checkbox"
                   checked={settings.fb2IncludeNotes ?? true}
-                  onChange={(e) => updateSettings({ fb2IncludeNotes: e.target.checked })}
+                  onChange={(e) => applySettings({ fb2IncludeNotes: e.target.checked })}
                   style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
                   aria-label="FictionBook Footnotes"
                 />
@@ -400,7 +392,7 @@ export function SettingsView() {
                 <input
                   type="checkbox"
                   checked={settings.autoDetectChaptersMobi ?? true}
-                  onChange={(e) => updateSettings({ autoDetectChaptersMobi: e.target.checked })}
+                  onChange={(e) => applySettings({ autoDetectChaptersMobi: e.target.checked })}
                   style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
                   aria-label="MOBI Chapter Detection"
                 />
@@ -416,7 +408,7 @@ export function SettingsView() {
                 <input
                   type="checkbox"
                   checked={settings.autoDetectChaptersAzw3 ?? true}
-                  onChange={(e) => updateSettings({ autoDetectChaptersAzw3: e.target.checked })}
+                  onChange={(e) => applySettings({ autoDetectChaptersAzw3: e.target.checked })}
                   style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
                   aria-label="AZW3 Chapter Detection"
                 />
@@ -432,7 +424,7 @@ export function SettingsView() {
                 <input
                   type="checkbox"
                   checked={settings.autoDetectChaptersDocx ?? true}
-                  onChange={(e) => updateSettings({ autoDetectChaptersDocx: e.target.checked })}
+                  onChange={(e) => applySettings({ autoDetectChaptersDocx: e.target.checked })}
                   style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
                   aria-label="DOCX Chapter Detection"
                 />
@@ -448,7 +440,7 @@ export function SettingsView() {
                 <input
                   type="checkbox"
                   checked={settings.autoDetectChaptersDoc ?? true}
-                  onChange={(e) => updateSettings({ autoDetectChaptersDoc: e.target.checked })}
+                  onChange={(e) => applySettings({ autoDetectChaptersDoc: e.target.checked })}
                   style={{ width: '18px', height: '18px', accentColor: 'var(--color-accent)' }}
                   aria-label="DOC Chapter Detection"
                 />
@@ -467,7 +459,7 @@ export function SettingsView() {
                     step={1}
                     value={settings.importSizeWarningMB}
                     onChange={(event) =>
-                      updateSettings({
+                      applySettings({
                         importSizeWarningMB: Math.min(
                           5000,
                           Math.max(1, Number(event.target.value) || 1)
