@@ -97,6 +97,88 @@ Date: Wed, 12 Oct 2022 14:32:00 +0000`;
   });
 
   describe('Full MHT File Parsing', () => {
+    const entity = (type: string, body: string, headers: string[] = []) =>
+      [`Content-Type: ${type}`, ...headers, '', body].join('\n');
+    const multipart = (type: string, boundary: string, parts: string[], headers: string[] = []) =>
+      entity(`${type}; boundary=${boundary}`, parts.map((part) => `--${boundary}\n${part}\n`).join('') +
+        `--${boundary}--`, headers);
+    const image = (type: string, data: string, location: string) =>
+      entity(type, data, ['Content-Transfer-Encoding: base64', `Content-Location: ${location}`]);
+
+    it('selects a start container and resolves references only in its own and enclosing scopes', async () => {
+      const location = 'https://example.com/cover.png?a=1&b=2';
+      const inner = multipart('multipart/alternative', 'alternative', [
+        entity('text/html', `<h3 id="heading"><span id="chapter-target">Main</span><img src="${location.replace('&', '&amp;')}"></h3>` +
+          '<img src=local.png><img src=hidden.png>'),
+        image('image/png', SAMPLE_PNG_BASE64, 'local.png'),
+        multipart('multipart/related', 'child', [image('image/jpeg', SAMPLE_JPEG_BASE64, 'hidden.png')]),
+      ], ['Content-ID: <root>']);
+      const archive = multipart('multipart/related; start="<root>"', 'outer', [
+        entity('text/html', '<p>Auxiliary HTML</p>'),
+        inner,
+        image('image/png', SAMPLE_PNG_BASE64, location),
+        image('image/jpeg', SAMPLE_JPEG_BASE64, 'local.png'),
+        multipart('multipart/related', 'sibling', [image('image/jpeg', SAMPLE_JPEG_BASE64, location)]),
+      ]);
+      const result = await parseMht(archive);
+
+      expect(result.chapters[0].title).toBe('Main');
+      const template = document.createElement('template');
+      template.innerHTML = result.chapters[0].content ?? '';
+      expect(template.content.querySelector('h3#heading #chapter-target')?.textContent).toBe('Main');
+      const sources = Array.from(template.content.querySelectorAll('img'), (img) => img.getAttribute('src'));
+      expect(sources).toEqual([`data:image/png;base64,${SAMPLE_PNG_BASE64}`,
+        `data:image/png;base64,${SAMPLE_PNG_BASE64}`, null]);
+      expect(result.rawText).not.toContain('Auxiliary HTML');
+    });
+
+    it('falls back to plain text when the preferred HTML sanitizes to an empty body', async () => {
+      const archive = multipart('multipart/related; start="<root>"', 'outer', [
+        entity('text/html', '<p>Auxiliary HTML</p>'),
+        multipart('multipart/alternative', 'alternative', [
+          entity('text/plain', 'Readable fallback'),
+          entity('text/html', '<html><head><title>Empty page</title></head><body>&nbsp;<img src=missing.png></body></html>'),
+        ], ['Content-ID: <root>']),
+      ]);
+      expect((await parseMht(archive)).rawText).toBe('Readable fallback');
+    });
+
+    it('keeps an image-only HTML alternative after resolving its quoted or unquoted source', async () => {
+      for (const src of ['"cover&amp;art.png"', "'cover&amp;art.png'", 'cover&amp;art.png']) {
+        const archive = multipart('multipart/related', 'outer', [
+          entity('text/html', `<img src=${src}>`),
+          entity('text/plain', 'Plain fallback'),
+          image('image/png', SAMPLE_PNG_BASE64, 'cover&art.png'),
+        ]);
+        const result = await parseMht(archive);
+        expect(result.rawText).toBe('');
+        expect(result.chapters[0].content).toContain(`src="data:image/png;base64,${SAMPLE_PNG_BASE64}"`);
+      }
+    });
+
+    it('ends each leading comment at its first terminator when sniffing generic parts', async () => {
+      const archive = multipart('multipart/alternative', 'parts', [
+        entity('application/octet-stream', '<!-- comment --> stray --><p>Not a document start</p>'),
+        entity('text/plain', 'Plain fallback'),
+      ]);
+      expect((await parseMht(archive)).rawText).toBe('Plain fallback');
+      expect((await parseMht('<!-- first --><!-- second --><p>Readable page</p>')).rawText).toBe('Readable page');
+    });
+
+    it('keeps captioned tables and rows intact while splitting at outside headings', async () => {
+      const { chapters } = await parseMht(entity('text/html',
+        '<h2>Tables</h2><table width="200"><caption>Single value</caption><tr><td>42</td></tr></table>' +
+        '<table><tbody><tr><td><h3>Row 1</h3></td></tr><tr><td><h3>Row 2</h3></td></tr></tbody></table>' +
+        '<h2>After tables</h2><p>Continue reading</p>'));
+
+      expect(chapters.map(({ title }) => title)).toEqual(['Tables', 'After tables']);
+      const template = document.createElement('template');
+      template.innerHTML = chapters[0].content ?? '';
+      expect(template.content.querySelector('table > caption')?.textContent).toBe('Single value');
+      expect(template.content.querySelectorAll('table > tbody > tr')).toHaveLength(3);
+      expect(template.content.querySelectorAll('tbody h3')).toHaveLength(2);
+    });
+
     it('parses a multi-part MHT web archive into chapters, metadata, and inlined assets', async () => {
       const mhtContent = `From: Frank Herbert <author@arrakis.org>
 Snapshot-Content-Location: https://example.com/dune.html

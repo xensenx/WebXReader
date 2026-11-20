@@ -67,7 +67,7 @@ export function sanitizeReaderHtml(
     'ul', 'ol', 'li',
     'blockquote', 'pre', 'code',
     'a',
-    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'table', 'caption', 'thead', 'tbody', 'tr', 'th', 'td',
     'hr', 'div', 'span', 'sup', 'sub',
     'figure', 'figcaption', 'section', 'article',
   ];

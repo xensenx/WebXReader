@@ -64,6 +64,7 @@ export const PaginatedReader = memo(function PaginatedReader({
   const [pageHeight, setPageHeight] = useState(1);
   const [pageWidth, setPageWidth] = useState(1);
   const [imageRevision, setImageRevision] = useState(0);
+  const [canPublishProgress, setCanPublishProgress] = useState(false);
   const imageFrameRef = useRef<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -75,7 +76,6 @@ export const PaginatedReader = memo(function PaginatedReader({
   const zoomAnchorRef = useRef(zoomAnchor);
   const initialLocation = useRef({ initialChapterId, initialPageIndex, initialProgressFraction, initialProgressMode });
   const initialLayoutAppliedRef = useRef(false);
-  const hasMeasuredLayoutRef = useRef(false);
   const spreadGap = pagesPerSpread === 2 ? 24 : 0;
   onProgressUpdateRef.current = onProgressUpdate;
   zoomAnchorRef.current = zoomAnchor;
@@ -178,10 +178,18 @@ export const PaginatedReader = memo(function PaginatedReader({
     setTotalPages(actualPages);
     setCurrentPage(clampedPage);
     viewport.scrollLeft = clampedPage * spreadWidth;
+    // An image can add columns after the first measurement. Keep the saved
+    // target while it is out of range and the layout may still grow.
+    if (isMht && !initialLayoutAppliedRef.current && targetPage >= actualPages &&
+        Array.from(track.querySelectorAll<HTMLImageElement>('img[src]')).some((image) => !image.complete)) {
+      return;
+    }
     lastProgressFractionRef.current = actualPages > 1 ? clampedPage / (actualPages - 1) : 0;
-    initialLayoutAppliedRef.current = true;
-    hasMeasuredLayoutRef.current = true;
-  }, [chapters, getViewportDimensions, imageRevision, layoutKey, pageHeight, pageWidth, pagesPerSpread, spreadGap, zoom]);
+    if (!initialLayoutAppliedRef.current) {
+      initialLayoutAppliedRef.current = true;
+      setCanPublishProgress(true);
+    }
+  }, [chapters, getViewportDimensions, imageRevision, isMht, layoutKey, pageHeight, pageWidth, pagesPerSpread, spreadGap, zoom]);
 
   const goToPage = useCallback((page: number) => {
     const nextPage = Math.max(0, Math.min(page, totalPages - 1));
@@ -197,7 +205,7 @@ export const PaginatedReader = memo(function PaginatedReader({
   const goToPrevPage = useCallback(() => goToPage(currentPage - 1), [currentPage, goToPage]);
 
   useEffect(() => {
-    if (!hasMeasuredLayoutRef.current || pageWidth <= 1) return;
+    if (!canPublishProgress || pageWidth <= 1) return;
 
     let activeChapterId = chapters[0]?.id || '';
     const spreadWidth = pageWidth * pagesPerSpread + spreadGap * Math.max(0, pagesPerSpread - 1);
@@ -212,7 +220,7 @@ export const PaginatedReader = memo(function PaginatedReader({
     const fraction = totalPages > 1 ? currentPage / (totalPages - 1) : 0;
     lastProgressFractionRef.current = fraction;
     onProgressUpdateRef.current(activeChapterId, fraction, currentPage);
-  }, [chapters, currentPage, pageWidth, pagesPerSpread, spreadGap, totalPages]);
+  }, [canPublishProgress, chapters, currentPage, pageWidth, pagesPerSpread, spreadGap, totalPages]);
 
   const handleScroll = () => {
     const viewport = viewportRef.current;

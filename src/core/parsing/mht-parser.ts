@@ -47,6 +47,8 @@ interface ParsedMimePart {
   location?: string;
   contentId?: string;
   bodyRaw: string;
+  parent?: ParsedMimePart;
+  children?: ParsedMimePart[];
 }
 
 /**
@@ -257,6 +259,10 @@ function findResource(url: string, resourceMap: Map<string, MhtResource>, baseUr
  * Inlines external resources (images, stylesheets, fonts) into the root HTML as data URIs and inline styles.
  */
 export function inlineMhtmlResources(html: string, resourceMap: Map<string, MhtResource>, baseUrl?: string): string {
+  return inlineResources(html, (url) => findResource(url, resourceMap, baseUrl));
+}
+
+function inlineResources(html: string, lookup: (url: string) => MhtResource | null): string {
   // 1. Inline <link rel="stylesheet" href="..."> tags
   let result = html.replace(
     /<link\b([^>]*?)href=["']([^"']+)["']([^>]*?)>/gi,
@@ -264,7 +270,7 @@ export function inlineMhtmlResources(html: string, resourceMap: Map<string, MhtR
       const isStylesheet = /rel=["'](?:stylesheet|alternate stylesheet)["']/i.test(match);
       if (!isStylesheet) return match;
 
-      const res = findResource(href, resourceMap, baseUrl);
+      const res = lookup(href);
       if (res && res.text) {
         return `<style data-mhtml-inlined="true">\n/* Inlined from ${href} */\n${res.text}\n</style>`;
       }
@@ -272,17 +278,17 @@ export function inlineMhtmlResources(html: string, resourceMap: Map<string, MhtR
     }
   );
 
-  // 2. Inline <img> tags
-  result = result.replace(
-    /(<img\b(?:[^>"']|"[^"]*"|'[^']*')*?\ssrc\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>"'=]+))/gi,
-    (match, before, doubleQuoted, singleQuoted, unquoted) => {
-      const res = findResource(doubleQuoted ?? singleQuoted ?? unquoted, resourceMap, baseUrl);
-      if (res && res.dataUrl) {
-        return `${before}"${res.dataUrl}"`;
-      }
-      return match;
-    }
-  );
+  // Parse each image tag in an inert template to decode its attribute value.
+  const template = document.createElement('template');
+  result = result.replace(/<img(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>/gi, (match) => {
+    template.innerHTML = match;
+    const image = template.content.querySelector('img[src]');
+    if (!image) return match;
+    const res = lookup(image.getAttribute('src') ?? '');
+    if (!res?.dataUrl) return match;
+    image.setAttribute('src', res.dataUrl);
+    return template.innerHTML;
+  });
 
   // 3. Inline <source srcset="..."> tags (for <picture>)
   result = result.replace(
@@ -293,7 +299,7 @@ export function inlineMhtmlResources(html: string, resourceMap: Map<string, MhtR
         const spaceIdx = trimmed.indexOf(' ');
         const url = spaceIdx > 0 ? trimmed.slice(0, spaceIdx) : trimmed;
         const descriptor = spaceIdx > 0 ? trimmed.slice(spaceIdx) : '';
-        const res = findResource(url, resourceMap, baseUrl);
+        const res = lookup(url);
         return res && res.dataUrl ? `${res.dataUrl}${descriptor}` : part;
       });
       return `<source${before}srcset="${parts.join(', ')}"${after}>`;
@@ -304,7 +310,7 @@ export function inlineMhtmlResources(html: string, resourceMap: Map<string, MhtR
   result = result.replace(/url\(\s*["']?([^"')]+)["']?\s*\)/gi, (match, url) => {
     // Avoid double-inlining already inlined data URIs
     if (url.startsWith('data:')) return match;
-    const res = findResource(url, resourceMap, baseUrl);
+    const res = lookup(url);
     if (res && res.dataUrl) {
       return `url("${res.dataUrl}")`;
     }
@@ -427,7 +433,7 @@ export function splitHtmlIntoChapters(cleanHtml: string, documentTitle?: string)
 }
 
 const MIME_HEADER_SEPARATOR = /\r\n\r\n|\n\n|\r\r/;
-const HTML_DOCUMENT_START = /^\s*(?:<\?xml\b[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!doctype\s+html\b|<(?:html|head|body|title|meta|h[1-6]|p|div|article|main|section)\b)/i;
+const HTML_DOCUMENT_START = /^\s*(?:<\?xml\b[^>]*>\s*)?(?:<!--(?:(?!-->)[\s\S])*-->\s*)*(?:<!doctype\s+html\b|<(?:html|head|body|title|meta|h[1-6]|p|div|article|main|section)\b)/i;
 
 function splitMimeEntity(raw: string): { headers: Map<string, string>; body: string } {
   const separator = MIME_HEADER_SEPARATOR.exec(raw);
@@ -471,13 +477,28 @@ function inferBoundary(body: string): string | undefined {
   return /(?:^|\r\n|\r|\n)--([^\r\n]+?)[ \t]*(?:\r\n|\r|\n)(?=(?:content-[a-z-]+|mime-version):)/i.exec(body)?.[1];
 }
 
-function collectMimeParts(headers: Map<string, string>, body: string, depth = 0): ParsedMimePart[] {
+function collectMimeParts(
+  headers: Map<string, string>,
+  body: string,
+  parent?: ParsedMimePart,
+  depth = 0,
+): ParsedMimePart[] {
   if (depth > 24) return [];
   const { mimeType, charset, boundary } = parseContentType(headers.get('content-type') ?? '');
   const transferEncoding = headers.get('content-transfer-encoding')?.toLowerCase() ?? '7bit';
+  const node: ParsedMimePart = {
+    contentType: mimeType || 'application/octet-stream',
+    charset,
+    transferEncoding,
+    location: headers.get('content-location'),
+    contentId: normalizeContentId(headers.get('content-id')),
+    bodyRaw: body,
+    parent,
+  };
   if (mimeType === 'message/rfc822') {
     const embedded = splitMimeEntity(bufferToLatin1String(decodeMimeBody(body, transferEncoding)));
-    return collectMimeParts(embedded.headers, embedded.body, depth + 1);
+    node.children = collectMimeParts(embedded.headers, embedded.body, node, depth + 1);
+    return [node];
   }
 
   let parts = boundary ? splitMultipartBody(body, boundary) : [];
@@ -486,124 +507,64 @@ function collectMimeParts(headers: Map<string, string>, body: string, depth = 0)
     if (inferred && inferred !== boundary) parts = splitMultipartBody(body, inferred);
   }
   if (parts.length) {
-    return parts.flatMap((part) => {
+    node.children = parts.flatMap((part) => {
       const entity = splitMimeEntity(part);
-      return collectMimeParts(entity.headers, entity.body, depth + 1);
+      return collectMimeParts(entity.headers, entity.body, node, depth + 1);
     });
+  } else if (mimeType.startsWith('multipart/')) {
+    return [];
   }
-  if (mimeType.startsWith('multipart/')) return [];
+  return [node];
+}
 
-  return [{
-    contentType: mimeType || 'application/octet-stream',
-    charset,
-    transferEncoding,
-    location: headers.get('content-location'),
-    contentId: normalizeContentId(headers.get('content-id')),
-    bodyRaw: body,
-  }];
+function mimeLeaves(nodes: ParsedMimePart[]): ParsedMimePart[] {
+  return nodes.flatMap((node) => node.children ? mimeLeaves(node.children) : [node]);
+}
+
+function findMimePart(nodes: ParsedMimePart[], id: string): ParsedMimePart | undefined {
+  for (const node of nodes) {
+    if (node.contentId === id) return node;
+    const found = node.children && findMimePart(node.children, id);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 function normalizeContentId(id?: string): string | undefined {
   return id?.trim().replace(/^cid:/i, '').replace(/^<|>$/g, '');
 }
 
-function selectDocument(
-  parts: ParsedMimePart[],
-  rootLocation?: string,
-  startId?: string,
-  defaultCharset?: string,
-): { part: ParsedMimePart; html: string } | undefined {
-  const readable = parts.filter((part) => part.bodyRaw.length > 0);
-  const isHtml = ({ contentType }: ParsedMimePart) =>
-    contentType === 'text/html' || contentType === 'application/xhtml+xml';
-  const candidates = new Set([
-    ...(startId ? readable.filter((part) => part.contentId === startId) : []),
-    ...(rootLocation ? readable.filter((part) => part.location === rootLocation) : []),
-    ...readable.filter(isHtml),
-    ...readable,
-  ]);
-  const decode = (part: ParsedMimePart) =>
-    decodeTextWithCharset(decodeMimeBody(part.bodyRaw, part.transferEncoding), part.charset || defaultCharset);
-  for (const part of candidates) {
-    const explicit = isHtml(part);
-    if (!explicit && part.contentType !== 'application/octet-stream') continue;
-    const html = decode(part);
-    if (html.trim() && (explicit || HTML_DOCUMENT_START.test(html))) return { part, html };
-  }
-  for (const part of candidates) {
-    if (part.contentType !== 'text/plain') continue;
-    const text = decode(part);
-    if (text.trim()) return { part, html: `<p>${escapeHtml(text).replace(/\r\n|\r|\n/g, '<br>')}</p>` };
-  }
-  return undefined;
+interface MimeResourceScope {
+  resourceMap: Map<string, MhtResource>;
+  coverImage?: string;
 }
 
-/**
- * Parses an MHT / MHTML web archive from an ArrayBuffer, Uint8Array, or string.
- */
-export async function parseMht(
-  input: ArrayBuffer | Uint8Array | string,
-  options?: MhtParseOptions
-): Promise<MhtParseResult> {
-  let rawText: string;
-
-  if (typeof input === 'string') {
-    rawText = input;
-  } else {
-    const u8 = input instanceof Uint8Array ? input : new Uint8Array(input);
-    rawText = bufferToLatin1String(u8);
-  }
-
-  if (!rawText || rawText.trim().length === 0) {
-    throw new Error('The MHTML file is empty.');
-  }
-
-  // Strip a UTF-8 BOM from the MIME envelope while keeping body bytes intact.
-  const { headers: topHeaders, body } = splitMimeEntity(rawText.replace(/^(?:\uFEFF|\xEF\xBB\xBF)/, ''));
-  const contentType = parseContentType(topHeaders.get('content-type') ?? '');
-  const parsedParts = collectMimeParts(topHeaders, body);
-  if (parsedParts.length === 0) {
-    throw new Error('Invalid MHTML archive: boundary delimiter not found or no valid MIME parts.');
-  }
-
-  const rootLocation = topHeaders.get('snapshot-content-location') || topHeaders.get('content-location');
-  const startId = normalizeContentId(contentType.parameters.get('start'));
-  const root = selectDocument(parsedParts, rootLocation, startId, options?.defaultCharset);
-  if (!root) {
-    if (!topHeaders.size && !MIME_HEADER_SEPARATOR.test(rawText)) {
-      throw new Error('Invalid MHTML file: missing top-level MIME header section.');
+function indexMimeResources(parts: ParsedMimePart[]): Map<ParsedMimePart, MimeResourceScope> {
+  const scopes = new Map<ParsedMimePart, MimeResourceScope>();
+  for (const part of parts) {
+    const isImage = part.contentType.startsWith('image/');
+    const isCss = part.contentType === 'text/css';
+    const isFont = part.contentType.includes('font');
+    if (!part.parent || (!isImage && !isCss && !isFont)) continue;
+    let scope = scopes.get(part.parent);
+    if (!scope) {
+      scope = { resourceMap: new Map() };
+      scopes.set(part.parent, scope);
     }
-    throw new Error('No readable HTML document found in the MHTML archive.');
-  }
-  const { part: rootHtmlPart, html: rootHtml } = root;
-
-  // 5. Build resource lookup map for all auxiliary parts
-  const resourceMap = new Map<string, MhtResource>();
-  let coverImage: string | undefined;
-
-  for (const part of parsedParts) {
-    if (part === rootHtmlPart) continue;
-
+    const { resourceMap } = scope;
     let dataUrl: string | undefined;
     let text: string | undefined;
 
-    if (part.contentType.startsWith('image/')) {
+    if (isImage || isFont) {
       const cleanB64 = part.transferEncoding === 'base64'
         ? part.bodyRaw.replace(/[\r\n\s]/g, '')
         : btoa(bufferToLatin1String(decodeMimeBody(part.bodyRaw, part.transferEncoding)));
       dataUrl = `data:${part.contentType};base64,${cleanB64}`;
 
-      if (!coverImage) {
-        coverImage = dataUrl;
-      }
-    } else if (part.contentType === 'text/css') {
+      if (isImage) scope.coverImage ??= dataUrl;
+    } else {
       text = decodeTextWithCharset(decodeMimeBody(part.bodyRaw, part.transferEncoding), part.charset || 'utf-8');
       dataUrl = `data:text/css;charset=utf-8;base64,${btoa(unescape(encodeURIComponent(text)))}`;
-    } else if (part.contentType.startsWith('font/') || part.contentType.includes('font')) {
-      const cleanB64 = part.transferEncoding === 'base64'
-        ? part.bodyRaw.replace(/[\r\n\s]/g, '')
-        : btoa(bufferToLatin1String(decodeMimeBody(part.bodyRaw, part.transferEncoding)));
-      dataUrl = `data:${part.contentType};base64,${cleanB64}`;
     }
 
     const resource: MhtResource = {
@@ -637,11 +598,124 @@ export async function parseMht(
     }
   }
 
-  // 6. Inline external resources into the root HTML
-  const baseUrl = rootHtmlPart.location || rootLocation || undefined;
-  const inlinedHtml = inlineMhtmlResources(rootHtml, resourceMap, baseUrl);
+  return scopes;
+}
 
-  // 7. Extract metadata
+function selectDocument(
+  parts: ParsedMimePart[],
+  preferredParts: ParsedMimePart[],
+  rootLocation: string | undefined,
+  defaultCharset: string | undefined,
+  prepare: (part: ParsedMimePart, html: string) => string,
+): { part: ParsedMimePart; inlinedHtml: string; cleanHtml: string } | undefined {
+  const template = document.createElement('template');
+  const isHtml = ({ contentType }: ParsedMimePart) =>
+    contentType === 'text/html' || contentType === 'application/xhtml+xml';
+  const decode = (part: ParsedMimePart) =>
+    decodeTextWithCharset(decodeMimeBody(part.bodyRaw, part.transferEncoding), part.charset || defaultCharset);
+  const checked = new Set<ParsedMimePart>();
+
+  // A matched start container gets first choice, including its plain alternative.
+  for (const group of [preferredParts, parts]) {
+    const readable = group.filter((part) => part.bodyRaw.length > 0);
+    const candidates = new Set([
+      ...(rootLocation ? readable.filter((part) => part.location === rootLocation) : []),
+      ...readable.filter(isHtml),
+      ...readable,
+    ]);
+    for (const part of candidates) {
+      if (checked.has(part)) continue;
+      checked.add(part);
+      const explicit = isHtml(part);
+      if (!explicit && part.contentType !== 'application/octet-stream') continue;
+      const html = decode(part);
+      if (!html.trim() || (!explicit && !HTML_DOCUMENT_START.test(html))) continue;
+
+      const inlinedHtml = prepare(part, html);
+      const cleanHtml = sanitizeMhtReaderHtml(inlinedHtml);
+      template.innerHTML = cleanHtml;
+      if (template.content.textContent?.trim() || template.content.querySelector('img[src]')) {
+        return { part, inlinedHtml, cleanHtml };
+      }
+    }
+
+    for (const part of candidates) {
+      if (part.contentType !== 'text/plain') continue;
+      const text = decode(part);
+      if (!text.trim()) continue;
+      const inlinedHtml = `<p>${escapeHtml(text).replace(/\r\n|\r|\n/g, '<br>')}</p>`;
+      return { part, inlinedHtml, cleanHtml: sanitizeMhtReaderHtml(inlinedHtml) };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Parses an MHT / MHTML web archive from an ArrayBuffer, Uint8Array, or string.
+ */
+export async function parseMht(
+  input: ArrayBuffer | Uint8Array | string,
+  options?: MhtParseOptions
+): Promise<MhtParseResult> {
+  let rawText: string;
+
+  if (typeof input === 'string') {
+    rawText = input;
+  } else {
+    const u8 = input instanceof Uint8Array ? input : new Uint8Array(input);
+    rawText = bufferToLatin1String(u8);
+  }
+
+  if (!rawText || rawText.trim().length === 0) {
+    throw new Error('The MHTML file is empty.');
+  }
+
+  // Strip a UTF-8 BOM from the MIME envelope while keeping body bytes intact.
+  const { headers: topHeaders, body } = splitMimeEntity(rawText.replace(/^(?:\uFEFF|\xEF\xBB\xBF)/, ''));
+  const contentType = parseContentType(topHeaders.get('content-type') ?? '');
+  const mimeTree = collectMimeParts(topHeaders, body);
+  const startId = normalizeContentId(contentType.parameters.get('start'));
+  const preferred = startId ? findMimePart(mimeTree, startId) : undefined;
+  const parsedParts = mimeLeaves(mimeTree);
+  if (parsedParts.length === 0) {
+    throw new Error('Invalid MHTML archive: boundary delimiter not found or no valid MIME parts.');
+  }
+
+  const rootLocation = topHeaders.get('snapshot-content-location') || topHeaders.get('content-location');
+  const scopes = indexMimeResources(parsedParts);
+  const scopesFor = (part: ParsedMimePart): MimeResourceScope[] => {
+    const visible: MimeResourceScope[] = [];
+    for (let parent = part.parent; parent; parent = parent.parent) {
+      const scope = scopes.get(parent);
+      if (scope) visible.push(scope);
+    }
+    return visible;
+  };
+  const root = selectDocument(
+    parsedParts, preferred ? mimeLeaves([preferred]) : [], rootLocation, options?.defaultCharset,
+    (part, html) => {
+      const visible = scopesFor(part);
+      const baseUrl = part.location || rootLocation;
+      return inlineResources(html, (url) => {
+        for (const scope of visible) {
+          const resource = findResource(url, scope.resourceMap, baseUrl);
+          if (resource) return resource;
+        }
+        return null;
+      });
+    },
+  );
+  if (!root) {
+    if (!topHeaders.size && !MIME_HEADER_SEPARATOR.test(rawText)) {
+      throw new Error('Invalid MHTML file: missing top-level MIME header section.');
+    }
+    throw new Error('No readable HTML document found in the MHTML archive.');
+  }
+  const { part: rootHtmlPart, inlinedHtml, cleanHtml: cleanBodyHtml } = root;
+  const baseUrl = rootHtmlPart.location || rootLocation;
+  let coverImage = scopesFor(rootHtmlPart).find((scope) => scope.coverImage)?.coverImage;
+
+  // Extract metadata from the selected document before sanitization.
   const htmlMeta = extractMetadataFromHtml(inlinedHtml);
   const metadata: MhtMetadata = {
     title: htmlMeta.title || topHeaders.get('subject') || undefined,
@@ -660,10 +734,7 @@ export async function parseMht(
     }
   }
 
-  // 8. Sanitize HTML for reader display
-  const cleanBodyHtml = sanitizeMhtReaderHtml(inlinedHtml);
-
-  // 9. Split into chapters
+  // Split the sanitized document into chapters.
   const chapters = splitHtmlIntoChapters(cleanBodyHtml, metadata.title);
   const plainText = extractRawText(cleanBodyHtml);
 

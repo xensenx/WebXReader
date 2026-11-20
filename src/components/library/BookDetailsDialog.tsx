@@ -126,7 +126,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setCoverUrl('');
     setCoverDimensions(null);
     setCoverNotice(defaultCoverImage
-      ? 'The book will use its format?s default cover after saving.'
+      ? 'The book will use its format\'s default cover after saving.'
       : 'The book will use its title-based placeholder cover.');
     setCoverError('');
   };
@@ -137,7 +137,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setCoverUrl(/^https?:\/\//i.test(original) ? original : '');
     setCoverDimensions(null);
     setCoverNotice(original && original === defaultCoverImage
-      ? 'The format?s default cover has been restored.'
+      ? 'The format\'s default cover has been restored.'
       : original
       ? 'The cover from the original import has been restored.'
       : 'This book was imported without a cover, so its title placeholder will be used.');

@@ -612,6 +612,7 @@ export const ArchiveReader = memo(function ArchiveReader({
                 onProgressUpdate={(_ch, fraction) => onProgressUpdate?.(entry.path, fraction, 0)}
                 onToggleControls={onToggleControls}
                 zoom={readerZoom}
+                zoomAnchor={zoomAnchor}
               />
             )
           ) : (

@@ -68,13 +68,11 @@ function extractMetadata(html: string): Partial<BookMetadata> {
   return metadata;
 }
 
-/**
- * Extracts the body content from a full HTML document.
- * If no <body> tag is found, returns the original HTML.
- */
+/** Extract body content with the HTML parser, including implicit body tags. */
 function extractBody(html: string): string {
-  const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)(?:<\/body\s*>|$)/i);
-  return bodyMatch ? bodyMatch[1] : html;
+  const inertDocument = document.implementation.createHTMLDocument();
+  inertDocument.documentElement.innerHTML = html;
+  return inertDocument.body.innerHTML;
 }
 
 /**
@@ -111,13 +109,21 @@ export function splitByHeadings(html: string, documentTitle?: string, headingsSe
 
   const headings = container.querySelectorAll(headingsSelector);
   for (const heading of headings) {
+    // Chapter boundaries must not cut through a preserved table.
+    if (heading.closest('table')) continue;
     const headingTitle = heading.textContent?.trim();
-    if (!headingTitle) continue;
+    const keepHeading = heading.tagName === 'H3';
+    if (!headingTitle && !(keepHeading && heading.querySelector('img[src]'))) continue;
     range.setEndBefore(heading);
     appendChapter();
-    range.setStartAfter(heading);
-    title = headingTitle;
-    headingId = heading.id;
+    if (keepHeading) {
+      range.setStartBefore(heading);
+      headingId = undefined;
+    } else {
+      range.setStartAfter(heading);
+      headingId = heading.id;
+    }
+    title = headingTitle || documentTitle || 'Full Text';
     level = Number(heading.tagName[1]) - 1;
   }
 
@@ -142,7 +148,9 @@ export function parseHtml(htmlText: string): HtmlParseResult {
 
   // Sanitize the HTML
   const cleanHtml = sanitizeReaderHtml(bodyContent);
-  if (!cleanHtml.trim() || (!cleanHtml.replace(/<[^>]*>/g, '').trim() && !/<(?:hr|table)\b/i.test(cleanHtml))) {
+  const template = document.createElement('template');
+  template.innerHTML = cleanHtml;
+  if (!template.content.textContent?.trim() && !template.content.querySelector('hr, table')) {
     throw new Error('No readable HTML body found. This file may require JavaScript to display its content.');
   }
 
