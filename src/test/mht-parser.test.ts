@@ -108,7 +108,7 @@ Date: Wed, 12 Oct 2022 14:32:00 +0000`;
     it('selects a start container and resolves references only in its own and enclosing scopes', async () => {
       const location = 'https://example.com/cover.png?a=1&b=2';
       const inner = multipart('multipart/alternative', 'alternative', [
-        entity('text/html', `<h3 id="heading"><span id="chapter-target">Main</span><img src="${location.replace('&', '&amp;')}"></h3>` +
+        entity('text/html', `<h3 id="heading"><span id="chapter-target">Main</span><img src="${location.replace(/&/g, '&amp;')}"></h3>` +
           '<img src=local.png><img src=hidden.png>'),
         image('image/png', SAMPLE_PNG_BASE64, 'local.png'),
         multipart('multipart/related', 'child', [image('image/jpeg', SAMPLE_JPEG_BASE64, 'hidden.png')]),
