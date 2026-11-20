@@ -44,6 +44,7 @@ import {
 import { naturalCompare } from '../../core/parsing/comic-archive';
 import { parseTxt } from '../../core/parsing/txt-parser';
 import { parseMarkdown } from '../../core/parsing/markdown-parser';
+import { decodeHtmlDocument } from '../../core/parsing/html-encoding';
 import { parseHtml } from '../../core/parsing/html-parser';
 import { parseRtf } from '../../core/parsing/rtf-parser';
 import { parseFb2 } from '../../core/parsing/fb2-parser';
@@ -226,7 +227,9 @@ export const ArchiveReader = memo(function ArchiveReader({
 
       // Reflowable text formats
       if (entry.kind === 'txt' || entry.kind === 'markdown' || entry.kind === 'html' || entry.kind === 'rtf') {
-        const text = await session.getEntryText(entry.path);
+        const text = entry.kind === 'html'
+          ? decodeHtmlDocument(await session.getEntryData(entry.path))
+          : await session.getEntryText(entry.path);
         let chapters: Chapter[] = [];
 
         if (entry.kind === 'txt') {
@@ -582,6 +585,7 @@ export const ArchiveReader = memo(function ArchiveReader({
             readingMode === 'paginated' ? (
               <PaginatedReader
                 chapters={chapters}
+                isMht={entry.kind === 'mht'}
                 settings={readerSettings}
                 initialPageIndex={initialPage - 1}
                 onProgressUpdate={(_ch, fraction) => onProgressUpdate?.(entry.path, fraction, 0)}
@@ -592,6 +596,7 @@ export const ArchiveReader = memo(function ArchiveReader({
             ) : readingMode === 'vertical' ? (
               <DoubleSidedReader
                 chapters={chapters}
+                isMht={entry.kind === 'mht'}
                 settings={readerSettings}
                 initialPageIndex={initialPage - 1}
                 onProgressUpdate={(_ch, fraction) => onProgressUpdate?.(entry.path, fraction, 0)}
@@ -602,10 +607,12 @@ export const ArchiveReader = memo(function ArchiveReader({
             ) : (
               <ScrollReader
                 chapters={chapters}
+                isMht={entry.kind === 'mht'}
                 settings={readerSettings}
                 onProgressUpdate={(_ch, fraction) => onProgressUpdate?.(entry.path, fraction, 0)}
                 onToggleControls={onToggleControls}
                 zoom={readerZoom}
+                zoomAnchor={zoomAnchor}
               />
             )
           ) : (

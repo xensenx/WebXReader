@@ -67,7 +67,7 @@ export function sanitizeReaderHtml(
     'ul', 'ol', 'li',
     'blockquote', 'pre', 'code',
     'a',
-    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'table', 'caption', 'thead', 'tbody', 'tr', 'th', 'td',
     'hr', 'div', 'span', 'sup', 'sub',
     'figure', 'figcaption', 'section', 'article',
   ];
@@ -219,4 +219,48 @@ export function escapeAttr(str: string): string {
     .replace(/'/g, '&#39;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+/** Older web archives use fixed-size, single-cell tables to position prose. */
+function normalizeMhtTables(content: DocumentFragment): void {
+  for (const table of Array.from(content.querySelectorAll('table')).reverse()) {
+    const row = table.rows[0];
+    const cell = row?.cells[0];
+    const fixedSize = [table, cell].some((element) =>
+      element?.hasAttribute('height') || element?.hasAttribute('width')
+    );
+    if (fixedSize && table.rows.length === 1 && row.cells.length === 1 &&
+        cell.tagName === 'TD' && !table.caption) {
+      const wrapper = document.createElement('div');
+      wrapper.id = table.id;
+      for (const element of [row.parentElement, row, cell]) {
+        if (!element?.id || element === table) continue;
+        const anchor = document.createElement('span');
+        anchor.id = element.id;
+        wrapper.append(anchor);
+      }
+      wrapper.append(...cell.childNodes);
+      if (!wrapper.id) wrapper.removeAttribute('id');
+      table.replaceWith(wrapper);
+    }
+  }
+  for (const element of content.querySelectorAll('table, thead, tbody, tfoot, tr, td, th')) {
+    element.removeAttribute('width');
+    element.removeAttribute('height');
+  }
+}
+
+/** Preserves raster images already embedded in an offline web archive. */
+export function sanitizeMhtReaderHtml(content: unknown): string {
+  const template = document.createElement('template');
+  template.innerHTML = sanitizeReaderHtml(content, { allowImages: true });
+  for (const image of template.content.querySelectorAll('img')) {
+    if (!/^data:image\/(?:png|jpeg|gif|webp|bmp|avif);base64,/i.test(image.getAttribute('src') ?? '')) {
+      image.removeAttribute('src');
+    }
+    image.removeAttribute('data-src');
+    image.setAttribute('decoding', 'async');
+  }
+  normalizeMhtTables(template.content);
+  return template.innerHTML;
 }

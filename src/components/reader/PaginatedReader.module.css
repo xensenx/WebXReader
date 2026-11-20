@@ -36,7 +36,7 @@
   box-sizing: border-box;
   padding-top: var(--space-8);
   padding-bottom: var(--space-12);
-  transition: max-width var(--transition-base), background-color var(--transition-base), box-shadow var(--transition-base);
+  transition: background-color var(--transition-base), box-shadow var(--transition-base);
 }
 
 .boundedSheet {
@@ -54,6 +54,8 @@
 }
 
 .sheetPaper {
+  --reader-inset-background: #f0f2f5;
+  --reader-inset-border: #cdd4dc;
   background-color: #ffffff;
   color: #1a1a1a;
   border: 1px solid rgba(0, 0, 0, 0.08);
@@ -61,6 +63,8 @@
 }
 
 .sheetArchive {
+  --reader-inset-background: #e9e0c9;
+  --reader-inset-border: #c9b78c;
   background-color: #f7f1e1;
   color: #382e21;
   border: 1px solid rgba(139, 105, 20, 0.15);
@@ -68,6 +72,8 @@
 }
 
 .sheetDark {
+  --reader-inset-background: #34363d;
+  --reader-inset-border: #51545e;
   background-color: #27282d;
   color: #e4e4e7;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -85,9 +91,7 @@
 
 .columnTrack {
   height: 100%;
-  width: max-content;
-  min-width: 100%;
-  min-height: 100%;
+  position: relative;
   transition: none;
   column-fill: auto;
   column-gap: 0;
@@ -115,18 +119,20 @@
 }
 
 .chapterBody blockquote {
+  color: inherit;
   margin: 1em 0;
   padding: 0.5em 1em;
-  border-left: 3px solid var(--color-accent);
-  background-color: var(--color-surface-hover);
+  border-left: 3px solid var(--reader-inset-border);
+  background-color: var(--reader-inset-background);
   font-style: italic;
   break-inside: avoid;
 }
 
 .chapterBody pre {
+  color: inherit;
   margin: 1em 0;
   padding: 0.8em;
-  background-color: var(--color-surface-hover);
+  background-color: var(--reader-inset-background);
   border-radius: var(--radius-sm);
   overflow-x: auto;
   break-inside: avoid;
@@ -191,4 +197,25 @@
   pointer-events: none;
   font-variant-numeric: tabular-nums;
   z-index: 10;
+}
+
+.chapterBody img {
+  max-width: 100%;
+  height: auto;
+}
+
+[data-mht] .chapterBody {
+  overflow-wrap: anywhere;
+}
+
+[data-mht] .chapterBody table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+[data-mht] .chapterBody img {
+  max-width: 100%;
+  max-height: var(--reader-page-height);
+  object-fit: contain;
 }

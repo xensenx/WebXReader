@@ -5,7 +5,7 @@
 
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
-import { sanitizeReaderHtml, escapeHtml } from './sanitize-reader-html';
+import { sanitizeReaderHtml } from './sanitize-reader-html';
 
 /** Result of parsing an HTML file */
 export interface HtmlParseResult {
@@ -68,59 +68,67 @@ function extractMetadata(html: string): Partial<BookMetadata> {
   return metadata;
 }
 
-/**
- * Extracts the body content from a full HTML document.
- * If no <body> tag is found, returns the original HTML.
- */
+/** Extract body content with the HTML parser, including implicit body tags. */
 function extractBody(html: string): string {
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  return bodyMatch ? bodyMatch[1] : html;
+  const inertDocument = document.implementation.createHTMLDocument();
+  inertDocument.documentElement.innerHTML = html;
+  return inertDocument.body.innerHTML;
 }
 
 /**
  * Splits sanitized HTML content by h1/h2 heading elements into chapters.
  */
-function splitByHeadings(html: string): Chapter[] {
+export function splitByHeadings(html: string, documentTitle?: string, headingsSelector = 'h1, h2'): Chapter[] {
   const container = document.createElement('div');
   container.innerHTML = html;
 
   const chapters: Chapter[] = [];
-  let currentContent: string[] = [];
-  let currentTitle: string | null = null;
-  let currentLevel = 0;
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  let title: string | undefined;
+  let level = 0;
+  let headingId: string | undefined;
 
-  const flushChapter = () => {
-    const content = currentContent.join('').trim();
-    if (currentTitle !== null || content.length > 0) {
-      chapters.push({
-        id: generateId(),
-        title: currentTitle || 'Untitled Section',
-        content,
-        level: currentLevel,
-        order: chapters.length,
-      });
+  const appendChapter = () => {
+    const fragment = document.createElement('div');
+    fragment.append(range.cloneContents());
+    if (!title && !fragment.textContent?.trim() && !fragment.querySelector('img, hr, table')) return;
+    if (headingId) {
+      const anchor = document.createElement('span');
+      anchor.id = headingId;
+      fragment.prepend(anchor);
     }
-    currentContent = [];
+    chapters.push({
+      id: generateId(),
+      title: title ?? documentTitle ?? 'Full Text',
+      content: fragment.innerHTML.trim(),
+      level,
+      order: chapters.length,
+    });
   };
 
-  for (const node of Array.from(container.childNodes)) {
-    const element = node as Element;
-    const tagName = element.tagName?.toUpperCase();
-
-    if (tagName === 'H1' || tagName === 'H2') {
-      flushChapter();
-      currentTitle = element.textContent?.trim() || 'Untitled Section';
-      currentLevel = tagName === 'H1' ? 0 : 1;
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      currentContent.push((element as HTMLElement).outerHTML);
-    } else if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
-      currentContent.push(`<p>${escapeHtml(node.textContent.trim())}</p>`);
+  const headings = container.querySelectorAll(headingsSelector);
+  for (const heading of headings) {
+    // Chapter boundaries must not cut through a preserved table.
+    if (heading.closest('table')) continue;
+    const headingTitle = heading.textContent?.trim();
+    const keepHeading = heading.tagName === 'H3';
+    if (!headingTitle && !(keepHeading && heading.querySelector('img[src]'))) continue;
+    range.setEndBefore(heading);
+    appendChapter();
+    if (keepHeading) {
+      range.setStartBefore(heading);
+      headingId = undefined;
+    } else {
+      range.setStartAfter(heading);
+      headingId = heading.id;
     }
+    title = headingTitle || documentTitle || 'Full Text';
+    level = Number(heading.tagName[1]) - 1;
   }
 
-  // Flush the last chapter
-  flushChapter();
-
+  range.setEnd(container, container.childNodes.length);
+  appendChapter();
   return chapters;
 }
 
@@ -140,9 +148,14 @@ export function parseHtml(htmlText: string): HtmlParseResult {
 
   // Sanitize the HTML
   const cleanHtml = sanitizeReaderHtml(bodyContent);
+  const template = document.createElement('template');
+  template.innerHTML = cleanHtml;
+  if (!template.content.textContent?.trim() && !template.content.querySelector('hr, table')) {
+    throw new Error('No readable HTML body found. This file may require JavaScript to display its content.');
+  }
 
   // Split into chapters
-  const chapters = splitByHeadings(cleanHtml);
+  const chapters = splitByHeadings(cleanHtml, metadata.title, 'h1, h2, h3');
 
   // If no chapters from headings, return all content as single chapter
   if (chapters.length === 0) {

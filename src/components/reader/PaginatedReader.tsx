@@ -1,9 +1,8 @@
 /**
  * Reflowable page reader for normalized TXT, Markdown, and HTML content.
  *
- * CSS columns do the actual layout. A short measuring pass determines how
- * many rendered columns are needed for the current viewport and typography;
- * navigation then moves by those real columns rather than by character count.
+ * CSS columns lay out the text. Navigation uses the track's measured overflow
+ * to count pages for the current viewport and typography.
  */
 
 import {
@@ -20,11 +19,13 @@ import {
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Chapter } from '../../types/book';
 import type { EffectiveReaderSettings } from '../../hooks/useReaderSettings';
-import { sanitizeReaderHtml } from '../../core/parsing/sanitize-reader-html';
+import { sanitizeReaderHtml, sanitizeMhtReaderHtml } from '../../core/parsing/sanitize-reader-html';
+import { ChapterBody } from './ChapterBody';
 import styles from './PaginatedReader.module.css';
 
 export interface PaginatedReaderProps {
   chapters: Chapter[];
+  isMht?: boolean;
   settings: EffectiveReaderSettings;
   initialPageIndex?: number;
   initialChapterId?: string;
@@ -39,6 +40,7 @@ export interface PaginatedReaderProps {
 
 export const PaginatedReader = memo(function PaginatedReader({
   chapters,
+  isMht = false,
   settings,
   initialPageIndex = 0,
   initialChapterId,
@@ -51,26 +53,29 @@ export const PaginatedReader = memo(function PaginatedReader({
   pagesPerSpread = 1,
 }: PaginatedReaderProps) {
   const safeChapterContents = useMemo(
-    () => chapters.map((chapter) => sanitizeReaderHtml(chapter.content)),
-    [chapters],
+    () => {
+      const sanitize = isMht ? sanitizeMhtReaderHtml : sanitizeReaderHtml;
+      return chapters.map((chapter) => sanitize(chapter.content));
+    },
+    [chapters, isMht],
   );
   const [currentPage, setCurrentPage] = useState(Math.max(0, initialPageIndex));
   const [totalPages, setTotalPages] = useState(1);
   const [pageHeight, setPageHeight] = useState(1);
   const [pageWidth, setPageWidth] = useState(1);
-  const [columnCount, setColumnCount] = useState(1);
-  const [isMeasuring, setIsMeasuring] = useState(true);
+  const [imageRevision, setImageRevision] = useState(0);
+  const [canPublishProgress, setCanPublishProgress] = useState(false);
+  const imageFrameRef = useRef<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const chapterRefs = useRef<Map<string, HTMLElement>>(new Map());
   const onProgressUpdateRef = useRef(onProgressUpdate);
   const touchStartX = useRef<number | null>(null);
   const lastProgressFractionRef = useRef(initialProgressFraction);
-  const pendingRestoreFractionRef = useRef(initialProgressFraction);
   const previousZoomRef = useRef(zoom);
   const zoomAnchorRef = useRef(zoomAnchor);
+  const initialLocation = useRef({ initialChapterId, initialPageIndex, initialProgressFraction, initialProgressMode });
   const initialLayoutAppliedRef = useRef(false);
-  const hasMeasuredLayoutRef = useRef(false);
   const spreadGap = pagesPerSpread === 2 ? 24 : 0;
   onProgressUpdateRef.current = onProgressUpdate;
   zoomAnchorRef.current = zoomAnchor;
@@ -111,95 +116,80 @@ export const PaginatedReader = memo(function PaginatedReader({
     };
   }, [pagesPerSpread, spreadGap]);
 
-  const startMeasurement = useCallback(() => {
+  const updateDimensions = useCallback(() => {
     const dimensions = getViewportDimensions();
     if (!dimensions || dimensions.width <= 1 || dimensions.height <= 1) return;
+    setPageWidth(dimensions.width);
+    setPageHeight(dimensions.height);
+  }, [getViewportDimensions]);
+
+  useLayoutEffect(updateDimensions, [layoutKey, updateDimensions]);
+
+  useEffect(() => {
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateDimensions) : null;
+    if (observer && viewportRef.current) observer.observe(viewportRef.current);
+    window.addEventListener('resize', updateDimensions);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateDimensions);
+      if (imageFrameRef.current !== null) cancelAnimationFrame(imageFrameRef.current);
+      imageFrameRef.current = null;
+    };
+  }, [updateDimensions]);
+
+  const handleImageLayout = useCallback(() => {
+    if (imageFrameRef.current !== null) return;
+    imageFrameRef.current = requestAnimationFrame(() => {
+      imageFrameRef.current = null;
+      setImageRevision((revision) => revision + 1);
+    });
+  }, []);
+
+  // Let fixed-height CSS columns overflow naturally. Measuring that overflow
+  // counts real pages without allocating space for estimated empty columns.
+  useLayoutEffect(() => {
+    const track = trackRef.current;
+    const viewport = viewportRef.current;
+    if (!track || !viewport || pageWidth <= 1 || pageHeight <= 1) return;
+    const dimensions = getViewportDimensions();
+    if (dimensions?.width !== pageWidth || dimensions.height !== pageHeight) return;
 
     const zoomChanged = previousZoomRef.current !== zoom;
     previousZoomRef.current = zoom;
-    const restoreFraction = zoomChanged && zoomAnchorRef.current
-      ? zoomAnchorRef.current.scrollRatioX
-      : lastProgressFractionRef.current;
-    pendingRestoreFractionRef.current = Math.min(1, Math.max(0, restoreFraction));
-    setPageWidth(dimensions.width);
-    setPageHeight(dimensions.height);
-    setColumnCount(1);
-    setIsMeasuring(true);
-    hasMeasuredLayoutRef.current = false;
-  }, [getViewportDimensions, zoom]);
+    const spreadWidth = pageWidth * pagesPerSpread + spreadGap * (pagesPerSpread - 1);
+    const actualColumns = Math.max(1, Math.ceil(
+      (track.scrollWidth + spreadGap - 1) / (pageWidth + spreadGap)
+    ));
+    const actualPages = Math.ceil(actualColumns / pagesPerSpread);
+    const { initialChapterId, initialPageIndex, initialProgressFraction, initialProgressMode } = initialLocation.current;
+    const chapterPage = initialChapterId
+      ? Math.floor((chapterRefs.current.get(initialChapterId)?.offsetLeft ?? 0) / spreadWidth)
+      : 0;
+    const anchor = zoomChanged ? zoomAnchorRef.current : undefined;
+    const targetPage = initialLayoutAppliedRef.current
+      ? anchor
+        ? Math.floor(anchor.scrollRatioX * actualPages)
+        : Math.round(lastProgressFractionRef.current * (actualPages - 1))
+      : (initialProgressMode === 'paginated' || initialProgressMode === 'vertical')
+        ? initialPageIndex > 0 ? initialPageIndex : chapterPage
+        : Math.round(initialProgressFraction * (actualPages - 1));
 
-  // Reflow when typography, zoom, chapters, or the viewport changes.
-  useLayoutEffect(() => {
-    startMeasurement();
-  }, [layoutKey, chapters, startMeasurement]);
-
-  useEffect(() => {
-    const observer = typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(() => startMeasurement())
-      : null;
-    if (observer && viewportRef.current) observer.observe(viewportRef.current);
-    window.addEventListener('resize', startMeasurement);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', startMeasurement);
-    };
-  }, [startMeasurement]);
-
-  // First pass: let one column grow naturally so its rendered height is the
-  // source of truth for the number of pages.
-  useLayoutEffect(() => {
-    if (!isMeasuring || pageWidth <= 1 || pageHeight <= 1) return;
-    const frame = requestAnimationFrame(() => {
-      const track = trackRef.current;
-      if (!track) return;
-      const naturalHeight = Math.max(pageHeight, track.scrollHeight);
-      const measuredColumns = Math.max(1, Math.ceil(naturalHeight / pageHeight));
-      setColumnCount(measuredColumns);
-      setIsMeasuring(false);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [isMeasuring, pageHeight, pageWidth]);
-
-  // Second pass: verify the actual horizontal overflow after columns are
-  // created, then restore the semantic position in the new layout.
-  useLayoutEffect(() => {
-    if (isMeasuring || pageWidth <= 1 || pageHeight <= 1) return;
-    const frame = requestAnimationFrame(() => {
-      const track = trackRef.current;
-      const viewport = viewportRef.current;
-      if (!track || !viewport) return;
-
-      const actualColumns = Math.max(1, Math.ceil(
-        (track.scrollWidth + spreadGap) / Math.max(1, pageWidth + spreadGap)
-      ));
-      if (actualColumns !== columnCount) {
-        setColumnCount(actualColumns);
-        return;
-      }
-
-      const actualPages = Math.max(1, Math.ceil(actualColumns / pagesPerSpread));
-      const spreadWidth = pageWidth * pagesPerSpread + spreadGap * Math.max(0, pagesPerSpread - 1);
-      setTotalPages(actualPages);
-      const chapterPage = initialChapterId
-        ? Math.floor((chapterRefs.current.get(initialChapterId)?.offsetLeft ?? 0) / spreadWidth)
-        : 0;
-      const targetPage = initialLayoutAppliedRef.current
-        ? Math.round(pendingRestoreFractionRef.current * Math.max(0, actualPages - 1))
-        : (initialProgressMode === 'paginated' || initialProgressMode === 'vertical')
-          ? Math.max(0, Math.min(initialPageIndex > 0 ? initialPageIndex : chapterPage, actualPages - 1))
-          : Math.round(initialProgressFraction * Math.max(0, actualPages - 1));
-
-      const clampedPage = Math.max(0, Math.min(targetPage, actualPages - 1));
-      setCurrentPage(clampedPage);
-      viewport.scrollLeft = clampedPage * spreadWidth;
-      lastProgressFractionRef.current = actualPages > 1
-        ? clampedPage / (actualPages - 1)
-        : 0;
+    const clampedPage = Math.max(0, Math.min(targetPage, actualPages - 1));
+    setTotalPages(actualPages);
+    setCurrentPage(clampedPage);
+    viewport.scrollLeft = clampedPage * spreadWidth;
+    // An image can add columns after the first measurement. Keep the saved
+    // target while it is out of range and the layout may still grow.
+    if (isMht && !initialLayoutAppliedRef.current && targetPage >= actualPages &&
+        Array.from(track.querySelectorAll<HTMLImageElement>('img[src]')).some((image) => !image.complete)) {
+      return;
+    }
+    lastProgressFractionRef.current = actualPages > 1 ? clampedPage / (actualPages - 1) : 0;
+    if (!initialLayoutAppliedRef.current) {
       initialLayoutAppliedRef.current = true;
-      hasMeasuredLayoutRef.current = true;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [columnCount, initialChapterId, initialPageIndex, initialProgressFraction, initialProgressMode, isMeasuring, pageHeight, pageWidth, pagesPerSpread, spreadGap]);
+      setCanPublishProgress(true);
+    }
+  }, [chapters, getViewportDimensions, imageRevision, isMht, layoutKey, pageHeight, pageWidth, pagesPerSpread, spreadGap, zoom]);
 
   const goToPage = useCallback((page: number) => {
     const nextPage = Math.max(0, Math.min(page, totalPages - 1));
@@ -215,7 +205,7 @@ export const PaginatedReader = memo(function PaginatedReader({
   const goToPrevPage = useCallback(() => goToPage(currentPage - 1), [currentPage, goToPage]);
 
   useEffect(() => {
-    if (!hasMeasuredLayoutRef.current || isMeasuring || pageWidth <= 1) return;
+    if (!canPublishProgress || pageWidth <= 1) return;
 
     let activeChapterId = chapters[0]?.id || '';
     const spreadWidth = pageWidth * pagesPerSpread + spreadGap * Math.max(0, pagesPerSpread - 1);
@@ -230,11 +220,11 @@ export const PaginatedReader = memo(function PaginatedReader({
     const fraction = totalPages > 1 ? currentPage / (totalPages - 1) : 0;
     lastProgressFractionRef.current = fraction;
     onProgressUpdateRef.current(activeChapterId, fraction, currentPage);
-  }, [chapters, currentPage, isMeasuring, pageWidth, pagesPerSpread, spreadGap, totalPages]);
+  }, [canPublishProgress, chapters, currentPage, pageWidth, pagesPerSpread, spreadGap, totalPages]);
 
   const handleScroll = () => {
     const viewport = viewportRef.current;
-    if (!viewport || pageWidth <= 1 || isMeasuring) return;
+    if (!viewport || pageWidth <= 1) return;
     const spreadWidth = pageWidth * pagesPerSpread + spreadGap * Math.max(0, pagesPerSpread - 1);
     const page = Math.max(0, Math.min(
       Math.round(viewport.scrollLeft / Math.max(1, spreadWidth)),
@@ -335,13 +325,17 @@ export const PaginatedReader = memo(function PaginatedReader({
         <div
           ref={trackRef}
           className={styles.columnTrack}
+          data-mht={isMht || undefined}
+          onLoadCapture={isMht ? handleImageLayout : undefined}
+          onErrorCapture={isMht ? handleImageLayout : undefined}
           style={{
             fontFamily: settings.fontFamily,
             fontSize: `${settings.fontSize * zoom}px`,
-            height: isMeasuring ? 'auto' : `${pageHeight}px`,
+            height: `${pageHeight}px`,
             columnWidth: `${pageWidth}px`,
-            columnCount: isMeasuring ? 1 : columnCount,
-            width: `${Math.max(pageWidth, pageWidth * (isMeasuring ? 1 : columnCount) + spreadGap * Math.max(0, (isMeasuring ? 1 : columnCount) - 1))}px`,
+            columnCount: pagesPerSpread,
+            width: `${pageWidth * pagesPerSpread + spreadGap * (pagesPerSpread - 1)}px`,
+            ['--reader-page-height' as string]: `${pageHeight}px`,
             columnGap: `${spreadGap}px`,
             textAlign: settings.textAlign,
             letterSpacing: `${settings.letterSpacing}px`,
@@ -354,6 +348,7 @@ export const PaginatedReader = memo(function PaginatedReader({
           {chapters.map((chapter, index) => (
             <section
               key={chapter.id}
+              id={`chapter-${chapter.id}`}
               data-chapter-id={chapter.id}
               ref={(element) => {
                 if (element) chapterRefs.current.set(chapter.id, element);
@@ -366,7 +361,11 @@ export const PaginatedReader = memo(function PaginatedReader({
                   {chapter.title}
                 </h2>
               )}
-              <div className={styles.chapterBody} data-chapter-body="true" data-rtf-preserve-align={settings.rtfPreserveAlignment === false ? 'false' : 'true'} dangerouslySetInnerHTML={{ __html: safeChapterContents[index] || '' }} />
+              <ChapterBody
+                className={styles.chapterBody}
+                preserveAlignment={settings.rtfPreserveAlignment !== false}
+                html={safeChapterContents[index] || ''}
+              />
               {index < chapters.length - 1 && <div className={styles.chapterDivider} aria-hidden="true">❖ ❖ ❖</div>}
             </section>
           ))}

@@ -1,12 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, renderHook, waitFor } from '@testing-library/react';
+import { htmlFormat } from '../formats/definitions/html';
+import { markdownFormat } from '../formats/definitions/markdown';
+import { mhtFormat } from '../formats/definitions/mht';
 import { txtFormat } from '../formats/definitions/txt';
 import {
   DEFAULT_TXT_COVER,
   DEFAULT_TXT_COVER_SVG,
-  getBookCoverUrl,
 } from '../assets/covers/txt-default-cover';
+import { getBookCoverUrl } from '../assets/covers/default-book-cover';
 import { BookCard } from '../components/library/BookCard';
 import { BookList } from '../components/library/BookList';
 import { BookDetailsDialog } from '../components/library/BookDetailsDialog';
@@ -62,6 +65,28 @@ describe('TXT Default Cover Thumbnail', () => {
     const parsed = await txtFormat.parse(file, {});
 
     expect(parsed.coverImage).toBe(DEFAULT_TXT_COVER);
+  });
+
+  it.each([
+    { format: htmlFormat, content: '<p>Book content</p>' },
+    { format: markdownFormat, content: '# Book content' },
+    {
+      format: mhtFormat,
+      content: [
+        'Content-Type: multipart/related; boundary="test"',
+        '',
+        '--test',
+        'Content-Type: text/html; charset=utf-8',
+        '',
+        '<p>Book content</p>',
+        '--test--',
+      ].join('\r\n'),
+    },
+  ])('assigns the format cover during $format.id import', async ({ format, content }) => {
+    const parsed = await format.parse(new File([content], `book.${format.extensions[0]}`), {});
+    expect(parsed.coverImage).toMatch(/^data:image\/svg\+xml;utf8,/);
+    expect(parsed.coverImage).toBe(getBookCoverUrl({ sourceFormat: format.id }));
+    expect(parsed.coverImage).not.toBe(DEFAULT_TXT_COVER);
   });
 
   it('getBookCoverUrl correctly resolves format default vs custom cover', () => {

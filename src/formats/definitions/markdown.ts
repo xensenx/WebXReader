@@ -5,6 +5,7 @@
 import type { FormatDefinition, FormatParsedData, FormatImportContext } from '../types';
 import { readFileAsText } from '../../utils';
 import { parseMarkdown } from '../../core/parsing/markdown-parser';
+import { getDefaultBookCover } from '../../assets/covers/default-book-cover';
 import type { Chapter } from '../../types/book';
 
 export const markdownFormat: FormatDefinition = {
@@ -16,7 +17,7 @@ export const markdownFormat: FormatDefinition = {
   capabilities: {
     continuousScroll: true,
     paginated: true,
-    doubleSided: true,
+    doubleSided: false,
     zoom: false,
     search: true,
     customTypography: true,
@@ -37,6 +38,7 @@ export const markdownFormat: FormatDefinition = {
       tableOfContents,
       chapters,
       rawText: text,
+      coverImage: getDefaultBookCover('markdown'),
     };
   },
 };

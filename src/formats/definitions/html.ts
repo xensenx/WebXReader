@@ -3,8 +3,10 @@
  */
 
 import type { FormatDefinition, FormatParsedData, FormatImportContext } from '../types';
-import { readFileAsText } from '../../utils';
+import { readFileAsArrayBuffer } from '../../utils';
+import { decodeHtmlDocument } from '../../core/parsing/html-encoding';
 import { parseHtml } from '../../core/parsing/html-parser';
+import { getDefaultBookCover } from '../../assets/covers/default-book-cover';
 import type { Chapter } from '../../types/book';
 
 export const htmlFormat: FormatDefinition = {
@@ -16,13 +18,13 @@ export const htmlFormat: FormatDefinition = {
   capabilities: {
     continuousScroll: true,
     paginated: true,
-    doubleSided: true,
+    doubleSided: false,
     zoom: false,
     search: true,
     customTypography: true,
   },
   async parse(file: File, context: FormatImportContext): Promise<FormatParsedData> {
-    const text = await readFileAsText(file, context.textEncoding);
+    const text = decodeHtmlDocument(await readFileAsArrayBuffer(file), context.textEncoding);
     const { chapters, metadata } = parseHtml(text);
 
     const tableOfContents: Chapter[] = chapters.map((ch) => ({
@@ -37,6 +39,7 @@ export const htmlFormat: FormatDefinition = {
       tableOfContents,
       chapters,
       rawText: text,
+      coverImage: getDefaultBookCover('html'),
     };
   },
 };

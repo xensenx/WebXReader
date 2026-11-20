@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
+import { PaginatedReader } from '../components/reader/PaginatedReader';
 import { ScrollReader } from '../components/reader/ScrollReader';
 import type { EffectiveReaderSettings } from '../hooks/useReaderSettings';
 import type { Chapter } from '../types/book';
@@ -68,6 +69,17 @@ describe('ScrollReader Canvas Zoom & Layout Modes', () => {
     expect(sheet.style.fontSize).toBe('27px');
   });
 
+  it('keeps the mounted MHT image when zoom changes', () => {
+    const chapters = [{ ...dummyChapters[0], content: '<img src="data:image/png;base64,AAAA" alt="Archive image">' }];
+    const onProgressUpdate = vi.fn();
+    const { getByAltText, rerender } = render(
+      <ScrollReader isMht chapters={chapters} settings={dummySettings} onProgressUpdate={onProgressUpdate} />
+    );
+    const image = getByAltText('Archive image');
+    rerender(<ScrollReader isMht chapters={chapters} settings={dummySettings} onProgressUpdate={onProgressUpdate} zoom={0.6} />);
+    expect(getByAltText('Archive image')).toBe(image);
+  });
+
   it('uses full width 100% when in Expanded Mode regardless of zoom', () => {
     const { container } = render(
       <ScrollReader
@@ -84,4 +96,39 @@ describe('ScrollReader Canvas Zoom & Layout Modes', () => {
     expect(expanded.style.maxWidth).toBe('100%');
     expect(expanded.style.fontSize).toBe('14.4px');
   });
+});
+
+it('retains the saved paginated position through MHT image remeasurements', () => {
+  const width = 400;
+  let trackWidth = width;
+  vi.useFakeTimers();
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+  vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(() => trackWidth);
+  try {
+    const onProgressUpdate = vi.fn();
+    const { container, getByAltText } = render(
+      <PaginatedReader isMht
+        chapters={[{ id: 'saved', title: 'Saved', order: 0, level: 0,
+          content: '<img src="data:image/png;base64,AAAA" alt="Loaded"><img src="data:image/png;base64,BBBB" alt="Failed">' }]}
+        settings={{ fontFamily: 'serif', fontSize: 18, lineHeight: 1.7, paragraphSpacing: 1,
+          letterSpacing: 0, wordSpacing: 0, textAlign: 'left', textIndent: 0, maxContentWidth: 720,
+          contentMargin: 0, readingMode: 'scroll', theme: 'light', readerSheetColor: 'paper', expandContent: false }}
+        initialPageIndex={2} initialProgressFraction={0.5} onProgressUpdate={onProgressUpdate}
+      />,
+    );
+    expect(onProgressUpdate).not.toHaveBeenCalled();
+    fireEvent.error(getByAltText('Failed'));
+    act(() => vi.advanceTimersToNextFrame());
+    expect(onProgressUpdate).not.toHaveBeenCalled();
+
+    trackWidth = 5 * width;
+    fireEvent.load(getByAltText('Loaded'));
+    act(() => vi.advanceTimersToNextFrame());
+    expect(container.querySelector('[data-reader-viewport]')?.scrollLeft).toBe(2 * width);
+    expect(onProgressUpdate.mock.calls).toEqual([['saved', 0.5, 2]]);
+  } finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  }
 });

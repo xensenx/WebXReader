@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 300 450"
+   width="300"
+   height="450"
+   version="1.1"
+   id="svg11"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs8">
+    <linearGradient
+       id="txtCoverBg"
+       x1="0"
+       y1="0"
+       x2="367.42346"
+       y2="367.42346"
+       gradientTransform="scale(0.81649658,1.2247449)"
+       gradientUnits="userSpaceOnUse">
+      <stop
+         offset="0%"
+         stop-color="#dbeafe"
+         id="stop1" />
+      <stop
+         offset="45%"
+         stop-color="#93c5fd"
+         id="stop2" />
+      <stop
+         offset="100%"
+         stop-color="#60a5fa"
+         id="stop3" />
+    </linearGradient>
+    <linearGradient
+       id="txtSpineShadow"
+       x1="0"
+       y1="0"
+       x2="79.372536"
+       y2="0"
+       gradientTransform="scale(0.17638342,5.6694671)"
+       gradientUnits="userSpaceOnUse">
+      <stop
+         offset="0%"
+         stop-color="rgba(15, 23, 42, 0.18)"
+         id="stop4" />
+      <stop
+         offset="60%"
+         stop-color="rgba(15, 23, 42, 0.04)"
+         id="stop5" />
+      <stop
+         offset="100%"
+         stop-color="rgba(15, 23, 42, 0)"
+         id="stop6" />
+    </linearGradient>
+    <linearGradient
+       id="txtInnerGlow"
+       x1="0"
+       y1="0"
+       x2="0"
+       y2="189.73666"
+       gradientTransform="scale(1.5811388,0.63245553)"
+       gradientUnits="userSpaceOnUse">
+      <stop
+         offset="0%"
+         stop-color="rgba(255, 255, 255, 0.6)"
+         id="stop7" />
+      <stop
+         offset="100%"
+         stop-color="rgba(255, 255, 255, 0)"
+         id="stop8" />
+    </linearGradient>
+  </defs>
+  <!-- Blueish Background with Subtle Book Texture -->
+  <rect
+     width="300"
+     height="450"
+     fill="url(#txtCoverBg)"
+     rx="4"
+     id="rect8"
+     x="0"
+     y="0"
+     style="fill:url(#txtCoverBg)" />
+  <!-- Subtle Top Lighting -->
+  <rect
+     width="300"
+     height="120"
+     fill="url(#txtInnerGlow)"
+     opacity="0.5"
+     rx="4"
+     id="rect9"
+     x="0"
+     y="0"
+     style="fill:url(#txtInnerGlow)" />
+  <!-- Subtle Spine Depth on Left Edge -->
+  <rect
+     width="14"
+     height="450"
+     fill="url(#txtSpineShadow)"
+     rx="4"
+     id="rect10"
+     x="0"
+     y="0"
+     style="fill:url(#txtSpineShadow)" />
+  <!-- Subtle Inner Border -->
+  <rect
+     x="0.5"
+     y="0.5"
+     width="299"
+     height="449"
+     fill="none"
+     stroke="rgba(255, 255, 255, 0.5)"
+     stroke-width="1"
+     rx="4"
+     id="rect11" />
+  <!-- TXT Icon from path2.svg (Centered & Scaled) -->
+  <g
+     transform="matrix(1.25,0,0,1.25,71.13656,138.3625)"
+     fill="#0f172a"
+     id="g11">
+    <path
+       d="m 9.070752,47.620001 c -3.26,-3.21 -2.02,-5.05 -2.25,-9.23 l -0.01,-22.21 c -0.03,-2.2 0.28,-4.03 1.11,-6.08 2.95,-6.6700001 8.93,-10.40000013 16.23,-10.08000013 19.47,0.01 38.93,0.05 58.4,-0.0199999951363 3.64,2.2200000251363 6.61,6.3100000251363 9.85,9.1300000251363 7.44,7.5700001 15.029998,15.0000001 22.499998,22.5500001 1.13,1.05 1.94,1.92 2.75,3.25 0.03,8.25 0.01,16.51 0.01,24.77 8.05,2.57 6.68,7.41 6.78,14.51 0.01,10.05 -0.03,20.14 0.02,30.199999 -0.04,5.37 -2.08,7.37 -6.86,9.18 -0.06,4.03 0.54,9.52 -0.52,13.35 -2.38,7.5 -8.89,11.96 -16.75,11.61 H 24.150752 c -7.85,0.36 -14.37,-4.13 -16.76,-11.61 -1.04,-3.82 -0.45,-9.33 -0.51,-13.35 -8.42,-3.04 -6.63999998,-7.67 -6.83999998,-15.229999 -0.01,-9.72 0.03,-19.45 -0.02,-29.18 -0.32,-5.88 3.07999998,-10.16 9.11999998,-10.3 l 24.18,0.01 c 2.43,0.16 8.58,-0.34 10.62,0.31 4.1,2.02 4.36,5.96 1.46,9.21 -2.92,1.23 -5.03,0.84 -8.08,0.88 -8.92,0.05 -17.97,-0.09 -26.87,0.07 0.18,11.49 -0.04,23.05 0.11,34.549999 h 56.8 c 2.8,0.07 4.69,-0.4 7.28,0.99 1.26,1.19 1.49,1.82 1.99,3.46 0.08,2.54 -0.72,3.21 -2.14,5.16 -1.85,0.65 -3.26,0.94 -5.23,0.92 -9.98,-0.03 -20.03,0 -30.02,-0.01 -7.3,0.06 -14.85,-0.13 -22.12,0.1 0.23,4.15 -0.68,7.8 1.05,11.76 3.69,2.65 5.72,1.63 9.95,1.8 23.73,0.01 47.47,-0.01 71.19,0.02 3.549998,0.05 4.699998,0.12 7.309998,-2.42 1.23,-3.78 0.57,-7.29 0.74,-11.16 -4.85,-0.78 -10.389998,1.39 -14.469998,-1.9 -1.89,-3.5 -1.7,-4.09 0.22,-7.49 1.87,-0.88 3,-1.29 5.1,-1.25 5.219998,0.04 10.489998,0.02 15.709998,0.02 0.15,-11.499999 -0.07,-23.059999 0.11,-34.549999 -1.6,-0.13 -3.18,-0.05 -4.79,-0.07 -15.369998,0.01 -30.789998,-0.02 -46.149998,0.02 -4.29,0.01 -5.89,-0.96 -7.2,-5.02 1.63,-6.7 5.6,-5.24 11.22,-5.4 h 36.129998 c 1.27,0.01 2.49,-0.06 3.75,0.1 0.79,-3.44 0.16,-8.12 0.36,-11.74 -0.09,-2.03 0.3,-3.68 -0.39,-5.65 -5.91,0.27 -11.919998,0.02 -17.829998,0.13 -6.97,0.4 -13.02,-5.47 -13.15,-12.37 -0.01,-6.28 0.03,-12.56 -0.01,-18.85 -16.92,-0.07 -33.89,0.01 -50.82,-0.04 -3.29,-0.11 -4.22,0 -6.96,1.81 -0.7,1.77 -1.08,3.07 -1.08,5 0.03,6.99 0.01,14.14 0.02,21.15 -0.26,3.89 1.05,6.57 -2.34,9.36 -2.36,0.55 -3.4,0.51 -5.72,-0.17 z"
+       id="path2" />
+  </g>
+  <text
+     xml:space="preserve"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:49.2186px;line-height:0;font-family:STHupo;-inkscape-font-specification:STHupo;letter-spacing:-1.54px;word-spacing:0px;writing-mode:lr-tb;direction:rtl;fill:#0f1726;stroke-width:0.36914"
+     x="198.31139"
+     y="255.8633"
+     id="text11"
+     transform="scale(0.96668,1.0344685)"><tspan
+       id="tspan11"
+       x="196.77139"
+       y="255.8633"
+       style="letter-spacing:-1.54px;stroke-width:0.36914">MHT</tspan></text>
+</svg>

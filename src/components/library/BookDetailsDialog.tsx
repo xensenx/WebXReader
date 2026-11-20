@@ -12,7 +12,7 @@ import {
   prepareCoverFile,
   type CoverImageResult,
 } from '../../utils/cover-image';
-import { DEFAULT_TXT_COVER } from '../../assets/covers/txt-default-cover';
+import { getBookCoverUrl, getDefaultBookCover } from '../../assets/covers/default-book-cover';
 import styles from './BookDetailsDialog.module.css';
 
 interface BookDetailsDialogProps {
@@ -32,7 +32,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
   const [author, setAuthor] = useState(book?.author || '');
   const [description, setDescription] = useState(book?.description || '');
   const [tagsInput, setTagsInput] = useState((book?.userTags || []).join(', '));
-  const [coverImage, setCoverImage] = useState(book?.coverImage || (book?.sourceFormat === 'txt' ? DEFAULT_TXT_COVER : ''));
+  const [coverImage, setCoverImage] = useState(getBookCoverUrl(book) ?? '');
   const [coverUrl, setCoverUrl] = useState('');
   const [coverDimensions, setCoverDimensions] = useState<{ width: number; height: number } | null>(null);
   const [coverNotice, setCoverNotice] = useState('');
@@ -47,7 +47,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setAuthor(book.author || '');
     setDescription(book.description || '');
     setTagsInput((book.userTags || []).join(', '));
-    setCoverImage(book.coverImage || (book.sourceFormat === 'txt' ? DEFAULT_TXT_COVER : ''));
+    setCoverImage(getBookCoverUrl(book) ?? '');
     setCoverUrl(/^https?:\/\//i.test(book.coverImage || '') ? book.coverImage || '' : '');
     setCoverDimensions(null);
     setCoverNotice('');
@@ -77,11 +77,12 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
 
   if (!book) return null;
 
-  const originalCoverImage = book.originalCoverImage !== undefined
-    ? book.originalCoverImage
-    : (book.sourceFormat === 'txt' ? DEFAULT_TXT_COVER : (book.coverImage ?? null));
+  const originalCoverImage = book.originalCoverImage === undefined
+    ? getBookCoverUrl(book)
+    : book.originalCoverImage ?? getDefaultBookCover(book.sourceFormat);
   const canResetCover = coverImage !== (originalCoverImage || '');
-  const resetLabel = originalCoverImage ? 'Reset to original' : 'Reset to default';
+  const defaultCoverImage = getDefaultBookCover(book.sourceFormat);
+  const resetLabel = originalCoverImage && originalCoverImage !== defaultCoverImage ? 'Reset to original' : 'Reset to default';
 
   const applyCover = (result: CoverImageResult) => {
     setCoverImage(result.data);
@@ -124,7 +125,9 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setCoverImage('');
     setCoverUrl('');
     setCoverDimensions(null);
-    setCoverNotice('The book will use its title-based placeholder cover.');
+    setCoverNotice(defaultCoverImage
+      ? 'The book will use its format\'s default cover after saving.'
+      : 'The book will use its title-based placeholder cover.');
     setCoverError('');
   };
 
@@ -133,7 +136,9 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setCoverImage(original);
     setCoverUrl(/^https?:\/\//i.test(original) ? original : '');
     setCoverDimensions(null);
-    setCoverNotice(original
+    setCoverNotice(original && original === defaultCoverImage
+      ? 'The format\'s default cover has been restored.'
+      : original
       ? 'The cover from the original import has been restored.'
       : 'This book was imported without a cover, so its title placeholder will be used.');
     setCoverError('');
@@ -160,7 +165,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
         description: description.trim(),
         coverImage: coverImage || undefined,
         originalCoverImage: book.originalCoverImage === undefined
-          ? (coverWasChanged ? (book.coverImage ?? null) : undefined)
+          ? (coverWasChanged ? (getBookCoverUrl(book) ?? null) : undefined)
           : book.originalCoverImage,
         userTags: parsedTags,
         updatedAt: Date.now(),

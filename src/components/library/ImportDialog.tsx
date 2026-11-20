@@ -12,7 +12,7 @@ import { importFile, type ImportResult } from '../../features/import/import-serv
 import { getAcceptAttribute } from '../../formats';
 import type { Book } from '../../types/book';
 import { useSettingsContext } from '../../app/providers/SettingsContext';
-import { getBookCoverUrl } from '../../assets/covers/txt-default-cover';
+import { getBookCoverUrl } from '../../assets/covers/default-book-cover';
 import styles from './ImportDialog.module.css';
 
 interface ImportDialogProps {
