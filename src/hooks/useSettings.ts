@@ -86,6 +86,7 @@ export function useSettings(): UseSettingsResult {
       await saveSettings(merged);
     } catch (err) {
       console.error('Failed to save settings:', err);
+      throw err;
     }
   }, []);
 

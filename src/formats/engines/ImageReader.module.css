@@ -196,6 +196,7 @@
 
 .toolBtnActive:hover {
   background: var(--reader-control-selected, var(--color-primary-hover, #4f46e5));
+  color: var(--reader-control-selected-text, #ffffff);
 }
 
 .divider {

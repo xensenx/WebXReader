@@ -75,6 +75,23 @@ describe('Library filters', () => {
     fireEvent.click(within(panel).getByRole('checkbox', { name: 'Unread' }));
     expect(within(panel).getByRole('status')).toHaveTextContent('1 book');
 
+    const author = within(panel).getByRole('button', { name: 'Author' });
+    fireEvent.keyDown(author, { key: 'ArrowDown' });
+    const authorOption = within(screen.getByRole('listbox', { name: 'Author' })).getByRole('option', { selected: true });
+    expect(authorOption).toHaveFocus();
+    fireEvent.keyDown(authorOption, { key: 'Escape' });
+    expect(screen.queryByRole('listbox', { name: 'Author' })).not.toBeInTheDocument();
+    expect(author).toHaveFocus();
+    expect(panel).toBeInTheDocument();
+
+    const rating = within(panel).getByRole('button', { name: 'Rating' });
+    fireEvent.click(rating);
+    expect(rating).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.keyDown(rating, { key: 'Escape' });
+    expect(rating).toHaveAttribute('aria-expanded', 'false');
+    expect(rating).toHaveFocus();
+    expect(panel).toBeInTheDocument();
+
     fireEvent.keyDown(within(formats).getByRole('checkbox', { name: 'PDF' }), { key: 'Escape' });
     expect(panel).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();

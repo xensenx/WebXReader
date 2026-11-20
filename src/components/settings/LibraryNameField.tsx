@@ -5,22 +5,35 @@ import styles from './SettingsView.module.css';
 
 interface LibraryNameFieldProps {
   value: string;
-  onSave: (value: string) => void;
+  onSave: (value: string) => Promise<void>;
 }
 
 export function LibraryNameField({ value, onSave }: LibraryNameFieldProps) {
   const id = useId();
   const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const inputValue = draft ?? value;
   const name = inputValue.trim();
   const length = libraryNameCharacters(name).length;
   const tooLong = length > LIBRARY_NAME_LIMIT;
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  // The settings value updates optimistically, so a failed save can still match it.
+  const canSave = !saving && !tooLong && (name !== value || saveFailed);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (tooLong || name === value) return;
-    onSave(name);
-    setDraft(null);
+    if (!canSave) return;
+    setSaving(true);
+    setSaveFailed(false);
+    try {
+      await onSave(name);
+      setDraft(null);
+    } catch {
+      setSaveFailed(true);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -37,15 +50,17 @@ export function LibraryNameField({ value, onSave }: LibraryNameFieldProps) {
           value={inputValue}
           dir="auto"
           autoComplete="off"
+          readOnly={saving}
           aria-invalid={tooLong || undefined}
           aria-describedby={`${id}-hint ${id}-count`}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <Button type="submit" disabled={tooLong || name === value}>Save name</Button>
+        <Button type="submit" disabled={!canSave}>Save name</Button>
       </div>
       <p className={tooLong ? styles.libraryNameError : styles.rowDesc} id={`${id}-count`} aria-live="polite">
         {length}/{LIBRARY_NAME_LIMIT} characters{tooLong ? '. Shorten the name to save it.' : ''}
       </p>
+      {saveFailed && <p className={styles.libraryNameError} role="alert">Could not save the library name. Please try again.</p>}
     </form>
   );
 }

@@ -122,8 +122,17 @@ export function DropdownSelect({
     setIsOpen(true);
   };
 
+  const handleEscape = (event: KeyboardEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsOpen(false);
+    triggerRef.current?.focus();
+  };
+
   const handleTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (event.key === 'Escape' && isOpen) {
+      handleEscape(event);
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       if (!isOpen) openWithKeyboard();
       else focusOption(selectedIndex >= 0 ? selectedIndex : 0);
@@ -131,7 +140,9 @@ export function DropdownSelect({
   };
 
   const handleOptionKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (event.key === 'ArrowDown') {
+    if (event.key === 'Escape' && isOpen) {
+      handleEscape(event);
+    } else if (event.key === 'ArrowDown') {
       event.preventDefault();
       focusOption(index + 1);
     } else if (event.key === 'ArrowUp') {

@@ -116,6 +116,11 @@ export function LibraryView() {
   const { books, loading, refreshBooks, removeBook, removeBooks, toggleFavorite, updateReadingStatus, toggleArchive } = useBooks();
   const { settings, updateSettings } = useSettingsContext();
 
+  const applySettings = (partial: Parameters<typeof updateSettings>[0]) => {
+    // The settings hook already logs persistence failures.
+    void updateSettings(partial).catch(() => {});
+  };
+
   // Synchronously load saved library state (survives reader visits, format switches & page refreshes)
   const initialSavedStateRef = useRef(getLibraryViewState());
   const isRestoredRef = useRef(false);
@@ -169,7 +174,7 @@ export function LibraryView() {
   // Layout preference
   const layout = settings.libraryLayout || 'grid';
   const handleLayoutChange = (newLayout: 'grid' | 'list') => {
-    updateSettings({ libraryLayout: newLayout });
+    applySettings({ libraryLayout: newLayout });
   };
 
   // Find most recent book to "Continue Reading"
@@ -811,7 +816,7 @@ export function LibraryView() {
         const nextCustomOrder = sortDirection === 'desc' ? [...finalOrder].reverse() : finalOrder;
         setCustomOrder(nextCustomOrder);
         setDragSortPreview(false);
-        void updateSettings({ librarySortField: 'custom', customBookOrder: nextCustomOrder });
+        applySettings({ librarySortField: 'custom', customBookOrder: nextCustomOrder });
       } else {
         pendingReorderPositionsRef.current = captureBookPositions();
         cancelBookReorderAnimations();
@@ -993,10 +998,10 @@ export function LibraryView() {
           activeFilterCount={activeFilterCount}
           onFilterChange={handleFilterChange}
           sortField={sortField}
-          onSortFieldChange={(field) => updateSettings({ librarySortField: field })}
+          onSortFieldChange={(field) => applySettings({ librarySortField: field })}
           sortDirection={sortDirection}
           onToggleSortDirection={() =>
-            updateSettings({ librarySortDirection: sortDirection === 'asc' ? 'desc' : 'asc' })
+            applySettings({ librarySortDirection: sortDirection === 'asc' ? 'desc' : 'asc' })
           }
           layout={layout}
           onLayoutChange={handleLayoutChange}
