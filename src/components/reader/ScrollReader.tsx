@@ -5,11 +5,13 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, type UIEvent } from 'react';
 import type { Chapter } from '../../types/book';
 import type { EffectiveReaderSettings } from '../../hooks/useReaderSettings';
-import { sanitizeReaderHtml } from '../../core/parsing/sanitize-reader-html';
+import { sanitizeReaderHtml, sanitizeMhtReaderHtml } from '../../core/parsing/sanitize-reader-html';
+import { ChapterBody } from './ChapterBody';
 import styles from './ScrollReader.module.css';
 
 interface ScrollReaderProps {
   chapters: Chapter[];
+  isMht?: boolean;
   settings: EffectiveReaderSettings;
   initialScrollPosition?: number;
   initialChapterId?: string;
@@ -18,11 +20,12 @@ interface ScrollReaderProps {
   onProgressUpdate: (chapterId: string, progressFraction: number, scrollPos: number) => void;
   onToggleControls?: () => void;
   zoom?: number;
-  zoomAnchor?: { x?: number; y?: number; scrollRatioX?: number; scrollRatioY?: number };
+  zoomAnchor?: { x?: number; y?: number; scrollRatioX?: number; scrollRatioY?: number; viewportX?: number; viewportY?: number; flowAnchor?: { element: HTMLElement; fractionY: number } };
 }
 
 export const ScrollReader = memo(function ScrollReader({
   chapters,
+  isMht = false,
   settings,
   initialScrollPosition = 0,
   initialChapterId,
@@ -34,8 +37,11 @@ export const ScrollReader = memo(function ScrollReader({
   zoomAnchor,
 }: ScrollReaderProps) {
   const safeChapterContents = useMemo(
-    () => chapters.map((chapter) => sanitizeReaderHtml(chapter.content)),
-    [chapters],
+    () => {
+      const sanitize = isMht ? sanitizeMhtReaderHtml : sanitizeReaderHtml;
+      return chapters.map((chapter) => sanitize(chapter.content));
+    },
+    [chapters, isMht],
   );
   const containerRef = useRef<HTMLDivElement>(null);
   const isInitialRestored = useRef(false);
@@ -44,6 +50,7 @@ export const ScrollReader = memo(function ScrollReader({
   onProgressUpdateRef.current = onProgressUpdate;
   const rafId = useRef<number | null>(null);
   const lastProgressFractionRef = useRef(initialProgressFraction);
+  const lastZoomRef = useRef(zoom);
   const lastLayoutKeyRef = useRef<string | null>(null);
   const zoomAnchorRef = useRef(zoomAnchor);
   zoomAnchorRef.current = zoomAnchor;
@@ -107,29 +114,32 @@ export const ScrollReader = memo(function ScrollReader({
     if (lastLayoutKeyRef.current === layoutKey) return;
     lastLayoutKeyRef.current = layoutKey;
 
-    const frame = requestAnimationFrame(() => {
-      const container = containerRef.current;
-      if (!container) return;
-      const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
-      container.scrollTop = lastProgressFractionRef.current * maxScroll;
+    const zoomChanged = lastZoomRef.current !== zoom;
+    lastZoomRef.current = zoom;
+    const container = containerRef.current;
+    if (!container) return;
+    const anchor = zoomChanged ? zoomAnchorRef.current : undefined;
+    const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+    let targetTop = anchor?.scrollRatioY !== undefined && anchor.viewportY !== undefined
+      ? anchor.scrollRatioY * container.scrollHeight - anchor.viewportY
+      : lastProgressFractionRef.current * maxScroll;
+    const flowAnchor = anchor?.flowAnchor;
+    if (flowAnchor && anchor.viewportY !== undefined && container.contains(flowAnchor.element)) {
+      const rect = flowAnchor.element.getBoundingClientRect();
+      targetTop = container.scrollTop + rect.top - container.getBoundingClientRect().top
+        + rect.height * flowAnchor.fractionY - anchor.viewportY;
+    }
+    container.scrollTop = Math.min(maxScroll, Math.max(0, targetTop));
 
-      if (!settings.expandContent) {
-        if (zoom > 1) {
-          const excessWidth = Math.max(0, container.scrollWidth - container.clientWidth);
-          if (excessWidth > 0) {
-            const anchor = zoomAnchorRef.current;
-            if (anchor && typeof anchor.scrollRatioX === 'number') {
-              container.scrollLeft = anchor.scrollRatioX * excessWidth;
-            } else if (container.scrollLeft === 0) {
-              container.scrollLeft = excessWidth / 2;
-            }
-          }
-        } else {
-          container.scrollLeft = 0;
-        }
-      }
-    });
-    return () => cancelAnimationFrame(frame);
+    const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    if (settings.expandContent || maxLeft === 0) {
+      container.scrollLeft = 0;
+    } else if (anchor?.scrollRatioX !== undefined && anchor.viewportX !== undefined) {
+      const targetLeft = anchor.scrollRatioX * container.scrollWidth - anchor.viewportX;
+      container.scrollLeft = Math.min(maxLeft, Math.max(0, targetLeft));
+    } else if (zoomChanged && container.scrollLeft === 0) {
+      container.scrollLeft = maxLeft / 2;
+    }
   }, [layoutKey, settings.expandContent, zoom]);
 
   // Clean up RAF on unmount
@@ -145,29 +155,29 @@ export const ScrollReader = memo(function ScrollReader({
   const handleScroll = useCallback(
     (e: UIEvent<HTMLDivElement>) => {
       const target = e.currentTarget;
-      const { scrollTop, scrollHeight, clientHeight } = target;
-
-      if (rafId.current !== null) {
-        cancelAnimationFrame(rafId.current);
-      }
+      if (rafId.current !== null) return;
 
       rafId.current = requestAnimationFrame(() => {
         rafId.current = null;
+        const { scrollTop, scrollHeight, clientHeight } = target;
         const maxScroll = Math.max(1, scrollHeight - clientHeight);
         const overallFraction = Math.min(1, Math.max(0, scrollTop / maxScroll));
         lastProgressFractionRef.current = overallFraction;
 
-        // Find current chapter based on scroll position
+        const viewport = target.getBoundingClientRect();
+        const threshold = viewport.top + viewport.height * 0.4;
         let activeChapterId = chapters[0]?.id || '';
-        for (const chapter of chapters) {
-          const el = chapterRefs.current.get(chapter.id);
-          if (el) {
-            const rect = el.getBoundingClientRect();
-            const containerRect = target.getBoundingClientRect();
-            // If top of chapter is within or above the viewport
-            if (rect.top <= containerRect.top + containerRect.height * 0.4) {
-              activeChapterId = chapter.id;
-            }
+        let low = 0;
+        let high = chapters.length - 1;
+        while (low <= high) {
+          const middle = Math.floor((low + high) / 2);
+          const chapter = chapters[middle];
+          const element = chapterRefs.current.get(chapter.id);
+          if (element && element.getBoundingClientRect().top <= threshold) {
+            activeChapterId = chapter.id;
+            low = middle + 1;
+          } else {
+            high = middle - 1;
           }
         }
 
@@ -195,6 +205,7 @@ export const ScrollReader = memo(function ScrollReader({
       ref={containerRef}
       className={styles.container}
       data-reader-viewport="vertical-scroll"
+      data-mht={isMht || undefined}
       onScroll={handleScroll}
       onClick={(e) => {
         // Toggle controls if clicking on background/margins
@@ -251,11 +262,10 @@ export const ScrollReader = memo(function ScrollReader({
               </h2>
             )}
 
-            <div
+            <ChapterBody
               className={styles.chapterBody}
-              data-chapter-body="true"
-              data-rtf-preserve-align={settings.rtfPreserveAlignment === false ? 'false' : 'true'}
-              dangerouslySetInnerHTML={{ __html: safeChapterContents[index] || '' }}
+              preserveAlignment={settings.rtfPreserveAlignment !== false}
+              html={safeChapterContents[index] || ''}
             />
 
             {index < chapters.length - 1 && (

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import type { Book, ReadingStatus } from '../../types/book';
 import { formatDate } from '../../utils';
-import { getBookCoverUrl } from '../../assets/covers/txt-default-cover';
+import { getBookCoverUrl } from '../../assets/covers/default-book-cover';
 import styles from './BookCard.module.css';
 
 interface BookCardProps {

@@ -17,7 +17,7 @@ import type {
   BackupData,
   BackupBookContent,
 } from '../../types/book';
-import { sanitizeReaderHtml } from '../parsing/sanitize-reader-html';
+import { sanitizeReaderHtml, sanitizeMhtReaderHtml } from '../parsing/sanitize-reader-html';
 
 const DB_NAME = 'webxreader';
 const DB_VERSION = 1;
@@ -634,7 +634,7 @@ function deserializeBookContent(content: BackupBookContent): BookContent {
     bookId: content.bookId,
     format: content.format,
     rawText: content.rawText,
-    chapters: content.chapters?.map(sanitizeRestoredChapter),
+    chapters: content.chapters?.map((chapter) => sanitizeRestoredChapter(chapter, content.format)),
     originalFile: content.originalFileBase64 ? fromBase64(content.originalFileBase64) : undefined,
   };
 }
@@ -673,15 +673,16 @@ function isBackupBookContent(value: unknown): value is BackupBookContent {
   );
 }
 
-function sanitizeRestoredChapter(chapter: Chapter): Chapter {
+function sanitizeRestoredChapter(chapter: Chapter, format: BookFormat): Chapter {
+  const sanitize = format === 'mht' ? sanitizeMhtReaderHtml : sanitizeReaderHtml;
   return {
     id: chapter.id,
     title: chapter.title,
-    content: chapter.content === undefined ? undefined : sanitizeReaderHtml(chapter.content),
+    content: chapter.content === undefined ? undefined : sanitize(chapter.content),
     href: chapter.href,
     level: chapter.level,
     order: chapter.order,
-    children: chapter.children?.map(sanitizeRestoredChapter),
+    children: chapter.children?.map((child) => sanitizeRestoredChapter(child, format)),
   };
 }
 

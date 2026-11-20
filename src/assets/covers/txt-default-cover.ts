@@ -46,14 +46,3 @@ export const DEFAULT_TXT_COVER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" vi
  * Self-contained Data URI for use as `book.coverImage` everywhere across the app.
  */
 export const DEFAULT_TXT_COVER = `data:image/svg+xml;utf8,${encodeURIComponent(DEFAULT_TXT_COVER_SVG)}`;
-
-/**
- * Resolves the effective cover URL for a book, falling back to format-specific defaults
- * (such as DEFAULT_TXT_COVER for Plain Text) when no custom cover image is set.
- */
-export function getBookCoverUrl(book?: { coverImage?: string; sourceFormat?: string } | null): string | undefined {
-  if (!book) return undefined;
-  if (book.coverImage) return book.coverImage;
-  if (book.sourceFormat === 'txt') return DEFAULT_TXT_COVER;
-  return undefined;
-}

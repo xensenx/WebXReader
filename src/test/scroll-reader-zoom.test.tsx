@@ -68,6 +68,17 @@ describe('ScrollReader Canvas Zoom & Layout Modes', () => {
     expect(sheet.style.fontSize).toBe('27px');
   });
 
+  it('keeps the mounted MHT image when zoom changes', () => {
+    const chapters = [{ ...dummyChapters[0], content: '<img src="data:image/png;base64,AAAA" alt="Archive image">' }];
+    const onProgressUpdate = vi.fn();
+    const { getByAltText, rerender } = render(
+      <ScrollReader isMht chapters={chapters} settings={dummySettings} onProgressUpdate={onProgressUpdate} />
+    );
+    const image = getByAltText('Archive image');
+    rerender(<ScrollReader isMht chapters={chapters} settings={dummySettings} onProgressUpdate={onProgressUpdate} zoom={0.6} />);
+    expect(getByAltText('Archive image')).toBe(image);
+  });
+
   it('uses full width 100% when in Expanded Mode regardless of zoom', () => {
     const { container } = render(
       <ScrollReader

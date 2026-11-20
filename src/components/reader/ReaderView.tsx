@@ -323,9 +323,10 @@ export function ReaderView() {
             delete c.originalFile;
             updated = true;
           }
-          if (c.chapters && c.chapters.length === 1 && (c.chapters[0].content?.length ?? 0) > 25000) {
+          if (c.chapters && c.chapters.length === 1 && (c.rawText?.length ?? c.chapters[0].content?.length ?? 0) > 25000) {
             const newChapters = splitHtmlIntoChapters(c.chapters[0].content!, b.title);
             if (newChapters.length > 1) {
+              newChapters[0].id = c.chapters[0].id;
               c.chapters = newChapters;
               b.tableOfContents = newChapters.map((ch) => ({
                 id: ch.id,
@@ -430,6 +431,21 @@ export function ReaderView() {
     setHeaderVisible((p) => !p);
   }, []);
 
+  const effectiveReadingMode = (() => {
+    if (book?.sourceFormat === 'txt') return 'scroll';
+    if (!isEpub && !isPdf && !isCbz && readerSettings.readingMode === 'horizontal') {
+      if (isDjvu || isImage) return 'paginated';
+      return 'scroll';
+    }
+    if (!isEpub && !isPdf && !isCbz && readerSettings.readingMode === 'vertical') {
+      return 'paginated';
+    }
+    return readerSettings.readingMode;
+  })();
+  const effectiveReaderSettings = readerSettings.readingMode === effectiveReadingMode
+    ? readerSettings
+    : { ...readerSettings, readingMode: effectiveReadingMode };
+
   // Handle scroll progress update
   const handleScrollProgress = useCallback(
     (chapterId: string, fraction: number, scrollPos: number) => {
@@ -440,11 +456,11 @@ export function ReaderView() {
         chapterId,
         overallProgress: fraction,
         scrollPosition: scrollPos,
-        readingMode: readerSettings.readingMode,
+        readingMode: effectiveReadingMode,
         lastUpdatedAt: Date.now(),
       });
     },
-    [updateProgress, readerSettings.readingMode]
+    [updateProgress, effectiveReadingMode]
   );
 
   const handleDoubleSidedProgress = useCallback(
@@ -473,11 +489,11 @@ export function ReaderView() {
         chapterId,
         overallProgress: fraction,
         pageIndex,
-        readingMode: readerSettings.readingMode,
+        readingMode: effectiveReadingMode,
         lastUpdatedAt: Date.now(),
       });
     },
-    [updateProgress, readerSettings.readingMode]
+    [updateProgress, effectiveReadingMode]
   );
 
   // Handle EPUB progress update
@@ -561,9 +577,7 @@ export function ReaderView() {
         const container = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
         if (!container) return;
         const fraction = Math.min(1, Math.max(0, bm.position));
-        if (readerSettings.readingMode === 'vertical' || readerSettings.readingMode === 'horizontal') {
-          container.scrollTo({ left: fraction * Math.max(0, container.scrollWidth - container.clientWidth), behavior: 'smooth' });
-        } else if (readerSettings.readingMode === 'paginated') {
+        if (effectiveReadingMode !== 'scroll') {
           container.scrollTo({ left: fraction * Math.max(0, container.scrollWidth - container.clientWidth), behavior: 'smooth' });
         } else {
           container.scrollTo({ top: fraction * Math.max(0, container.scrollHeight - container.clientHeight), behavior: 'smooth' });
@@ -606,22 +620,6 @@ export function ReaderView() {
     const found = book.tableOfContents.find((c) => c.id === activeChapterId);
     return found ? found.title : '';
   }, [book, activeChapterId]);
-
-  const isTxt = book?.sourceFormat === 'txt';
-  const effectiveReadingMode = (() => {
-    if (isTxt) return 'scroll';
-    if (!isEpub && !isPdf && !isCbz && readerSettings.readingMode === 'horizontal') {
-      if (isDjvu || isImage) return 'paginated';
-      return 'scroll';
-    }
-    if (!isEpub && !isPdf && !isCbz && readerSettings.readingMode === 'vertical') {
-      return 'paginated';
-    }
-    return readerSettings.readingMode;
-  })();
-  const effectiveReaderSettings = readerSettings.readingMode === effectiveReadingMode
-    ? readerSettings
-    : { ...readerSettings, readingMode: effectiveReadingMode };
 
   if (
     loading ||
@@ -896,7 +894,8 @@ export function ReaderView() {
           ) : effectiveReadingMode === 'paginated' ? (
           <PaginatedReader
             chapters={chapters}
-            settings={readerSettings}
+            isMht={book.sourceFormat === 'mht'}
+            settings={effectiveReaderSettings}
             initialPageIndex={restoreLocation?.pageIndex}
             initialChapterId={restoreLocation?.chapterId}
             initialProgressFraction={restoreLocation?.overallProgress}
@@ -922,6 +921,7 @@ export function ReaderView() {
         ) : (
           <ScrollReader
             chapters={chapters}
+            isMht={book.sourceFormat === 'mht'}
             settings={readerSettings}
             initialScrollPosition={restoreLocation?.scrollPosition}
             initialChapterId={restoreLocation?.chapterId}

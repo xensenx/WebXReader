@@ -5,7 +5,8 @@ import JSZip from 'jszip';
 import CFB from 'cfb';
 import { SAMPLE_JPEG, createSyntheticRar, createSyntheticCb7 } from './comic-test-helpers';
 import { importFile } from '../features/import/import-service';
-import { clearDatabase, listBooks, getBookContent } from '../core/storage/database';
+import { getDefaultBookCover } from '../assets/covers/default-book-cover';
+import { clearDatabase, listBooks, getBookContent, getCover } from '../core/storage/database';
 
 describe('Import Service', () => {
   beforeEach(async () => {
@@ -181,14 +182,38 @@ describe('Import Service', () => {
     }
   });
 
-  it('persists book cover properly when available', async () => {
+  it('imports legacy HTML using its declared charset and nested headings', async () => {
+    const html = '<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">' +
+      '<body><article><h3>Part one</h3><p>Caf\xe9 \x97 open.</p></article>';
+    const bytes = Uint8Array.from(html, (character) => character.charCodeAt(0));
+    const result = await importFile(new File([bytes], 'legacy.html', { type: 'text/html' }));
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const content = await getBookContent(result.book.id);
+      expect(result.book.tableOfContents[0]?.title).toBe('Part one');
+      expect(content?.chapters?.[0]?.content).toContain('Caf\u00e9 \u2014 open.');
+    }
+  });
+
+  it('reports script-only HTML instead of importing an empty reader', async () => {
+    const html = '<html><head><script>window.startApp()</script></head><body><div id="root"></div></body></html>';
+    const result = await importFile(new File([html], 'app.html', { type: 'text/html' }));
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error).toMatch(/may require JavaScript/i);
+  });
+
+  it('persists the Markdown default cover', async () => {
     const mdContent = `# Chapter 1\nSome test story markdown`;
     const file = new File([mdContent], 'book_with_cover.md', { type: 'text/markdown' });
 
     const result = await importFile(file);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.book.coverImage).toBeUndefined();
+      const expected = getDefaultBookCover('markdown');
+      expect(result.book.coverImage).toBe(expected);
+      expect((await getCover(result.book.id))?.data).toBe(expected);
     }
   });
 

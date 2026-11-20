@@ -5,7 +5,7 @@
 
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
-import { sanitizeReaderHtml, escapeHtml } from './sanitize-reader-html';
+import { sanitizeReaderHtml } from './sanitize-reader-html';
 
 /** Result of parsing an HTML file */
 export interface HtmlParseResult {
@@ -73,54 +73,56 @@ function extractMetadata(html: string): Partial<BookMetadata> {
  * If no <body> tag is found, returns the original HTML.
  */
 function extractBody(html: string): string {
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)(?:<\/body\s*>|$)/i);
   return bodyMatch ? bodyMatch[1] : html;
 }
 
 /**
  * Splits sanitized HTML content by h1/h2 heading elements into chapters.
  */
-function splitByHeadings(html: string): Chapter[] {
+export function splitByHeadings(html: string, documentTitle?: string, headingsSelector = 'h1, h2'): Chapter[] {
   const container = document.createElement('div');
   container.innerHTML = html;
 
   const chapters: Chapter[] = [];
-  let currentContent: string[] = [];
-  let currentTitle: string | null = null;
-  let currentLevel = 0;
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  let title: string | undefined;
+  let level = 0;
+  let headingId: string | undefined;
 
-  const flushChapter = () => {
-    const content = currentContent.join('').trim();
-    if (currentTitle !== null || content.length > 0) {
-      chapters.push({
-        id: generateId(),
-        title: currentTitle || 'Untitled Section',
-        content,
-        level: currentLevel,
-        order: chapters.length,
-      });
+  const appendChapter = () => {
+    const fragment = document.createElement('div');
+    fragment.append(range.cloneContents());
+    if (!title && !fragment.textContent?.trim() && !fragment.querySelector('img, hr, table')) return;
+    if (headingId) {
+      const anchor = document.createElement('span');
+      anchor.id = headingId;
+      fragment.prepend(anchor);
     }
-    currentContent = [];
+    chapters.push({
+      id: generateId(),
+      title: title ?? documentTitle ?? 'Full Text',
+      content: fragment.innerHTML.trim(),
+      level,
+      order: chapters.length,
+    });
   };
 
-  for (const node of Array.from(container.childNodes)) {
-    const element = node as Element;
-    const tagName = element.tagName?.toUpperCase();
-
-    if (tagName === 'H1' || tagName === 'H2') {
-      flushChapter();
-      currentTitle = element.textContent?.trim() || 'Untitled Section';
-      currentLevel = tagName === 'H1' ? 0 : 1;
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      currentContent.push((element as HTMLElement).outerHTML);
-    } else if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
-      currentContent.push(`<p>${escapeHtml(node.textContent.trim())}</p>`);
-    }
+  const headings = container.querySelectorAll(headingsSelector);
+  for (const heading of headings) {
+    const headingTitle = heading.textContent?.trim();
+    if (!headingTitle) continue;
+    range.setEndBefore(heading);
+    appendChapter();
+    range.setStartAfter(heading);
+    title = headingTitle;
+    headingId = heading.id;
+    level = Number(heading.tagName[1]) - 1;
   }
 
-  // Flush the last chapter
-  flushChapter();
-
+  range.setEnd(container, container.childNodes.length);
+  appendChapter();
   return chapters;
 }
 
@@ -140,9 +142,12 @@ export function parseHtml(htmlText: string): HtmlParseResult {
 
   // Sanitize the HTML
   const cleanHtml = sanitizeReaderHtml(bodyContent);
+  if (!cleanHtml.trim() || (!cleanHtml.replace(/<[^>]*>/g, '').trim() && !/<(?:hr|table)\b/i.test(cleanHtml))) {
+    throw new Error('No readable HTML body found. This file may require JavaScript to display its content.');
+  }
 
   // Split into chapters
-  const chapters = splitByHeadings(cleanHtml);
+  const chapters = splitByHeadings(cleanHtml, metadata.title, 'h1, h2, h3');
 
   // If no chapters from headings, return all content as single chapter
   if (chapters.length === 0) {

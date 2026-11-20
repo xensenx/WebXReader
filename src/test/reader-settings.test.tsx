@@ -131,6 +131,27 @@ describe('Reader Settings Enhancements', () => {
       expect(handleUpdate).toHaveBeenCalledWith({ expandContent: false, readingMode: 'scroll' });
     });
 
+    it.each(['html', 'markdown', 'mht'] as const)('offers sheet layouts and Pages for %s', (format) => {
+      const onUpdate = vi.fn();
+      render(
+        <ReaderSettings
+          isOpen
+          onClose={vi.fn()}
+          settings={dummySettings}
+          onUpdate={onUpdate}
+          onReset={vi.fn()}
+          format={format}
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Expanded Mode' }));
+      expect(onUpdate).toHaveBeenLastCalledWith({ expandContent: true, readingMode: 'scroll' });
+      fireEvent.click(screen.getByRole('button', { name: 'Contracted Mode' }));
+      expect(onUpdate).toHaveBeenLastCalledWith({ expandContent: false, readingMode: 'scroll' });
+      fireEvent.click(screen.getByRole('button', { name: 'Pages' }));
+      expect(onUpdate).toHaveBeenLastCalledWith({ readingMode: 'paginated' });
+    });
+
     it('does not render separate Expand to Full Width toggle switch when format is txt', () => {
       render(
         <ReaderSettings

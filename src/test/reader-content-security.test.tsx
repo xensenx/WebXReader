@@ -80,6 +80,18 @@ describe('Reader chapter HTML security', () => {
     await clearDatabase();
   });
 
+  it('splits nested HTML headings without losing their fragment targets or markup', () => {
+    const { chapters } = parseHtml(
+      '<main><article><h1 id="intro">Intro</h1><p><em>First</em></p>' +
+      '<section><h2 id="details">Details</h2><p>Second</p></section></article></main>',
+    );
+
+    expect(chapters.map(({ title }) => title)).toEqual(['Intro', 'Details']);
+    expect(chapters[0].content).toContain('<em>First</em>');
+    expect(chapters[1].content).toContain('<section><p>Second</p></section>');
+    expect(chapters[1].content).toContain('id="details"');
+  });
+
   it('sanitizes chapter HTML when restoring a backup', async () => {
     await restoreBackup(makeBackup([chapter]));
 

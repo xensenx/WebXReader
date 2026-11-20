@@ -17,6 +17,7 @@ import {
   MoveVertical,
   MoveHorizontal,
 } from 'lucide-react';
+import { usesScrollSheetLayout } from '../../formats/reflowable-layout';
 import type { BookFormat } from '../../types/book';
 import { isFixedLayout, formatSupportsFeature } from '../../formats';
 import type {
@@ -82,6 +83,7 @@ export function ReaderSettings({
   const panelRef = useRef<HTMLDivElement>(null);
   const isFixed = fixedLayout || isFixedLayout(format);
   const canDoubleSided = doubleSidedSupported && (format ? formatSupportsFeature(format, 'doubleSided') : true);
+  const usesScrollSheet = usesScrollSheetLayout(format);
   const canFitMode = formatSupportsFeature(format, 'fitMode');
   const canPageGap = formatSupportsFeature(format, 'pageGap');
   const canTypography = !isFixed && (format ? formatSupportsFeature(format, 'customTypography') : true);
@@ -231,11 +233,11 @@ export function ReaderSettings({
                 This document preserves its original visual layout. Adjust your reading mode and display settings below.
               </p>
             )}
-            {format === 'txt' ? (
-              <div className={`${styles.modeRow} ${styles.modeRowTxt}`} aria-label="Reading modes">
+            {usesScrollSheet ? (
+              <div className={`${styles.modeRow} ${format === 'txt' ? styles.modeRowTxt : ''}`} aria-label="Reading modes">
                 <button
                   className={`${styles.modeBtn} ${
-                    !settings.expandContent ? styles.modeBtnActive : ''
+                    settings.readingMode === 'scroll' && !settings.expandContent ? styles.modeBtnActive : ''
                   }`}
                   onClick={() => onUpdate({ expandContent: false, readingMode: 'scroll' })}
                   type="button"
@@ -245,7 +247,7 @@ export function ReaderSettings({
                 </button>
                 <button
                   className={`${styles.modeBtn} ${
-                    Boolean(settings.expandContent) ? styles.modeBtnActive : ''
+                    settings.readingMode === 'scroll' && settings.expandContent ? styles.modeBtnActive : ''
                   }`}
                   onClick={() => onUpdate({ expandContent: true, readingMode: 'scroll' })}
                   type="button"
@@ -253,6 +255,18 @@ export function ReaderSettings({
                   <Maximize2 size={18} />
                   <span>Expanded Mode</span>
                 </button>
+                {format !== 'txt' && (
+                  <button
+                    className={`${styles.modeBtn} ${
+                      settings.readingMode === 'paginated' ? styles.modeBtnActive : ''
+                    }`}
+                    onClick={() => onUpdate({ readingMode: 'paginated' })}
+                    type="button"
+                  >
+                    <BookOpen size={18} />
+                    <span>Pages</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className={styles.modeRow} aria-label={isFixed ? 'Fixed-layout document' : 'Reading modes'}>
@@ -582,7 +596,7 @@ export function ReaderSettings({
               </div>
 
               {/* Expand to Full Width */}
-              {format !== 'txt' && !isFixed && (
+              {!usesScrollSheet && !isFixed && (
                 <div className={styles.section}>
                   <div className={styles.toggleRow}>
                     <label
@@ -611,7 +625,7 @@ export function ReaderSettings({
               <div className={styles.section}>
                 <span className={styles.sectionTitle}>
                   Page Width
-                  {(format === 'txt' || format === 'epub') && settings.expandContent && (
+                  {((usesScrollSheet && settings.readingMode === 'scroll') || format === 'epub') && settings.expandContent && (
                     <span className={styles.badgeHint}>(Contracted Mode)</span>
                   )}
                 </span>

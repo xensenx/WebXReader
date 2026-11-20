@@ -207,6 +207,7 @@ ${SAMPLE_PNG_BASE64}
       expect(result.fullHtml).toContain(`src="data:image/png;base64,${SAMPLE_PNG_BASE64}"`);
       expect(result.chapters.length).toBe(1);
       expect(result.chapters[0].title).toBe('CID Referenced Document');
+      expect(result.chapters[0].content).toContain(`src="data:image/png;base64,${SAMPLE_PNG_BASE64}"`);
     });
 
     it('parses single-page MHT without headings as a single chapter', async () => {
@@ -237,8 +238,92 @@ Content-Transfer-Encoding: 7bit
       await expect(parseMht('')).rejects.toThrow(/file is empty/i);
       await expect(parseMht('Just some text without headers')).rejects.toThrow(/missing top-level MIME/i);
       await expect(
-        parseMht(`Content-Type: text/plain\n\nNo boundary here`)
+        parseMht(`Content-Type: multipart/related\n\nNo boundary here`)
       ).rejects.toThrow(/boundary delimiter not found/i);
+    });
+
+    it('reads single-part HTML with a UTF-8 BOM and quoted-printable encoding', async () => {
+      const archive = new TextEncoder().encode(
+        '\uFEFFContent-Type: text/html; charset=utf-8\r\n' +
+        'Content-Transfer-Encoding: quoted-printable\r\n\r\n' +
+        '<title>Caf=C3=A9</title><p>One document.</p>',
+      );
+      const result = await parseMht(archive);
+      expect(result.metadata.title).toBe('Caf\u00e9');
+      expect(result.rawText).toContain('One document.');
+    });
+
+    it('reads standalone HTML and treats a single text/plain body as literal text', async () => {
+      expect((await parseMht('<html><body><p>Saved page</p></body></html>')).rawText).toContain('Saved page');
+      const plain = await parseMht('Content-Type: text/plain\n\nThis is <literal>\nSecond line.');
+      expect(plain.chapters[0].content).toContain('&lt;literal&gt;<br>Second line.');
+    });
+
+    it('recovers missing and stale boundaries at the start of MIME lines', async () => {
+      for (const parameter of ['', '; boundary=wrong']) {
+        const result = await parseMht([
+          `Content-Type: multipart/related${parameter}`,
+          '',
+          'Preamble with --unrelated-prose',
+          '--actual',
+          'Content-Type: text/html',
+          '',
+          '<p>Keep --actual inside the content.</p>',
+          '--actual--',
+          'Ignore this epilogue.',
+        ].join('\r'));
+        expect(result.rawText).toBe('Keep --actual inside the content.');
+      }
+    });
+
+    it('finds nested HTML in a message envelope and honors the outer start Content-ID', async () => {
+      const result = await parseMht([
+        'Content-Type: multipart/related; boundary="outer;with.punctuation"; start="<root@example>"',
+        '',
+        '--outer;with.punctuation',
+        'Content-Type: text/html',
+        '',
+        '<title>Auxiliary page</title><p>Auxiliary text</p>',
+        '--outer;with.punctuation',
+        'Content-Type: message/rfc822',
+        '',
+        'Content-Type: multipart/alternative; boundary=inner',
+        '',
+        '--inner',
+        'Content-Type: text/plain',
+        '',
+        'Fallback text',
+        '--inner',
+        'Content-Type: text/html',
+        'Content-ID: <root@example>',
+        '',
+        '<title>Main page</title><p>Main text</p>',
+        '--inner--',
+        '--outer;with.punctuation--',
+      ].join('\r\n'));
+      expect(result.metadata.title).toBe('Main page');
+      expect(result.rawText).toContain('Main text');
+    });
+
+    it('recognizes HTML stored in a generic MIME part without using image parts as the document', async () => {
+      const result = await parseMht([
+        'Content-Type: multipart/related; boundary=parts',
+        'Snapshot-Content-Location: https://example.com/cover.png',
+        '',
+        '--parts',
+        'Content-Type: image/png',
+        'Content-Location: https://example.com/cover.png',
+        'Content-Transfer-Encoding: base64',
+        '',
+        SAMPLE_PNG_BASE64,
+        '--parts',
+        'Content-Type: application/octet-stream',
+        '',
+        '<!DOCTYPE html><html><title>Recovered</title><p>Chapter text</p></html>',
+        '--parts--',
+      ].join('\n'));
+      expect(result.metadata.title).toBe('Recovered');
+      expect(result.coverImage).toContain(SAMPLE_PNG_BASE64);
     });
 
     it('splits nested headings in complex real-world HTML structures', () => {
@@ -260,6 +345,31 @@ Content-Transfer-Encoding: 7bit
       expect(chapters[0].title).toBe('First Article');
       expect(chapters[1].title).toBe('Sub-Section 1');
       expect(chapters[2].title).toBe('Sub-Section 2');
+    });
+
+    it('reflows fixed-layout tables and skips empty headings while preserving data tables', async () => {
+      const archive = 'Content-Type: text/html\n\n' +
+        '<h2>About the author</h2><table width="359" height="40"><tr>' +
+        '<td id="bio" height="40"><table width="200" height="10"><tr><td>' +
+        '<p>All the prose stays in the reading flow.</p></td></tr></table></td></tr></table>' +
+        '<h2>&nbsp;</h2><h2>Facts</h2><table height="50"><tr><th>Name</th><th>Value</th></tr>' +
+        '<tr><td width="190">Year</td><td>1970</td></tr></table>';
+      const { chapters } = await parseMht(archive);
+
+      expect(chapters.map(({ title }) => title)).toEqual(['About the author', 'Facts']);
+      expect(chapters[0].content).toContain('<span id="bio"></span>');
+      expect(chapters[0].content).toContain('All the prose stays in the reading flow.');
+      expect(chapters[0].content).not.toContain('<table');
+      expect(chapters[1].content).toContain('<th>Value</th>');
+      expect(chapters[1].content).not.toMatch(/(?:height|width)=/);
+    });
+
+    it('keeps image payloads out of chapter length calculations', () => {
+      const image = '<img src="data:image/png;base64,' + SAMPLE_PNG_BASE64.repeat(600) + '">';
+      const chapters = splitHtmlIntoChapters('<h1>Illustrations</h1><p>Intro</p>' + image + '<p>End</p>');
+      expect(chapters).toHaveLength(1);
+      expect(chapters[0].title).toBe('Illustrations');
+      expect(chapters[0].content).toContain(image);
     });
 
     it('chunks oversized HTML without headings into readable chapters', () => {

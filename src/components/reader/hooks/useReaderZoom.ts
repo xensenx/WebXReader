@@ -26,6 +26,7 @@ export type ReaderZoomAnchor = PdfZoomAnchor & {
   epubSectionIndex?: number;
   epubSectionX?: number;
   epubSectionY?: number;
+  flowAnchor?: { element: HTMLElement; fractionY: number };
 };
 
 export function clampReaderZoom(value: number, fixedLayout: boolean, continuous = false): number {
@@ -118,13 +119,20 @@ export function useReaderZoom({
       : clientY;
     const viewportX = Math.max(0, Math.min(viewport.clientWidth, x - viewportRect.left));
     const viewportY = Math.max(0, Math.min(viewport.clientHeight, y - viewportRect.top));
-    const hitPage = (
+    const hit = (
       typeof document.elementFromPoint === 'function'
         ? (document.elementFromPoint(x, y) as HTMLElement | null)
         : null
-    )?.closest<HTMLElement>(
+    );
+    const hitPage = hit?.closest<HTMLElement>(
       '[data-pdf-page], [data-cbz-page], [data-djvu-page], [data-image-page]'
     );
+    const flowElement = viewport.matches('[data-reader-viewport="vertical-scroll"][data-mht]')
+      ? hit?.closest<HTMLElement>('img, p, pre, li, td, blockquote, [data-chapter-id]')
+      : undefined;
+    const flowRect = flowElement && viewport.contains(flowElement)
+      ? flowElement.getBoundingClientRect()
+      : undefined;
     let page = hitPage && stage.contains(hitPage) ? hitPage : null;
     if (!page && viewport) {
       const pages = Array.from(viewport.querySelectorAll<HTMLElement>('[data-pdf-page], [data-cbz-page], [data-djvu-page], [data-image-page]'));
@@ -168,6 +176,9 @@ export function useReaderZoom({
         : undefined,
       epubSectionY: sectionRect?.height
         ? Math.max(0, Math.min(1, (y - sectionRect.top) / sectionRect.height))
+        : undefined,
+      flowAnchor: flowElement && flowRect?.height
+        ? { element: flowElement, fractionY: Math.max(0, Math.min(1, (y - flowRect.top) / flowRect.height)) }
         : undefined,
       viewportX,
       viewportY,
@@ -248,9 +259,9 @@ export function useReaderZoom({
   }, [sourceFormat, captureZoomAnchor, updateZoom, readerStageRef]);
 
   const resetZoom = useCallback(() => {
-    const epubAnchor = sourceFormat === 'epub' ? captureZoomAnchor() : undefined;
+    const anchor = sourceFormat === 'epub' || sourceFormat === 'mht' ? captureZoomAnchor() : undefined;
     readerZoomRef.current = 1;
-    setZoomAnchor(epubAnchor);
+    setZoomAnchor(anchor);
     pdfZoomAnchorRef.current = undefined;
     wheelZoomDeltaRef.current = 0;
     wheelZoomPointRef.current = undefined;
@@ -272,7 +283,7 @@ export function useReaderZoom({
     }
     setReaderZoom(1);
     if (sourceFormat === 'epub') {
-      previewRefs?.epubReaderRef?.current?.previewZoom(1, epubAnchor);
+      previewRefs?.epubReaderRef?.current?.previewZoom(1, anchor);
     }
     if (zoomLabelRef.current) {
       zoomLabelRef.current.textContent = '100%';
@@ -336,14 +347,11 @@ export function useReaderZoom({
 
     const viewport = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
     if (!viewport) return;
-    const horizontal = viewport.dataset.readerViewport === 'paginated';
+    const mode = viewport.dataset.readerViewport;
+    if (mode === 'paginated' || mode === 'vertical-scroll') return;
     viewport.scrollTo({
-      left: horizontal
-        ? Math.max(0, zoomAnchor.scrollRatioX * viewport.scrollWidth - zoomAnchor.viewportX)
-        : viewport.scrollLeft,
-      top: horizontal
-        ? viewport.scrollTop
-        : Math.max(0, zoomAnchor.scrollRatioY * viewport.scrollHeight - zoomAnchor.viewportY),
+      left: viewport.scrollLeft,
+      top: Math.max(0, zoomAnchor.scrollRatioY * viewport.scrollHeight - zoomAnchor.viewportY),
       behavior: 'auto',
     });
   }, [sourceFormat, readerZoom, zoomAnchor, readerStageRef]);

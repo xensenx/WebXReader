@@ -47,7 +47,7 @@ import { EmptyState } from '../common/EmptyState';
 import { Button } from '../common/Button';
 import { MainPageHeader } from '../common/MainPageHeader';
 
-import { getBookCoverUrl } from '../../assets/covers/txt-default-cover';
+import { getBookCoverUrl } from '../../assets/covers/default-book-cover';
 import styles from './LibraryView.module.css';
 
 interface BookPointerDrag {
