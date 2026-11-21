@@ -23,6 +23,7 @@ import type { ReaderSearchResult } from '../../components/reader/search-types';
 import type { ReadingMode } from '../../types/book';
 import { PdfPageView, type PdfDocument, type PageSize } from './PdfPageView';
 import { PdfDoubleSidedReader } from './PdfDoubleSidedReader';
+import { findLeadingPage } from './visible-page';
 import styles from './PdfReader.module.css';
 
 export interface PdfReaderHandle {
@@ -111,7 +112,8 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [pageSizes, setPageSizes] = useState<Record<number, PageSize>>({});
-  const [pageLayoutReady, setPageLayoutReady] = useState(false);
+  const [measuredLayout, setMeasuredLayout] = useState(false);
+  const pageLayoutReady = isPaginated || measuredLayout;
   const [layoutVersion, setLayoutVersion] = useState(0);
   const [isPanning, setIsPanning] = useState(false);
   const [isSpaceDown, setIsSpaceDown] = useState(false);
@@ -368,7 +370,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     setError(null);
     setPdfDoc(null);
     setPageSizes({});
-    setPageLayoutReady(false);
+    setMeasuredLayout(false);
 
     if (!fileData || fileData.byteLength < 32) {
       setLoading(false);
@@ -421,33 +423,35 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     return () => cancelAnimationFrame(frame);
   }, [pdfDoc, pageLayoutReady, scrollToPage, totalPages, isDoubleSided]);
 
-  // Pre-measure real aspect ratios of all pages to prevent jumpy layout
+  // Pages resolve their size lazily. Book mode needs only the first page
+  // for spread geometry; continuous modes need stable dimensions to seek.
   useEffect(() => {
-    if (!pdfDoc) return;
+    if (!pdfDoc || isPaginated) return;
     let active = true;
-    setPageLayoutReady(false);
-    void Promise.all(
-      Array.from({ length: pdfDoc.numPages }, async (_, index) => {
-        const page = await pdfDoc.getPage(index + 1);
-        const viewport = page.getViewport({ scale: 1 });
-        return [index + 1, { width: viewport.width, height: viewport.height }] as const;
-      })
-    )
-      .then((sizes) => {
-        if (!active) return;
-        setPageSizes((previous) => ({ ...previous, ...Object.fromEntries(sizes) }));
-        setPageLayoutReady(true);
-      })
-      .catch((reason: unknown) => {
-        if (active) {
-          console.warn('Could not pre-measure all PDF pages:', reason);
-          setPageLayoutReady(true);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [pdfDoc]);
+    setMeasuredLayout(false);
+    async function measure() {
+      const sizes: Record<number, PageSize> = {};
+      const count = isDoubleSided ? 1 : pdfDoc!.numPages;
+      for (let start = 1; start <= count && active; start += 4) {
+        const length = Math.min(4, count - start + 1);
+        await Promise.all(Array.from({ length }, async (_, index) => {
+          const pageNumber = start + index;
+          try {
+            const page = await pdfDoc!.getPage(pageNumber);
+            const { width, height } = page.getViewport({ scale: 1 });
+            sizes[pageNumber] = { width, height };
+          } catch {
+            // The page renderer can still use the default size.
+          }
+        }));
+      }
+      if (!active) return;
+      setPageSizes((previous) => ({ ...previous, ...sizes }));
+      setMeasuredLayout(true);
+    }
+    void measure();
+    return () => { active = false; };
+  }, [pdfDoc, isDoubleSided, isPaginated]);
 
   // Trigger resize re-render observer
   useEffect(() => {
@@ -575,54 +579,21 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     const stack = pageStackRef.current;
     if (!viewport || !stack || totalPages < 1) return;
 
-    if (isPaginated) {
-      const fraction = totalPages > 1 ? (currentPage - 1) / (totalPages - 1) : 0;
-      onProgressUpdateRef.current(String(currentPage), Math.min(1, Math.max(0, fraction)), currentPage - 1);
-      return;
-    }
+    if (isPaginated) return; // Its page-change effect publishes progress once.
 
-    if (isHorizontal) {
-      const viewportLeft = viewport.getBoundingClientRect().left + 24;
-      const pages = Array.from(stack.querySelectorAll<HTMLElement>('[data-pdf-page]'));
-      let visiblePage = currentPage;
-      for (const page of pages) {
-        if (page.getBoundingClientRect().right > viewportLeft) {
-          visiblePage = Number(page.dataset.pdfPage) || visiblePage;
-          break;
-        }
-      }
-
-      const maxScroll = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
-      const withinPageFraction = maxScroll > 0 ? viewport.scrollLeft / maxScroll : 0;
-      const fraction = totalPages > 1
-        ? Math.min(1, (Math.max(0, visiblePage - 1) + withinPageFraction) / (totalPages - 1))
-        : withinPageFraction;
-
-      setCurrentPage((previous) => (previous === visiblePage ? previous : visiblePage));
-      onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
-      return;
-    }
-
-    // Default continuous vertical scroll
-    const viewportTop = viewport.getBoundingClientRect().top + 16;
-    const pages = Array.from(stack.querySelectorAll<HTMLElement>('[data-pdf-page]'));
-    let visiblePage = currentPage;
-    for (const page of pages) {
-      if (page.getBoundingClientRect().bottom > viewportTop) {
-        visiblePage = Number(page.dataset.pdfPage) || visiblePage;
-        break;
-      }
-    }
-
-    const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-    const withinPageFraction = maxScroll > 0 ? viewport.scrollTop / maxScroll : 0;
-    const fraction = totalPages > 1
-      ? Math.min(1, (Math.max(0, visiblePage - 1) + withinPageFraction) / (totalPages - 1))
-      : withinPageFraction;
-
-    setCurrentPage((previous) => (previous === visiblePage ? previous : visiblePage));
-    onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
-  }, [currentPage, isHorizontal, isPaginated, totalPages]);
+    const rect = viewport.getBoundingClientRect();
+    const edge = isHorizontal ? rect.left + 24 : rect.top + 16;
+    const page = findLeadingPage(stack.children, (bounds) => (isHorizontal ? bounds.right : bounds.bottom) > edge);
+    const visiblePage = Number(page?.getAttribute('data-pdf-page'));
+    if (!visiblePage) return;
+    const maxScroll = isHorizontal
+      ? viewport.scrollWidth - viewport.clientWidth
+      : viewport.scrollHeight - viewport.clientHeight;
+    const offset = isHorizontal ? viewport.scrollLeft : viewport.scrollTop;
+    const fraction = maxScroll > 0 ? Math.min(1, Math.max(0, offset / maxScroll)) : 0;
+    setCurrentPage(visiblePage);
+    onProgressUpdateRef.current(String(visiblePage), fraction, visiblePage - 1);
+  }, [isHorizontal, isPaginated, totalPages]);
 
   const handleScroll = useCallback(() => {
     if (previewTransformRef.current !== null) return;
@@ -955,7 +926,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
                 pageSize={pageSizes[pageNumber]}
                 readerZoom={readerZoom}
                 layoutVersion={layoutVersion}
-                initiallyVisible={Math.abs(pageNumber - currentPage) <= 1}
+                initiallyVisible={isPaginated || pageNumber === initialPageRef.current}
                 onPageSize={setPageSize}
                 layoutMode={currentLayoutMode}
                 invertColors={invertColors}

@@ -39,6 +39,7 @@ import {
 } from '../../core/parsing/sevenzip-extractor';
 import type { ComicReadingDirection, ComicFitMode, ReadingMode } from '../../types/book';
 import { ComicDoubleSidedReader } from './ComicDoubleSidedReader';
+import { findLeadingPage } from './visible-page';
 import styles from './CbzReader.module.css';
 
 export interface CbzZoomAnchor {
@@ -812,53 +813,24 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
     const stack = pageStackRef.current;
     if (!viewport || !stack || totalPages < 1) return;
 
-    if (isHorizontal) {
-      const rtl = readingDirection === 'rtl';
-      const viewportRect = viewport.getBoundingClientRect();
-      const viewportLeft = viewportRect.left + 24;
-      const shells = Array.from(stack.querySelectorAll<HTMLElement>('[data-cbz-page], [data-comic-page]'));
-      if (rtl) shells.reverse();
-      let visiblePage = currentPage;
-      for (const shell of shells) {
-        if (rtl ? shell.getBoundingClientRect().left < viewportRect.right - 24 : shell.getBoundingClientRect().right > viewportLeft) {
-          visiblePage = Number(shell.dataset.cbzPage || shell.dataset.comicPage) || visiblePage;
-          break;
-        }
-      }
-
-      const maxScroll = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
-      const scrollFraction = maxScroll > 0 ? viewport.scrollLeft / maxScroll : 0;
-      const fraction = maxScroll > 0 && rtl ? 1 - scrollFraction : scrollFraction;
-
-      setCurrentPage((prev) => (prev === visiblePage ? prev : visiblePage));
-      onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
-      return;
-    }
-
-    if (!isContinuous) return;
-
-    const viewportTop = viewport.getBoundingClientRect().top + 24;
-    const shells = Array.from(
-      stack.querySelectorAll<HTMLElement>('[data-cbz-page], [data-comic-page]')
-    );
-    if (shells.length === 0) return;
-
-    let visiblePage = currentPage;
-    for (const shell of shells) {
-      if (shell.getBoundingClientRect().bottom > viewportTop) {
-        visiblePage =
-          Number(shell.dataset.cbzPage || shell.dataset.comicPage) || visiblePage;
-        break;
-      }
-    }
-
-    const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-    const withinPageFraction = maxScroll > 0 ? viewport.scrollTop / maxScroll : 0;
-    const fraction = totalPages > 1 ? (visiblePage - 1) / (totalPages - 1) : withinPageFraction;
-
-    setCurrentPage((prev) => (prev === visiblePage ? prev : visiblePage));
+    const rect = viewport.getBoundingClientRect();
+    const rtl = isHorizontal && readingDirection === 'rtl';
+    const page = findLeadingPage(stack.children, (bounds) => {
+      if (rtl) return bounds.left < rect.right - 24;
+      if (isHorizontal) return bounds.right > rect.left + 24;
+      return bounds.bottom > rect.top + 24;
+    }, rtl);
+    const visiblePage = Number(page?.getAttribute('data-cbz-page')) || currentPage;
+    const maxScroll = isHorizontal
+      ? viewport.scrollWidth - viewport.clientWidth
+      : viewport.scrollHeight - viewport.clientHeight;
+    const offset = isHorizontal ? viewport.scrollLeft : viewport.scrollTop;
+    const scrollFraction = maxScroll > 0 ? offset / maxScroll : 0;
+    const fraction = isHorizontal ? rtl && maxScroll > 0 ? 1 - scrollFraction : scrollFraction
+      : totalPages > 1 ? (visiblePage - 1) / (totalPages - 1) : scrollFraction;
+    setCurrentPage(visiblePage);
     onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
-  }, [currentPage, isContinuous, isHorizontal, totalPages, readingDirection]);
+  }, [currentPage, isHorizontal, totalPages, readingDirection]);
 
   const handleScroll = useCallback(() => {
     if (previewTransformRef.current !== null || (!isContinuous && !isHorizontal)) return;
@@ -1182,7 +1154,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
                 fitMode={fitMode}
                 fallbackAspectRatio={commonAspectRatio}
                 layoutVersion={layoutVersion}
-                initiallyVisible={Math.abs(idx + 1 - currentPage) <= 1}
+                initiallyVisible={idx + 1 === initialPageRef.current}
                 isHorizontal={isHorizontal}
                 invertColors={invertColors}
                 onPageSize={setPageSize}

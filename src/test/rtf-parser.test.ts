@@ -21,6 +21,12 @@ describe('RTF Parser', () => {
     expect(result.rawText).toContain('This is bold, italic, underlined, and strikethrough text.');
   });
 
+  it('decodes multibyte hex escapes in the declared code page and keeps outline levels', () => {
+    const result = parseRtf(String.raw`{\rtf1\ansi\ansicpg932\pard\outlinelevel0 Part One\par\pard Heading body\par\pard\outlinelevel1 Topic\par\pard \'82\'a0\par}`);
+    expect(result.rawText).toContain('\u3042');
+    expect(result.chapters.map(({ title, level }) => [title, level])).toEqual([['Part One', 0], ['Topic', 1]]);
+  });
+
   it('extracts metadata from \\info block', () => {
     const rtf = `{\\rtf1\\ansi
 {\\info{\\title Journey to the Stars}{\\author Arthur C. Clarke}{\\doccomm A classic sci-fi novel}{\\keywords space, stars}}

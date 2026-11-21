@@ -1,6 +1,6 @@
 // WebXReader Offline Application Shell Service Worker
 const CACHE_PREFIX = 'webxreader-';
-const CACHE_NAME = `${CACHE_PREFIX}shell-v6`;
+const CACHE_NAME = `${CACHE_PREFIX}shell-v7`;
 const CACHE_SIZE_HEADER = 'X-WebXReader-Cache-Bytes';
 const MAX_CACHE_ENTRY_BYTES = 5 * 1024 * 1024;
 const MAX_CACHE_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -22,7 +22,26 @@ const SHELL_FILES = new Set([
   'icons.svg',
   'manifest.json',
   'webxreader.svg',
+  'covers/azw3-default-cover.svg',
+  'covers/cb7-default-cover.svg',
+  'covers/cbr-default-cover.svg',
+  'covers/cbz-default-cover.svg',
+  'covers/djvu-default-cover.svg',
+  'covers/doc-default-cover.svg',
+  'covers/docx-default-cover.svg',
+  'covers/epub-default-cover.svg',
+  'covers/fb2-default-cover.svg',
+  'covers/html-default-cover.svg',
+  'covers/jpeg-default-cover.svg',
+  'covers/md-default-cover.svg',
+  'covers/mht-default-cover.svg',
+  'covers/mobi-default-cover.svg',
+  'covers/pdf-default-cover.svg',
+  'covers/png-default-cover.svg',
+  'covers/rar-default-cover.svg',
+  'covers/rtf-default-cover.svg',
   'covers/txt-default-cover.svg',
+  'covers/zip-default-cover.svg',
 ]);
 
 const HASHED_ASSET_PATTERN = /^assets\/[a-z\d_.-]+-[a-z\d_-]{8,}\.(?:js|mjs|css|wasm|woff2?|ttf|otf|eot|svg|png|jpe?g|gif|webp|avif|ico)$/i;

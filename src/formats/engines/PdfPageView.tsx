@@ -13,6 +13,7 @@ import {
   type CSSProperties,
 } from 'react';
 import { pdfjsLib } from '../../core/parsing/pdf-init';
+import { getPageRasterScale } from './page-raster-budget';
 import styles from './PdfReader.module.css';
 
 export type PdfDocument = Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>;
@@ -137,7 +138,7 @@ export const PdfPageView = memo(function PdfPageView({
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
           setShouldRender(true);
-        } else if (!initiallyVisible) {
+        } else if (layoutMode !== 'paginated') {
           // Keep only pages within 600px buffer rendered to conserve memory and worker throughput
           setShouldRender(false);
         }
@@ -160,7 +161,7 @@ export const PdfPageView = memo(function PdfPageView({
       bufferObserver.disconnect();
       visibilityObserver.disconnect();
     };
-  }, [initiallyVisible, viewportRef]);
+  }, [layoutMode, viewportRef]);
 
   useEffect(() => {
     if (shouldRender) return;
@@ -201,19 +202,8 @@ export const PdfPageView = memo(function PdfPageView({
         );
         const viewport = page.getViewport({ scale });
         const stagingCanvas = document.createElement('canvas');
-        const maxCanvasDim = 8192;
-        const maxPixelCount = 24_000_000;
-        const baseDpr = window.devicePixelRatio || 1;
-        // Never allow dpr to drop below 1.0, preserving razor-sharp text clarity even at high zoom
-        const dpr = Math.max(
-          1.0,
-          Math.min(
-            baseDpr,
-            2.0,
-            maxCanvasDim / Math.max(1, viewport.width),
-            maxCanvasDim / Math.max(1, viewport.height),
-            Math.sqrt(maxPixelCount / Math.max(1, viewport.width * viewport.height))
-          )
+        const dpr = getPageRasterScale(
+          viewport.width, viewport.height, Math.min(2, window.devicePixelRatio || 1), 4096, 8_000_000,
         );
 
         stagingCanvas.width = Math.max(1, Math.floor(viewport.width * dpr));

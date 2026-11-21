@@ -1,3 +1,4 @@
+import type { BookFormat } from '../../types/book';
 import DOMPurify from 'dompurify';
 import { ident, string, tokenize, tokenTypes, url } from 'css-tree';
 
@@ -250,17 +251,32 @@ function normalizeMhtTables(content: DocumentFragment): void {
   }
 }
 
-/** Preserves raster images already embedded in an offline web archive. */
-export function sanitizeMhtReaderHtml(content: unknown): string {
+const inlineRaster = /^data:image\/(?:png|jpeg|gif|webp|bmp|avif);base64,/i;
+
+export function allowsEmbeddedReaderImages(format?: BookFormat): boolean {
+  return format === 'mht' || format === 'mobi' || format === 'azw3' || format === 'fb2' || format === 'docx';
+}
+
+export function sanitizeBookChapter(content: unknown, format?: BookFormat): string {
+  if (!allowsEmbeddedReaderImages(format)) return sanitizeReaderHtml(content);
+  return sanitizeEmbeddedReaderHtml(content, format === 'mht');
+}
+
+/** Preserves raster images already embedded in a local document. */
+function sanitizeEmbeddedReaderHtml(content: unknown, normalizeTables: boolean): string {
   const template = document.createElement('template');
   template.innerHTML = sanitizeReaderHtml(content, { allowImages: true });
   for (const image of template.content.querySelectorAll('img')) {
-    if (!/^data:image\/(?:png|jpeg|gif|webp|bmp|avif);base64,/i.test(image.getAttribute('src') ?? '')) {
+    if (!inlineRaster.test(image.getAttribute('src') ?? '')) {
       image.removeAttribute('src');
     }
     image.removeAttribute('data-src');
     image.setAttribute('decoding', 'async');
   }
-  normalizeMhtTables(template.content);
+  if (normalizeTables) normalizeMhtTables(template.content);
   return template.innerHTML;
+}
+
+export function sanitizeMhtReaderHtml(content: unknown): string {
+  return sanitizeEmbeddedReaderHtml(content, true);
 }

@@ -47,4 +47,13 @@ export async function ensureDjvuInitialized(): Promise<void> {
   await initPromise;
 }
 
+export function withDjvuPage<T>(doc: WasmDocument, index: number, readPage: (page: WasmPage) => T): T {
+  const page = doc.page(index);
+  try {
+    return readPage(page);
+  } finally {
+    page.free();
+  }
+}
+
 export { WasmDocument, WasmPage, WasmPixmap, wasmSimd128Supported };

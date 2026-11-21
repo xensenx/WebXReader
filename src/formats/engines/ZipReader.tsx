@@ -10,8 +10,11 @@
 import {
   useState,
   useEffect,
+  useDeferredValue,
   useRef,
   useMemo,
+  useImperativeHandle,
+  type Ref,
   useCallback,
   memo,
   lazy,
@@ -33,10 +36,12 @@ import {
   AlertTriangle,
   ChevronLeft,
 } from 'lucide-react';
-import type { Book, Chapter, ReadingMode } from '../../types/book';
+import type { BookFormat, Book, Chapter, ReadingMode } from '../../types/book';
+import type { ReaderSearchResult } from '../../components/reader/search-types';
+import { createTextExcerpt, findTextMatches } from '../../utils/text-search';
 import type { EffectiveReaderSettings } from '../../hooks/useReaderSettings';
 import {
-  parseZip,
+  indexValidatedZip,
   formatFileSize,
   type ZipEntryItem,
   type ZipItemKind,
@@ -46,7 +51,7 @@ import { parseTxt } from '../../core/parsing/txt-parser';
 import { parseMarkdown } from '../../core/parsing/markdown-parser';
 import { decodeHtmlDocument } from '../../core/parsing/html-encoding';
 import { parseHtml } from '../../core/parsing/html-parser';
-import { parseRtf } from '../../core/parsing/rtf-parser';
+import { decodeRtfDocument, parseRtf } from '../../core/parsing/rtf-parser';
 import { parseFb2 } from '../../core/parsing/fb2-parser';
 import { parseMobi } from '../../core/parsing/mobi-parser';
 import { parseAzw3 } from '../../core/parsing/azw3-parser';
@@ -77,13 +82,27 @@ import { DoubleSidedReader } from '../../components/reader/DoubleSidedReader';
 
 import styles from './ZipReader.module.css';
 
+export interface ArchiveReaderHandle {
+  goToEntry(path: string, fraction?: number): void;
+  goToProgress(fraction: number): void;
+  searchEntries(query: string): Promise<ReaderSearchResult[]>;
+}
+
+interface EntryLocation {
+  page: number;
+  fraction: number;
+  mode?: string;
+}
+
 export interface ArchiveReaderProps {
+  ref?: Ref<ArchiveReaderHandle>;
   fileData: ArrayBuffer;
   book?: Book;
   archiveType?: 'zip' | 'rar';
   initialSubPath?: string;
   initialPage?: number;
   initialProgressFraction?: number;
+  initialProgressMode?: string;
   readingMode?: ReadingMode;
   readerSettings: EffectiveReaderSettings;
   readerZoom?: number;
@@ -105,8 +124,9 @@ export interface GenericArchiveSession {
 
 interface ActiveSubDocument {
   entry: ZipEntryItem;
+  generation: number;
   fileBuffer?: ArrayBuffer;
-  text?: string;
+  location: EntryLocation;
   chapters?: Chapter[];
 }
 
@@ -117,12 +137,14 @@ interface ActiveImageCollection {
 }
 
 export const ArchiveReader = memo(function ArchiveReader({
+  ref,
   fileData,
   book,
   archiveType,
   initialSubPath,
   initialPage = 1,
-  initialProgressFraction: _initialProgressFraction = 0,
+  initialProgressFraction = 0,
+  initialProgressMode,
   readingMode = 'scroll',
   readerSettings,
   readerZoom = 1,
@@ -143,10 +165,34 @@ export const ArchiveReader = memo(function ArchiveReader({
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLowerCase());
+  const entryIndex = useMemo(() => {
+    const byPath = new Map<string, ZipEntryItem>();
+    const byFolder = new Map<string, ZipEntryItem[]>();
+    for (const entry of entries) {
+      byPath.set(entry.path, entry);
+      byPath.set(entry.id, entry);
+      const folder = entry.path.slice(0, Math.max(0, entry.path.lastIndexOf('/')));
+      let children = byFolder.get(folder);
+      if (!children) {
+        children = [];
+        byFolder.set(folder, children);
+      }
+      children.push(entry);
+    }
+    return { byPath, byFolder };
+  }, [entries]);
+
   // Active Reading State
   const [activeDoc, setActiveDoc] = useState<ActiveSubDocument | null>(null);
   const [activeCollection, setActiveCollection] = useState<ActiveImageCollection | null>(null);
+  const subReaderStageRef = useRef<HTMLDivElement>(null);
+  const subReaderRef = useRef<Pick<ArchiveReaderHandle, 'goToProgress'> | null>(null);
+  const registerSubReader = useCallback((reader: Pick<ArchiveReaderHandle, 'goToProgress'> | null) => {
+    subReaderRef.current = reader;
+  }, []);
   const [loadingEntry, setLoadingEntry] = useState(false);
+  const entryGenerationRef = useRef(0);
 
   // Blob URLs for image collection caching and revocation
   const activeBlobUrlsRef = useRef<Map<string, string>>(new Map());
@@ -174,7 +220,10 @@ export const ArchiveReader = memo(function ArchiveReader({
   };
 
   // Open an individual supported file from the archive
-  const openSubEntry = async (entry: ZipEntryItem, sessionOverride?: GenericArchiveSession) => {
+  const openSubEntry = async (
+    entry: ZipEntryItem, sessionOverride?: GenericArchiveSession,
+    location: EntryLocation = { page: 1, fraction: 0 },
+  ) => {
     const session = sessionOverride || archiveSession;
     if (!session) return;
 
@@ -183,12 +232,13 @@ export const ArchiveReader = memo(function ArchiveReader({
       return;
     }
 
+    const generation = ++entryGenerationRef.current;
     setLoadingEntry(true);
     try {
       // If it's a standalone image, open as a single-item collection or sequence
       if (entry.kind === 'image') {
         const folder = entry.path.split('/').slice(0, -1).join('/');
-        const siblingImages = entries.filter(
+        const siblingImages = session.entries.filter(
           (e) => !e.isDirectory && e.kind === 'image' && e.path.split('/').slice(0, -1).join('/') === folder
         );
         siblingImages.sort((a, b) => naturalCompare(a.name, b.name));
@@ -196,12 +246,9 @@ export const ArchiveReader = memo(function ArchiveReader({
 
         revokeActiveBlobUrls();
         setActiveDoc(null);
-        setActiveCollection({
-          folderPath: folder,
-          images: siblingImages,
-          currentIndex: Math.max(0, idx),
-        });
-        onProgressUpdate?.(entry.path, 0, 0);
+        const currentIndex = Math.max(0, idx);
+        setActiveCollection({ folderPath: folder, images: siblingImages, currentIndex });
+        onProgressUpdate?.(entry.path, currentIndex / Math.max(1, siblingImages.length - 1), currentIndex);
         return;
       }
 
@@ -216,12 +263,16 @@ export const ArchiveReader = memo(function ArchiveReader({
       ) {
         const buffer = await session.getEntryData(entry.path);
         if (entry.kind === 'epub') await openBudgetedZip(buffer);
+        if (generation !== entryGenerationRef.current) return;
+        revokeActiveBlobUrls();
         setActiveCollection(null);
         setActiveDoc({
           entry,
+          generation,
           fileBuffer: buffer,
+          location,
         });
-        onProgressUpdate?.(entry.path, 0, 0);
+        if (location.fraction === 0 && location.page === 1) onProgressUpdate?.(entry.path, 0, 0);
         return;
       }
 
@@ -229,7 +280,9 @@ export const ArchiveReader = memo(function ArchiveReader({
       if (entry.kind === 'txt' || entry.kind === 'markdown' || entry.kind === 'html' || entry.kind === 'rtf') {
         const text = entry.kind === 'html'
           ? decodeHtmlDocument(await session.getEntryData(entry.path))
-          : await session.getEntryText(entry.path);
+          : entry.kind === 'rtf'
+            ? decodeRtfDocument(await session.getEntryData(entry.path))
+            : await session.getEntryText(entry.path);
         let chapters: Chapter[] = [];
 
         if (entry.kind === 'txt') {
@@ -242,13 +295,11 @@ export const ArchiveReader = memo(function ArchiveReader({
           chapters = parseRtf(text).chapters;
         }
 
+        if (generation !== entryGenerationRef.current) return;
+        revokeActiveBlobUrls();
         setActiveCollection(null);
-        setActiveDoc({
-          entry,
-          text,
-          chapters,
-        });
-        onProgressUpdate?.(entry.path, 0, 0);
+        setActiveDoc({ entry, generation, chapters, location });
+        if (location.fraction === 0 && location.page === 1) onProgressUpdate?.(entry.path, 0, 0);
         return;
       }
 
@@ -276,17 +327,15 @@ export const ArchiveReader = memo(function ArchiveReader({
         chapters = parsed.chapters;
       }
 
+      if (generation !== entryGenerationRef.current) return;
+      revokeActiveBlobUrls();
       setActiveCollection(null);
-      setActiveDoc({
-        entry,
-        fileBuffer: buffer,
-        chapters,
-      });
-      onProgressUpdate?.(entry.path, 0, 0);
+      setActiveDoc({ entry, generation, chapters, location });
+      if (location.fraction === 0 && location.page === 1) onProgressUpdate?.(entry.path, 0, 0);
     } catch (err) {
-      showToast(`Failed to open entry: ${err instanceof Error ? err.message : String(err)}`);
+      if (generation === entryGenerationRef.current) showToast(`Failed to open entry: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setLoadingEntry(false);
+      if (generation === entryGenerationRef.current) setLoadingEntry(false);
     }
   };
 
@@ -317,10 +366,8 @@ export const ArchiveReader = memo(function ArchiveReader({
             close: () => rarSession.close(),
           };
         } else {
-          const [loadedZip, parsedResult] = await Promise.all([
-            openBudgetedZip(fileData),
-            parseZip(fileData, { filename: book?.originalFilename || book?.title }),
-          ]);
+          const loadedZip = await openBudgetedZip(fileData);
+          const parsedResult = await indexValidatedZip(loadedZip, book?.originalFilename || book?.title, false);
 
           if (!isMounted) return;
           session = {
@@ -355,7 +402,9 @@ export const ArchiveReader = memo(function ArchiveReader({
         if (targetPath) {
           const matched = session.entries.find((e) => e.path === targetPath && !e.isDirectory);
           if (matched && matched.isSupported) {
-            void openSubEntry(matched, session);
+            void openSubEntry(matched, session, {
+              page: initialPage, fraction: initialProgressFraction, mode: initialProgressMode,
+            });
           }
         }
       } catch (err) {
@@ -370,6 +419,7 @@ export const ArchiveReader = memo(function ArchiveReader({
 
     return () => {
       isMounted = false;
+      entryGenerationRef.current++;
       sessionRef.current?.close();
       sessionRef.current = null;
       revokeActiveBlobUrls();
@@ -401,10 +451,59 @@ export const ArchiveReader = memo(function ArchiveReader({
   };
 
   const closeSubReader = () => {
+    entryGenerationRef.current++;
+    setLoadingEntry(false);
     setActiveDoc(null);
     setActiveCollection(null);
     revokeActiveBlobUrls();
   };
+
+  const goToImage = (index: number) => {
+    if (!activeCollection) return;
+    const { images, currentIndex } = activeCollection;
+    const next = Math.max(0, Math.min(index, images.length - 1));
+    if (next === currentIndex) return;
+    setActiveCollection({ ...activeCollection, currentIndex: next });
+    onProgressUpdate?.(images[next].path, next / Math.max(1, images.length - 1), next);
+  };
+
+  useImperativeHandle(ref, () => ({
+    goToEntry(path, fraction = 0) {
+      const entry = entryIndex.byPath.get(path);
+      if (!entry) return;
+      if (entry.isDirectory) {
+        closeSubReader();
+        setSearchQuery('');
+        setCurrentFolder(entry.path);
+        return;
+      }
+      void openSubEntry(entry, undefined, { page: 1, fraction });
+    },
+    goToProgress(fraction) {
+      const clamped = Math.max(0, Math.min(1, fraction));
+      if (activeCollection) goToImage(Math.round(clamped * (activeCollection.images.length - 1)));
+      else if (subReaderRef.current) subReaderRef.current.goToProgress(clamped);
+      else {
+        const viewport = subReaderStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
+        if (viewport) viewport.scrollTop = clamped * Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      }
+    },
+    async searchEntries(query) {
+      const results: ReaderSearchResult[] = [];
+      for (const entry of entries) {
+        if (!entry.isSupported || entry.isDirectory) continue;
+        const [match] = findTextMatches(entry.path, query, 1);
+        if (!match) continue;
+        results.push({
+          ...createTextExcerpt(entry.path, match),
+          chapterId: entry.path, chapterTitle: entry.name,
+          matchIndex: 0, offset: match.start,
+        });
+        if (results.length >= 100) break;
+      }
+      return results;
+    },
+  }));
 
   // Helper to load blob URL for an image entry
   const getImageBlobUrl = useCallback(
@@ -446,27 +545,10 @@ export const ArchiveReader = memo(function ArchiveReader({
     }
   }, [activeCollection]);
 
-  // Compute items displayed in current directory
   const currentDirectoryItems = useMemo(() => {
-    const prefix = currentFolder ? `${currentFolder}/` : '';
-    const q = searchQuery.trim().toLowerCase();
-
-    // If searching, search across all files in the archive
-    if (q) {
-      return entries.filter((e) => e.name.toLowerCase().includes(q) || e.path.toLowerCase().includes(q));
-    }
-
-    // Otherwise show immediate children of currentFolder
-    return entries.filter((e) => {
-      if (currentFolder) {
-        if (!e.path.startsWith(prefix) || e.path === currentFolder) return false;
-        const relative = e.path.slice(prefix.length);
-        return !relative.includes('/');
-      } else {
-        return !e.path.includes('/');
-      }
-    });
-  }, [entries, currentFolder, searchQuery]);
+    if (!deferredSearchQuery) return entryIndex.byFolder.get(currentFolder) ?? [];
+    return entries.filter((entry) => (entry.name.toLowerCase().includes(deferredSearchQuery) || entry.path.toLowerCase().includes(deferredSearchQuery)));
+  }, [currentFolder, deferredSearchQuery, entries, entryIndex]);
 
   // Count images available in current directory scope
   const imagesInCurrentScope = useMemo(() => {
@@ -515,7 +597,7 @@ export const ArchiveReader = memo(function ArchiveReader({
   // Render: Sub-Document Reader View
   // =========================================================================
   if (activeDoc) {
-    const { entry, fileBuffer, chapters } = activeDoc;
+    const { entry, fileBuffer, chapters, location } = activeDoc;
     return (
       <div className={styles.subReaderWrapper}>
         <div className={styles.subNavBar}>
@@ -540,12 +622,13 @@ export const ArchiveReader = memo(function ArchiveReader({
           </div>
         </div>
 
-        <div className={styles.subReaderStage}>
+        <div ref={subReaderStageRef} className={styles.subReaderStage} key={activeDoc.generation}>
           <Suspense fallback={<div className={styles.loadingCenter}><div className={styles.spinner} /><p>Loading reader…</p></div>}>
           {entry.kind === 'pdf' && fileBuffer ? (
             <PdfReader
+              ref={registerSubReader}
               fileData={fileBuffer}
-              initialPage={initialPage}
+              initialPage={location.page}
               readingMode={readingMode === 'scroll' ? 'scroll' : 'paginated'}
               onProgressUpdate={(_ch, fraction, page) => onProgressUpdate?.(entry.path, fraction, page)}
               onToggleControls={onToggleControls}
@@ -554,16 +637,21 @@ export const ArchiveReader = memo(function ArchiveReader({
             />
           ) : entry.kind === 'epub' && fileBuffer ? (
             <EpubReader
+              ref={registerSubReader}
               fileData={fileBuffer}
               settings={readerSettings}
+              initialProgressFraction={location.fraction}
               onProgressUpdate={(_cfi, fraction) => onProgressUpdate?.(entry.path, fraction, 0)}
               onToggleControls={onToggleControls}
               readerZoom={readerZoom}
             />
           ) : entry.kind === 'djvu' && fileBuffer ? (
             <DjvuReader
+              ref={registerSubReader}
               fileData={fileBuffer}
-              initialPage={initialPage}
+              initialPage={location.page}
+              initialProgressFraction={location.fraction}
+              initialProgressMode={location.mode}
               readingMode={readingMode === 'scroll' ? 'scroll' : 'paginated'}
               onProgressUpdate={(_ch, fraction, page) => onProgressUpdate?.(entry.path, fraction, page)}
               onToggleControls={onToggleControls}
@@ -572,9 +660,10 @@ export const ArchiveReader = memo(function ArchiveReader({
             />
           ) : (entry.kind === 'cbz' || entry.kind === 'cbr' || entry.kind === 'cb7') && fileBuffer ? (
             <CbzReader
+              ref={registerSubReader}
               fileData={fileBuffer}
               format={entry.kind}
-              initialPage={initialPage}
+              initialPage={location.page}
               readingMode={readingMode}
               onProgressUpdate={(_ch, fraction, page) => onProgressUpdate?.(entry.path, fraction, page)}
               onToggleControls={onToggleControls}
@@ -584,22 +673,28 @@ export const ArchiveReader = memo(function ArchiveReader({
           ) : chapters && chapters.length > 0 ? (
             readingMode === 'paginated' ? (
               <PaginatedReader
+                ref={registerSubReader}
                 chapters={chapters}
-                isMht={entry.kind === 'mht'}
+                format={entry.kind as BookFormat}
                 settings={readerSettings}
-                initialPageIndex={initialPage - 1}
-                onProgressUpdate={(_ch, fraction) => onProgressUpdate?.(entry.path, fraction, 0)}
+                initialPageIndex={location.page - 1}
+                initialProgressFraction={location.fraction}
+                initialProgressMode={location.mode ?? 'scroll'}
+                onProgressUpdate={(_ch, fraction, page) => onProgressUpdate?.(entry.path, fraction, page)}
                 onToggleControls={onToggleControls}
                 zoom={readerZoom}
                 zoomAnchor={zoomAnchor}
               />
             ) : readingMode === 'vertical' ? (
               <DoubleSidedReader
+                ref={registerSubReader}
                 chapters={chapters}
-                isMht={entry.kind === 'mht'}
+                format={entry.kind as BookFormat}
                 settings={readerSettings}
-                initialPageIndex={initialPage - 1}
-                onProgressUpdate={(_ch, fraction) => onProgressUpdate?.(entry.path, fraction, 0)}
+                initialPageIndex={location.page - 1}
+                initialProgressFraction={location.fraction}
+                initialProgressMode={location.mode ?? 'scroll'}
+                onProgressUpdate={(_ch, fraction, page) => onProgressUpdate?.(entry.path, fraction, page)}
                 onToggleControls={onToggleControls}
                 zoom={readerZoom}
                 zoomAnchor={zoomAnchor}
@@ -607,8 +702,9 @@ export const ArchiveReader = memo(function ArchiveReader({
             ) : (
               <ScrollReader
                 chapters={chapters}
-                isMht={entry.kind === 'mht'}
+                format={entry.kind as BookFormat}
                 settings={readerSettings}
+                initialProgressFraction={location.fraction}
                 onProgressUpdate={(_ch, fraction) => onProgressUpdate?.(entry.path, fraction, 0)}
                 onToggleControls={onToggleControls}
                 zoom={readerZoom}
@@ -657,12 +753,9 @@ export const ArchiveReader = memo(function ArchiveReader({
               <button
                 type="button"
                 className={styles.imagePageBtn}
+                aria-label="Previous image"
                 disabled={currentIndex <= 0}
-                onClick={() => {
-                  const nextIdx = Math.max(0, currentIndex - 1);
-                  setActiveCollection({ ...activeCollection, currentIndex: nextIdx });
-                  onProgressUpdate?.(images[nextIdx].path, nextIdx / images.length, nextIdx + 1);
-                }}
+                onClick={() => goToImage(currentIndex - 1)}
               >
                 <ChevronLeft size={16} />
               </button>
@@ -672,12 +765,9 @@ export const ArchiveReader = memo(function ArchiveReader({
               <button
                 type="button"
                 className={styles.imagePageBtn}
+                aria-label="Next image"
                 disabled={currentIndex >= images.length - 1}
-                onClick={() => {
-                  const nextIdx = Math.min(images.length - 1, currentIndex + 1);
-                  setActiveCollection({ ...activeCollection, currentIndex: nextIdx });
-                  onProgressUpdate?.(images[nextIdx].path, nextIdx / images.length, nextIdx + 1);
-                }}
+                onClick={() => goToImage(currentIndex + 1)}
               >
                 <ChevronRight size={16} />
               </button>
@@ -860,10 +950,12 @@ function SingleImageDisplay({
 }) {
   const [url, setUrl] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setFailed(false);
     getImageBlobUrl(entry).then((blobUrl) => {
       if (active) {
         setUrl(blobUrl);
@@ -875,7 +967,10 @@ function SingleImageDisplay({
     };
   }, [entry, getImageBlobUrl]);
 
-  if (loading || !url) {
+  if (!loading && (!url || failed)) {
+    return <p className={styles.loadingCenter} role="status">Unable to open this image.</p>;
+  }
+  if (loading) {
     return (
       <div className={styles.loadingCenter}>
         <div className={styles.spinner} />
@@ -889,6 +984,8 @@ function SingleImageDisplay({
       <img
         src={url}
         alt={entry.name}
+        decoding="async"
+        onError={() => setFailed(true)}
         className={styles.imageCard}
         style={{
           transform: `scale(${zoom})`,

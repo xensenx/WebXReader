@@ -97,6 +97,7 @@ function createBook(params: {
     importedAt: now,
     updatedAt: now,
     coverImage: params.coverImage,
+    originalCoverImage: params.format === 'epub' && !params.coverImage ? null : undefined,
     userTags: [],
     userRating: null,
     favorite: false,

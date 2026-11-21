@@ -12,7 +12,8 @@ import {
   prepareCoverFile,
   type CoverImageResult,
 } from '../../utils/cover-image';
-import { getBookCoverUrl, getDefaultBookCover } from '../../assets/covers/default-book-cover';
+import { getStoredBookCover } from '../../assets/covers/default-book-cover';
+import { BookCoverImage } from './BookCoverImage';
 import styles from './BookDetailsDialog.module.css';
 
 interface BookDetailsDialogProps {
@@ -32,7 +33,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
   const [author, setAuthor] = useState(book?.author || '');
   const [description, setDescription] = useState(book?.description || '');
   const [tagsInput, setTagsInput] = useState((book?.userTags || []).join(', '));
-  const [coverImage, setCoverImage] = useState(getBookCoverUrl(book) ?? '');
+  const [coverImage, setCoverImage] = useState(getStoredBookCover(book?.coverImage) ?? '');
   const [coverUrl, setCoverUrl] = useState('');
   const [coverDimensions, setCoverDimensions] = useState<{ width: number; height: number } | null>(null);
   const [coverNotice, setCoverNotice] = useState('');
@@ -47,7 +48,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setAuthor(book.author || '');
     setDescription(book.description || '');
     setTagsInput((book.userTags || []).join(', '));
-    setCoverImage(getBookCoverUrl(book) ?? '');
+    setCoverImage(getStoredBookCover(book?.coverImage) ?? '');
     setCoverUrl(/^https?:\/\//i.test(book.coverImage || '') ? book.coverImage || '' : '');
     setCoverDimensions(null);
     setCoverNotice('');
@@ -77,12 +78,11 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
 
   if (!book) return null;
 
-  const originalCoverImage = book.originalCoverImage === undefined
-    ? getBookCoverUrl(book)
-    : book.originalCoverImage ?? getDefaultBookCover(book.sourceFormat);
-  const canResetCover = coverImage !== (originalCoverImage || '');
-  const defaultCoverImage = getDefaultBookCover(book.sourceFormat);
-  const resetLabel = originalCoverImage && originalCoverImage !== defaultCoverImage ? 'Reset to original' : 'Reset to default';
+  const originalCoverImage = getStoredBookCover(
+    book.originalCoverImage === undefined ? book.coverImage : book.originalCoverImage
+  );
+  const canResetCover = coverImage !== (originalCoverImage ?? '');
+  const resetLabel = originalCoverImage ? 'Reset to original' : 'Reset to default';
 
   const applyCover = (result: CoverImageResult) => {
     setCoverImage(result.data);
@@ -125,9 +125,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setCoverImage('');
     setCoverUrl('');
     setCoverDimensions(null);
-    setCoverNotice(defaultCoverImage
-      ? 'The book will use its format\'s default cover after saving.'
-      : 'The book will use its title-based placeholder cover.');
+    setCoverNotice('The book will use its format?s fallback cover.');
     setCoverError('');
   };
 
@@ -136,11 +134,9 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
     setCoverImage(original);
     setCoverUrl(/^https?:\/\//i.test(original) ? original : '');
     setCoverDimensions(null);
-    setCoverNotice(original && original === defaultCoverImage
-      ? 'The format\'s default cover has been restored.'
-      : original
+    setCoverNotice(original
       ? 'The cover from the original import has been restored.'
-      : 'This book was imported without a cover, so its title placeholder will be used.');
+      : 'The format?s fallback cover has been restored.');
     setCoverError('');
   };
 
@@ -156,7 +152,7 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
         .split(',')
         .map((tag) => tag.trim())
         .filter(Boolean);
-      const coverWasChanged = coverImage !== (book.coverImage || '');
+      const coverWasChanged = coverImage !== (getStoredBookCover(book.coverImage) ?? '');
 
       const updated: Book = {
         ...book,
@@ -165,8 +161,8 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
         description: description.trim(),
         coverImage: coverImage || undefined,
         originalCoverImage: book.originalCoverImage === undefined
-          ? (coverWasChanged ? (getBookCoverUrl(book) ?? null) : undefined)
-          : book.originalCoverImage,
+          ? (coverWasChanged ? originalCoverImage ?? null : undefined)
+          : originalCoverImage ?? null,
         userTags: parsedTags,
         updatedAt: Date.now(),
       };
@@ -214,14 +210,17 @@ export function BookDetailsDialog({ book, isOpen, onClose, onSave }: BookDetails
         <section className={styles.coverSource} aria-label="Choose a cover image">
           <div className={styles.coverEditor}>
             <div className={styles.coverBox}>
-              {coverImage ? (
-                <img src={coverImage} alt={`Cover for ${title || book.title}`} className={styles.coverImg} />
-              ) : (
-                <div className={styles.fallbackCover}>
-                  <ImagePlus size={24} aria-hidden="true" />
-                  <span>{(title || book.title).trim().charAt(0).toUpperCase()}</span>
-                </div>
-              )}
+              <BookCoverImage
+                book={{ sourceFormat: book.sourceFormat, coverImage, originalCoverImage }}
+                alt={`Cover for ${title || book.title}`}
+                className={styles.coverImg}
+                placeholder={
+                  <div className={styles.fallbackCover}>
+                    <ImagePlus size={24} aria-hidden="true" />
+                    <span>{(title || book.title).trim().charAt(0).toUpperCase()}</span>
+                  </div>
+                }
+              />
             </div>
 
             <div className={styles.coverContent}>

@@ -6,9 +6,12 @@
 
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
-import { openBudgetedZip, readZipEntryLimited, bytesToBase64, ZIP_LIMITS } from './zip-budget';
+import { openBudgetedZip, readZipEntryLimited, ZIP_LIMITS } from './zip-budget';
+import { generateId } from '../../utils';
+import { embeddedRasterUrl } from './embedded-raster';
 import type { Chapter, BookMetadata } from '../../types/book';
-import { sanitizeReaderHtml } from './sanitize-reader-html';
+import { sanitizeBookChapter } from './sanitize-reader-html';
+import { splitByHeadings } from './html-parser';
 
 export interface DocxParseOptions {
   autoDetectChapters?: boolean;
@@ -19,10 +22,6 @@ export interface DocxParseResult {
   metadata: Partial<BookMetadata>;
   rawText: string;
   coverImage?: string;
-}
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 }
 
 /**
@@ -44,29 +43,6 @@ function htmlToPlainText(html: string): string {
 }
 
 /**
- * Derives a clean chapter title from section HTML.
- */
-function extractTitleFromSection(html: string, defaultTitle: string): string {
-  const hMatch = html.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i);
-  if (hMatch) {
-    const title = htmlToPlainText(hMatch[1]);
-    if (title.length > 0 && title.length <= 120) {
-      return title;
-    }
-  }
-
-  const pMatch = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
-  if (pMatch) {
-    const text = htmlToPlainText(pMatch[1]);
-    if (text.length > 0 && text.length <= 80) {
-      return text;
-    }
-  }
-
-  return defaultTitle;
-}
-
-/**
  * Extracts metadata from docProps/core.xml in a DOCX zip archive.
  */
 async function extractDocxMetadata(zip: JSZip): Promise<{ metadata: Partial<BookMetadata>; coverImage?: string }> {
@@ -78,11 +54,8 @@ async function extractDocxMetadata(zip: JSZip): Promise<{ metadata: Partial<Book
   if (coreFile) {
     try {
       const xml = new TextDecoder().decode(await readZipEntryLimited(coreFile, 1024 * 1024));
-      const getTag = (tag: string): string | undefined => {
-        const regex = new RegExp(`<(?:[a-zA-Z0-9]+:)?${tag}[^>]*>([\\s\\S]*?)<\\/(?:[a-zA-Z0-9]+:)?${tag}>`, 'i');
-        const match = xml.match(regex);
-        return match ? match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim() : undefined;
-      };
+      const doc = new DOMParser().parseFromString(xml, 'application/xml');
+      const getTag = (tag: string) => doc.getElementsByTagNameNS('*', tag)[0]?.textContent?.trim() || undefined;
 
       const title = getTag('title');
       const creator = getTag('creator');
@@ -100,28 +73,18 @@ async function extractDocxMetadata(zip: JSZip): Promise<{ metadata: Partial<Book
     }
   }
 
-  // 2. Extract potential cover image from word/media/
-  try {
-    const mediaFiles: string[] = [];
-    zip.forEach((relativePath) => {
-      if (relativePath.startsWith('word/media/') && /\.(png|jpe?g|webp|gif)$/i.test(relativePath)) {
-        mediaFiles.push(relativePath);
-      }
-    });
-
-    // Sort to prefer first image
-    mediaFiles.sort();
-    if (mediaFiles.length > 0) {
-      const firstImg = zip.file(mediaFiles[0]);
-      if (firstImg) {
-        const base64 = bytesToBase64(await readZipEntryLimited(firstImg, ZIP_LIMITS.coverBytes));
-        const ext = mediaFiles[0].split('.').pop()?.toLowerCase();
-        const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-        coverImage = `data:${mime};base64,${base64}`;
-      }
+  // Prefer the package thumbnail, then fall back to the first readable image.
+  const coverPaths = Object.keys(zip.files).filter((path) =>
+    /^(?:docProps\/thumbnail|word\/media\/[^/]+)\.(?:png|jpe?g|gif|webp)$/i.test(path));
+  coverPaths.sort((a, b) => Number(b.startsWith('docProps/')) - Number(a.startsWith('docProps/')) || a.localeCompare(b));
+  for (const path of coverPaths.slice(0, 8)) {
+    try {
+      const entry = zip.file(path);
+      if (entry) coverImage = embeddedRasterUrl(await readZipEntryLimited(entry, ZIP_LIMITS.coverBytes));
+      if (coverImage) break;
+    } catch {
+      // Optional cover may be too large or damaged.
     }
-  } catch {
-    // Ignore image extraction failure
   }
 
   return { metadata, coverImage };
@@ -171,7 +134,15 @@ export async function parseDocx(
     buffer: typeof Buffer !== 'undefined' ? Buffer.from(buffer) : (buffer as unknown as Uint8Array),
   };
   try {
-    const htmlResult = await mammoth.convertToHtml(mammothInput);
+    let imageBudget = 24 * 1024 * 1024;
+    const htmlResult = await mammoth.convertToHtml(mammothInput, {
+      convertImage: mammoth.images.imgElement(async (image) => {
+        const src = embeddedRasterUrl(new Uint8Array(await image.readAsArrayBuffer()));
+        if (!src || src.length > imageBudget) return { src: '' };
+        imageBudget -= src.length;
+        return { src };
+      }),
+    });
     html = htmlResult.value;
 
     const textResult = await mammoth.extractRawText(mammothInput);
@@ -180,50 +151,13 @@ export async function parseDocx(
     throw new Error(`Failed to parse DOCX document body: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // 4. Split into Chapters
-  const autoDetectChapters = options.autoDetectChapters ?? true;
-  let chapters: Chapter[] = [];
-
-  if (autoDetectChapters) {
-    // Check if HTML contains explicit headings (h1, h2)
-    const hasH1 = /<h1[^>]*>/i.test(html);
-    const hasH2 = /<h2[^>]*>/i.test(html);
-
-    if (hasH1 || hasH2) {
-      // Split on heading boundaries
-      const splitRegex = hasH1 ? /(?=<h1[^>]*>)/i : /(?=<h2[^>]*>)/i;
-      const sections = html.split(splitRegex);
-
-      let order = 0;
-      for (const section of sections) {
-        const trimmed = section.trim();
-        if (!trimmed) continue;
-
-        const title = extractTitleFromSection(trimmed, `Chapter ${order + 1}`);
-        chapters.push({
-          id: generateId(),
-          title,
-          level: 0,
-          order,
-          content: sanitizeReaderHtml(trimmed),
-        });
-        order++;
-      }
-    }
-  }
-
-  // Fallback: If no chapters detected or autoDetectChapters is false, wrap full HTML in a single chapter
+  const cleanHtml = sanitizeBookChapter(html, 'docx');
+  const title = metadata.title || 'Document';
+  const chapters = (options.autoDetectChapters ?? true) && /<h[1-3]\b/i.test(cleanHtml)
+    ? splitByHeadings(cleanHtml, title, 'h1, h2, h3')
+    : [];
   if (chapters.length === 0) {
-    const defaultTitle = metadata.title || 'Document';
-    chapters = [
-      {
-        id: generateId(),
-        title: defaultTitle,
-        level: 0,
-        order: 0,
-        content: sanitizeReaderHtml(html),
-      },
-    ];
+    chapters.push({ id: generateId(), title, level: 0, order: 0, content: cleanHtml });
   }
 
   return {

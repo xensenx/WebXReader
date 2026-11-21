@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import type { Book, ReadingStatus } from '../../types/book';
 import { formatDate } from '../../utils';
-import { getBookCoverUrl } from '../../assets/covers/default-book-cover';
+import { BookCoverImage } from './BookCoverImage';
 import styles from './BookCard.module.css';
 
 interface BookCardProps {
@@ -58,7 +58,6 @@ export function BookCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const coverUrl = getBookCoverUrl(book);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -128,22 +127,21 @@ export function BookCard({
       aria-checked={selectionMode ? selected : undefined}
     >
       <div className={styles.coverContainer} data-drag-preview>
-        {coverUrl ? (
-          <img
-            src={coverUrl}
-            alt=""
-            className={styles.coverImage}
-            loading="lazy"
-            draggable={false}
-          />
-        ) : (
-          <div className={styles.fallbackCover}>
-            <div className={styles.fallbackInitial}>
-              {book.title.trim().charAt(0).toUpperCase()}
+        <BookCoverImage
+          book={book}
+          alt=""
+          className={styles.coverImage}
+          loading="lazy"
+          draggable={false}
+          placeholder={
+            <div className={styles.fallbackCover}>
+              <div className={styles.fallbackInitial}>
+                {book.title.trim().charAt(0).toUpperCase()}
+              </div>
+              <span className={styles.fallbackFormat}>{book.sourceFormat}</span>
             </div>
-            <span className={styles.fallbackFormat}>{book.sourceFormat}</span>
-          </div>
-        )}
+          }
+        />
 
         {selectionMode && (
           <span className={`${styles.selectionIndicator} ${selected ? styles.selectionIndicatorSelected : ''}`} aria-hidden="true">

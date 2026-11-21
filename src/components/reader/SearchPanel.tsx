@@ -10,6 +10,7 @@ import styles from './SearchPanel.module.css';
 
 interface SearchPanelProps {
   isOpen: boolean;
+  title?: string;
   onClose: () => void;
   chapters: Chapter[];
   searchProvider?: ReaderSearchProvider;
@@ -18,6 +19,7 @@ interface SearchPanelProps {
 
 export function SearchPanel({
   isOpen,
+  title = 'Search in Book',
   onClose,
   chapters,
   searchProvider,
@@ -118,11 +120,11 @@ export function SearchPanel({
       }}
       role="dialog"
       aria-modal="true"
-      aria-label="In-book Search"
+      aria-label={title}
     >
       <div className={styles.panel}>
         <div className={styles.header}>
-          <h2 className={styles.title}>Search in Book</h2>
+          <h2 className={styles.title}>{title}</h2>
           <button
             className={styles.closeButton}
             onClick={onClose}

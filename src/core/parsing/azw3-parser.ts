@@ -7,7 +7,9 @@
 
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
-import { sanitizeReaderHtml } from './sanitize-reader-html';
+import { sanitizeBookChapter } from './sanitize-reader-html';
+import { detectRasterMimeType, embeddedRasterUrl } from './embedded-raster';
+import { inlineKindleImages } from './kindle-images';
 import { decompressPalmDocLZ77 } from './mobi-parser';
 import { HuffReader } from './huffcdic';
 
@@ -32,58 +34,6 @@ interface PdbRecord {
   offset: number;
   attributes: number;
   uniqueId: number;
-}
-
-/**
- * Converts a Uint8Array into a Base64 string in chunks to prevent call-stack limits.
- */
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunkSize = 8192;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-  }
-  return btoa(binary);
-}
-
-/**
- * Determines image MIME type from binary magic bytes.
- */
-function detectImageMimeType(bytes: Uint8Array): string | null {
-  if (bytes.length < 4) return null;
-
-  // JPEG: FF D8 FF
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return 'image/jpeg';
-  }
-  // PNG: 89 50 4E 47
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
-    return 'image/png';
-  }
-  // GIF: 47 49 46 (GIF)
-  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
-    return 'image/gif';
-  }
-  // WebP: 52 49 46 46 (RIFF) ... 57 45 42 50 (WEBP)
-  if (
-    bytes.length >= 12 &&
-    bytes[0] === 0x52 &&
-    bytes[1] === 0x49 &&
-    bytes[2] === 0x46 &&
-    bytes[3] === 0x46 &&
-    bytes[8] === 0x57 &&
-    bytes[9] === 0x45 &&
-    bytes[10] === 0x42 &&
-    bytes[11] === 0x50
-  ) {
-    return 'image/webp';
-  }
-  // BMP: 42 4D (BM)
-  if (bytes[0] === 0x42 && bytes[1] === 0x4d) {
-    return 'image/bmp';
-  }
-
-  return null;
 }
 
 /**
@@ -636,9 +586,9 @@ export async function parseAzw3(
     if (kf8Rec0.length >= 16 + 96) {
       const candIdx = kf8View.getUint32(16 + 92, false);
       if (candIdx !== 0xffffffff) {
-        if (kf8RecordIndex + candIdx < numRecords && detectImageMimeType(getRecordData(kf8RecordIndex + candIdx) ?? new Uint8Array(0))) {
+        if (kf8RecordIndex + candIdx < numRecords && detectRasterMimeType(getRecordData(kf8RecordIndex + candIdx) ?? new Uint8Array(0))) {
           firstImageIndex = kf8RecordIndex + candIdx;
-        } else if (candIdx < numRecords && detectImageMimeType(getRecordData(candIdx) ?? new Uint8Array(0))) {
+        } else if (candIdx < numRecords && detectRasterMimeType(getRecordData(candIdx) ?? new Uint8Array(0))) {
           firstImageIndex = candIdx;
         } else {
           firstImageIndex = kf8RecordIndex > 0 ? kf8RecordIndex + candIdx : candIdx;
@@ -801,20 +751,15 @@ export async function parseAzw3(
     if (exth.coverOffset !== undefined) {
       coverRecordIdx = firstImageIndex + exth.coverOffset;
     } else if (exth.kf8CoverUri) {
-      const match = exth.kf8CoverUri.match(/(\d+)/);
+      const match = exth.kf8CoverUri.match(/kindle:embed:([0-9a-v]+)/i);
       if (match) {
-        const num = parseInt(match[1], 10);
+        const num = parseInt(match[1], 32);
         if (num > 0) coverRecordIdx = firstImageIndex + num - 1;
       }
     }
 
-    const coverRec = getRecordData(coverRecordIdx);
-    if (coverRec) {
-      const mime = detectImageMimeType(coverRec);
-      if (mime) {
-        coverImage = `data:${mime};base64,${uint8ArrayToBase64(coverRec)}`;
-      }
-    }
+    coverImage = embeddedRasterUrl(getRecordData(coverRecordIdx))
+      ?? embeddedRasterUrl(getRecordData(firstImageIndex));
   }
 
   // 9. Process and Split Chapters
@@ -827,6 +772,8 @@ export async function parseAzw3(
     .replace(/<mbp:pagebreak\s*\/?>/gi, '<!--azw3-pagebreak-->')
     .replace(/<guide[\s\S]*?<\/guide>/gi, '')
     .replace(/<idx:entry[\s\S]*?<\/idx:entry>/gi, '');
+
+  normalizedHtml = inlineKindleImages(normalizedHtml, firstImageIndex, getRecordData);
 
   if (autoDetectChapters) {
     let rawSections: string[] = [];
@@ -853,7 +800,7 @@ export async function parseAzw3(
       if (!sectionHtml) continue;
 
       const plainText = htmlToPlainText(sectionHtml);
-      if (plainText.length === 0 && !/<(?:p|div|h[1-6]|table|blockquote|section|article)/i.test(sectionHtml)) {
+      if (plainText.length === 0 && !/<(?:p|div|h[1-6]|table|blockquote|img|section|article)/i.test(sectionHtml)) {
         continue;
       }
 
@@ -862,7 +809,7 @@ export async function parseAzw3(
         : `Chapter ${order + 1}`;
 
       const title = extractTitleFromSectionHtml(sectionHtml, defaultTitle);
-      const cleanHtml = sanitizeReaderHtml(sectionHtml);
+      const cleanHtml = sanitizeBookChapter(sectionHtml, 'azw3');
 
       chapters.push({
         id: generateId(),
@@ -885,7 +832,7 @@ export async function parseAzw3(
         title: singleTitle,
         level: 0,
         order: 0,
-        content: sanitizeReaderHtml(normalizedHtml),
+        content: sanitizeBookChapter(normalizedHtml, 'azw3'),
       },
     ];
   }

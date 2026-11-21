@@ -6,6 +6,7 @@ async function createDocxZip(params: {
   bodyXml?: string;
   coreXml?: string;
   images?: Record<string, Uint8Array>;
+  documentRelationships?: string;
 }): Promise<ArrayBuffer> {
   const zip = new JSZip();
 
@@ -34,6 +35,7 @@ async function createDocxZip(params: {
   zip.file('[Content_Types].xml', contentTypes);
   zip.file('_rels/.rels', rels);
   zip.file('word/document.xml', documentXml);
+  if (params.documentRelationships) zip.file('word/_rels/document.xml.rels', params.documentRelationships);
 
   if (params.coreXml) {
     zip.file('docProps/core.xml', params.coreXml);
@@ -141,6 +143,29 @@ describe('DOCX Parser', () => {
     expect(result.chapters).toHaveLength(1);
     expect(result.chapters[0].content).toContain('Section A');
     expect(result.chapters[0].content).toContain('Section B');
+  });
+
+  it('preserves inline drawings and lower-level headings', async () => {
+    const drawing = `<w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+      <wp:docPr id="1" name="Drawing" descr="Inline diagram"/>
+      <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData>
+        <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:blipFill>
+          <a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rIdImage"/>
+        </pic:blipFill></pic:pic>
+      </a:graphicData></a:graphic>
+    </wp:inline></w:drawing>`;
+    const bytes = await createDocxZip({
+      bodyXml: `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Main</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="Heading3"/></w:pPr><w:r><w:t>Diagram</w:t></w:r></w:p>
+        <w:p><w:r>${drawing}</w:r></w:p>`,
+      documentRelationships: `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/diagram.png"/>
+      </Relationships>`,
+      images: { 'diagram.png': Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/AwMDEwMDAAMYAAQMAA4d/nOIAAAAASUVORK5CYII=', 'base64') },
+    });
+    const result = await parseDocx(bytes);
+    expect(result.chapters.map(({ title, level }) => [title, level])).toEqual([['Main', 0], ['Diagram', 2]]);
+    expect(result.chapters[1].content).toContain('data:image/png;base64,');
   });
 
   it('extracts embedded cover images from word/media', async () => {

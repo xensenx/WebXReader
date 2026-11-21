@@ -73,10 +73,10 @@ describe('ScrollReader Canvas Zoom & Layout Modes', () => {
     const chapters = [{ ...dummyChapters[0], content: '<img src="data:image/png;base64,AAAA" alt="Archive image">' }];
     const onProgressUpdate = vi.fn();
     const { getByAltText, rerender } = render(
-      <ScrollReader isMht chapters={chapters} settings={dummySettings} onProgressUpdate={onProgressUpdate} />
+      <ScrollReader format="mht" chapters={chapters} settings={dummySettings} onProgressUpdate={onProgressUpdate} />
     );
     const image = getByAltText('Archive image');
-    rerender(<ScrollReader isMht chapters={chapters} settings={dummySettings} onProgressUpdate={onProgressUpdate} zoom={0.6} />);
+    rerender(<ScrollReader format="mht" chapters={chapters} settings={dummySettings} onProgressUpdate={onProgressUpdate} zoom={0.6} />);
     expect(getByAltText('Archive image')).toBe(image);
   });
 
@@ -108,7 +108,7 @@ it('retains the saved paginated position through MHT image remeasurements', () =
   try {
     const onProgressUpdate = vi.fn();
     const { container, getByAltText } = render(
-      <PaginatedReader isMht
+      <PaginatedReader format="mht"
         chapters={[{ id: 'saved', title: 'Saved', order: 0, level: 0,
           content: '<img src="data:image/png;base64,AAAA" alt="Loaded"><img src="data:image/png;base64,BBBB" alt="Failed">' }]}
         settings={{ fontFamily: 'serif', fontSize: 18, lineHeight: 1.7, paragraphSpacing: 1,

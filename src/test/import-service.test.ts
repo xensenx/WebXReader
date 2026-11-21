@@ -5,7 +5,7 @@ import JSZip from 'jszip';
 import CFB from 'cfb';
 import { SAMPLE_JPEG, createSyntheticRar, createSyntheticCb7 } from './comic-test-helpers';
 import { importFile } from '../features/import/import-service';
-import { getDefaultBookCover } from '../assets/covers/default-book-cover';
+import { getBookCoverSources } from '../assets/covers/default-book-cover';
 import { clearDatabase, listBooks, getBookContent, getCover } from '../core/storage/database';
 
 describe('Import Service', () => {
@@ -204,16 +204,16 @@ describe('Import Service', () => {
     if (!result.success) expect(result.error).toMatch(/may require JavaScript/i);
   });
 
-  it('persists the Markdown default cover', async () => {
+  it('resolves the Markdown cover without storing the fallback', async () => {
     const mdContent = `# Chapter 1\nSome test story markdown`;
     const file = new File([mdContent], 'book_with_cover.md', { type: 'text/markdown' });
 
     const result = await importFile(file);
     expect(result.success).toBe(true);
     if (result.success) {
-      const expected = getDefaultBookCover('markdown');
-      expect(result.book.coverImage).toBe(expected);
-      expect((await getCover(result.book.id))?.data).toBe(expected);
+      expect(getBookCoverSources(result.book)).toEqual(['/covers/md-default-cover.svg']);
+      expect(result.book.coverImage).toBeUndefined();
+      expect(await getCover(result.book.id)).toBeUndefined();
     }
   });
 
@@ -519,7 +519,7 @@ Content-Location: http://example.com/foundation.html
     if (result.success) {
       expect(result.book.sourceFormat).toBe('png');
       expect(result.book.title).toBe('landscape');
-      expect(result.book.coverImage).toBeDefined();
+      expect(getBookCoverSources(result.book)[0]).toMatch(/^data:image\/png;base64,/);
     }
 
     const books = await listBooks();
@@ -539,7 +539,7 @@ Content-Location: http://example.com/foundation.html
     if (result.success) {
       expect(result.book.sourceFormat).toBe('jpeg');
       expect(result.book.title).toBe('portrait');
-      expect(result.book.coverImage).toBeDefined();
+      expect(getBookCoverSources(result.book)[0]).toMatch(/^data:image\/jpeg;base64,/);
     }
 
     const books = await listBooks();

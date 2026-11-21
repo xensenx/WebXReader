@@ -349,53 +349,39 @@ export function uint8ArrayToBase64(bytes: Uint8Array): string {
  * Generates an efficient thumbnail data URL for the library view.
  * For images <= 1.5 MB or outside browsers, encodes directly.
  */
-export async function createThumbnailDataUrl(
+async function createThumbnailDataUrl(
   bytes: Uint8Array,
   mimeType: string,
-  maxWidth = 400,
-  maxHeight = 600
-): Promise<string> {
-  if (
-    typeof window === 'undefined' ||
-    typeof document === 'undefined' ||
-    bytes.byteLength <= 1.5 * 1024 * 1024
-  ) {
+  { width, height }: Pick<ImageMetadata, 'width' | 'height'>,
+): Promise<string | undefined> {
+  if (bytes.length <= 1.5 * 1024 * 1024 || typeof createImageBitmap !== 'function' || typeof document === 'undefined') {
     return `data:${mimeType};base64,${uint8ArrayToBase64(bytes)}`;
   }
 
+  const scale = Math.min(1, 400 / width, 600 / height);
+  const resizeWidth = Math.max(1, Math.round(width * scale));
+  const resizeHeight = Math.max(1, Math.round(height * scale));
+  let bitmap: ImageBitmap;
   try {
-    const copy = new Uint8Array(bytes.byteLength);
-    copy.set(bytes);
-    const blob = new Blob([copy.buffer], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    return await new Promise<string>((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        const { width, height } = img;
-        const scale = Math.min(1, maxWidth / width, maxHeight / height);
-        const targetW = Math.max(1, Math.round(width * scale));
-        const targetH = Math.max(1, Math.round(height * scale));
-
-        const canvas = document.createElement('canvas');
-        canvas.width = targetW;
-        canvas.height = targetH;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(`data:${mimeType};base64,${uint8ArrayToBase64(bytes)}`);
-          return;
-        }
-        ctx.drawImage(img, 0, 0, targetW, targetH);
-        resolve(canvas.toDataURL(mimeType === 'image/png' ? 'image/png' : 'image/jpeg', 0.85));
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        resolve(`data:${mimeType};base64,${uint8ArrayToBase64(bytes)}`);
-      };
-      img.src = url;
-    });
+    const blob = new Blob([Uint8Array.from(bytes)], { type: mimeType });
+    bitmap = await createImageBitmap(blob, { resizeWidth, resizeHeight, resizeQuality: 'high' });
   } catch {
-    return `data:${mimeType};base64,${uint8ArrayToBase64(bytes)}`;
+    // Keep the original import usable when the thumbnail decoder cannot read it.
+    return undefined;
+  }
+
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) return undefined;
+    context.drawImage(bitmap, 0, 0);
+    return canvas.toDataURL(mimeType, 0.85);
+  } catch {
+    return undefined;
+  } finally {
+    bitmap.close();
   }
 }
 
@@ -418,7 +404,7 @@ export async function parseImage(
     detectedFormat === 'png' ? parsePngHeader(bytes) : parseJpegHeader(bytes);
 
   const mimeType = detectedFormat === 'png' ? 'image/png' : 'image/jpeg';
-  const coverImage = await createThumbnailDataUrl(bytes, mimeType);
+  const coverImage = await createThumbnailDataUrl(bytes, mimeType, imageDetails);
 
   const filename = options.filename || `Image.${detectedFormat === 'png' ? 'png' : 'jpg'}`;
   const baseTitle = filename.replace(/\.(png|jpe?g)$/i, '').replace(/[_\-.]+/g, ' ').trim() || 'Untitled';

@@ -14,6 +14,8 @@ import {
   getBookContent,
   saveBookContent,
   saveBookBundle,
+  saveRecoveredEpubCover,
+  getCover,
   saveBookmark,
   listBookmarks,
   deleteBookmark,
@@ -188,6 +190,20 @@ describe('IndexedDB Storage Operations', () => {
     const settings = await getSettings();
     await saveSettings({ ...DEFAULT_SETTINGS, ...settings, theme });
     expect((await getSettings())?.theme).toBe(theme);
+  });
+
+  it('recovers an old EPUB cover without overwriting existing cover choices', async () => {
+    const recoverable = { ...dummyBook, sourceFormat: 'epub' as const };
+    const custom = { ...recoverable, id: 'custom', coverImage: 'blob:custom' };
+    const removed = { ...recoverable, id: 'removed', originalCoverImage: 'blob:original' };
+    await Promise.all([addBook(recoverable), addBook(custom), addBook(removed)]);
+
+    await Promise.all([recoverable, custom, removed].map(({ id }) => saveRecoveredEpubCover(id, 'blob:recovered')));
+
+    expect((await getBook(recoverable.id))?.coverImage).toBe('blob:recovered');
+    expect((await getCover(recoverable.id))?.data).toBe('blob:recovered');
+    expect((await getBook(custom.id))?.coverImage).toBe('blob:custom');
+    expect((await getBook(removed.id))?.coverImage).toBeUndefined();
   });
 
   it('exports and restores complete library backup', async () => {

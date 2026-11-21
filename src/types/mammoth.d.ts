@@ -26,6 +26,10 @@ declare module 'mammoth' {
     includeDefaultStyleMap?: boolean;
   }
 
+  export const images: {
+    imgElement(convert: (image: { readAsArrayBuffer(): Promise<ArrayBuffer> }) => Promise<{ src: string }>): unknown;
+  };
+
   export function convertToHtml(input: ConvertOptions, options?: unknown): Promise<ConversionResult>;
   export function extractRawText(input: ConvertOptions): Promise<RawTextResult>;
 }

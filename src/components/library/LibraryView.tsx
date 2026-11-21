@@ -47,7 +47,7 @@ import { EmptyState } from '../common/EmptyState';
 import { Button } from '../common/Button';
 import { MainPageHeader } from '../common/MainPageHeader';
 
-import { getBookCoverUrl } from '../../assets/covers/default-book-cover';
+import { BookCoverImage } from './BookCoverImage';
 import styles from './LibraryView.module.css';
 
 interface BookPointerDrag {
@@ -952,17 +952,16 @@ export function LibraryView() {
             aria-label={`Continue reading ${continueBook.title}`}
           >
             <div className={styles.continueLeft}>
-              {getBookCoverUrl(continueBook) ? (
-                <img
-                  src={getBookCoverUrl(continueBook)}
-                  alt=""
-                  className={styles.continueCover}
-                />
-              ) : (
-                <div className={styles.continueFallbackCover}>
-                  {continueBook.title.trim().charAt(0).toUpperCase()}
-                </div>
-              )}
+              <BookCoverImage
+                book={continueBook}
+                alt=""
+                className={styles.continueCover}
+                placeholder={
+                  <div className={styles.continueFallbackCover}>
+                    {continueBook.title.trim().charAt(0).toUpperCase()}
+                  </div>
+                }
+              />
               <div className={styles.continueInfo}>
                 <span className={styles.continueTag}>Continue Reading</span>
                 <h3 className={styles.continueTitle}>{continueBook.title}</h3>
@@ -1179,14 +1178,16 @@ export function LibraryView() {
           }}
           aria-hidden="true"
         >
-          {getBookCoverUrl(dragPreview.book) ? (
-            <img src={getBookCoverUrl(dragPreview.book)} alt="" className={styles.bookDragPreviewImage} draggable={false} />
-          ) : (
-            <div className={styles.bookDragPreviewFallback}>
-              <span>{dragPreview.book.title.trim().charAt(0).toUpperCase()}</span>
-              {dragPreview.width > 72 && <small>{dragPreview.book.sourceFormat.toUpperCase()}</small>}
-            </div>
-          )}
+          <BookCoverImage
+            book={dragPreview.book}
+            alt="" className={styles.bookDragPreviewImage} draggable={false}
+            placeholder={
+              <div className={styles.bookDragPreviewFallback}>
+                <span>{dragPreview.book.title.trim().charAt(0).toUpperCase()}</span>
+                {dragPreview.width > 72 && <small>{dragPreview.book.sourceFormat.toUpperCase()}</small>}
+              </div>
+            }
+          />
         </div>
       )}
 

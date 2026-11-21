@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Book, ReadingStatus } from '../types/book';
 import { listBooks, listProgress, deleteBook, deleteBooks, updateBook, getCover } from '../core/storage/database';
-import { getBookCoverUrl } from '../assets/covers/default-book-cover';
+import { getStoredBookCover } from '../assets/covers/default-book-cover';
 
 export type LibraryBook = Book & {
   /** Derived from the progress store; never used as the persisted book value. */
@@ -49,19 +49,16 @@ export function useBooks(): UseBooksResult {
           const readingProgress = book.readingStatus === 'completed'
             ? 1
             : progressByBook.get(book.id) ?? 0;
-          const withProgress = { ...book, readingProgress };
-          if (book.coverImage && (book.coverImage.startsWith('data:') || book.coverImage.startsWith('blob:'))) {
-            return withProgress;
-          }
+          const withProgress = { ...book, readingProgress, coverImage: getStoredBookCover(book.coverImage) };
+          if (withProgress.coverImage) return withProgress;
           try {
             const coverRec = await getCover(book.id);
-            if (coverRec?.data) {
-              return { ...withProgress, coverImage: coverRec.data };
-            }
+            const coverImage = getStoredBookCover(coverRec?.data);
+            if (coverImage) return { ...withProgress, coverImage };
           } catch {
             // ignore
           }
-          return { ...withProgress, coverImage: getBookCoverUrl(book) };
+          return withProgress;
         })
       );
       cachedBooks = booksWithCovers;
