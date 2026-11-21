@@ -48,6 +48,7 @@ export interface PdfZoomAnchor {
 export interface PdfReaderProps {
   fileData: ArrayBuffer;
   initialPage?: number;
+  bookmarkFraction?: number;
   readingMode?: ReadingMode;
   onProgressUpdate: (chapterId: string, progressFraction: number, pageIndex: number) => void;
   onToggleControls?: () => void;
@@ -92,6 +93,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   {
     fileData,
     initialPage = 1,
+    bookmarkFraction = 0,
     readingMode = 'scroll',
     onProgressUpdate,
     onToggleControls,
@@ -123,6 +125,7 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
   const previewTransformRef = useRef<PdfZoomPreviewTransform | null>(null);
   const lastZoomAnchorRef = useRef<PdfZoomAnchor | undefined>(undefined);
   const initialPageRef = useRef(initialPage);
+  const bookmarkFractionRef = useRef(Math.min(1, Math.max(0, bookmarkFraction)));
   const onProgressUpdateRef = useRef(onProgressUpdate);
   const scrollFrameRef = useRef<number | null>(null);
   const previousReaderZoomRef = useRef(readerZoom);
@@ -387,7 +390,9 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
         if (!active) return;
         setPdfDoc(doc);
         setTotalPages(doc.numPages);
-        const start = Math.max(1, Math.min(initialPageRef.current, doc.numPages));
+        const start = bookmarkFractionRef.current > 0
+          ? Math.round(bookmarkFractionRef.current * (doc.numPages - 1)) + 1
+          : Math.max(1, Math.min(initialPageRef.current, doc.numPages));
         setCurrentPage(start);
         setLoading(false);
       })
@@ -403,25 +408,6 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
       void loadingTask.destroy();
     };
   }, [fileData]);
-
-  // Restore initial page when layout becomes ready
-  useEffect(() => {
-    if (!pdfDoc || !pageLayoutReady || isDoubleSided) return;
-    let attempts = 0;
-    let frame = 0;
-    const seek = () => {
-      attempts += 1;
-      const page = Math.max(1, Math.min(initialPageRef.current, totalPages));
-      const target = pageStackRef.current?.querySelector<HTMLElement>(`[data-pdf-page="${page}"]`);
-      if (target || attempts >= 12) {
-        scrollToPage(page, 'auto');
-        return;
-      }
-      frame = requestAnimationFrame(seek);
-    };
-    frame = requestAnimationFrame(seek);
-    return () => cancelAnimationFrame(frame);
-  }, [pdfDoc, pageLayoutReady, scrollToPage, totalPages, isDoubleSided]);
 
   // Pages resolve their size lazily. Book mode needs only the first page
   // for spread geometry; continuous modes need stable dimensions to seek.
@@ -594,6 +580,39 @@ export const PdfReader = forwardRef<PdfReaderHandle, PdfReaderProps>(function Pd
     setCurrentPage(visiblePage);
     onProgressUpdateRef.current(String(visiblePage), fraction, visiblePage - 1);
   }, [isHorizontal, isPaginated, totalPages]);
+
+  // Restore initial page when layout becomes ready
+  useEffect(() => {
+    if (!pdfDoc || !pageLayoutReady || isDoubleSided) return;
+    const fraction = bookmarkFractionRef.current;
+    if (fraction > 0) {
+      const frame = requestAnimationFrame(() => {
+        const viewport = viewportRef.current;
+        if (!viewport || isPaginated) return;
+        if (isHorizontal) {
+          viewport.scrollLeft = fraction * Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+        } else {
+          viewport.scrollTop = fraction * Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+        }
+        reportScrollPosition();
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+    let attempts = 0;
+    let frame = 0;
+    const seek = () => {
+      attempts += 1;
+      const page = Math.max(1, Math.min(initialPageRef.current, totalPages));
+      const target = pageStackRef.current?.querySelector<HTMLElement>(`[data-pdf-page="${page}"]`);
+      if (target || attempts >= 12) {
+        scrollToPage(page, 'auto');
+        return;
+      }
+      frame = requestAnimationFrame(seek);
+    };
+    frame = requestAnimationFrame(seek);
+    return () => cancelAnimationFrame(frame);
+  }, [pdfDoc, pageLayoutReady, scrollToPage, totalPages, isDoubleSided, isHorizontal, isPaginated, reportScrollPosition]);
 
   const handleScroll = useCallback(() => {
     if (previewTransformRef.current !== null) return;

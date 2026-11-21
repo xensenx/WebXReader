@@ -189,11 +189,8 @@ export const PaginatedReader = memo(forwardRef<PaginatedReaderHandle, PaginatedR
     navigationTargetRef.current = undefined;
     viewport.style.setProperty('--reader-last-page-end', `${(actualPages - 1) * spreadStep + viewport.clientWidth}px`);
     viewport.scrollLeft = clampedPage * spreadStep;
-    // An image can add columns after the first measurement. Keep the saved
-    // target while it is out of range and the layout may still grow.
-    const savedPagePending = initialProgressMode === (isBook ? 'vertical' : 'paginated') && initialPageIndex >= actualPages;
+    // Even an in-range saved fraction can map to a different page after images load.
     if (allowsEmbeddedReaderImages(format) && !initialLayoutAppliedRef.current &&
-        (targetPage >= actualPages || savedPagePending || (actualPages === 1 && initialProgressFraction > 0)) &&
         Array.from(track.querySelectorAll<HTMLImageElement>('img[src]')).some((image) => !image.complete)) {
       return;
     }

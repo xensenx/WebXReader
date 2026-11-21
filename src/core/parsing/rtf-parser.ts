@@ -319,19 +319,26 @@ export function parseRtf(rtfContent: string, options: RtfParseOptions = {}): Rtf
         continue;
       }
 
-      // Decode a continuous run together for multibyte legacy code pages.
+      // Printable ASCII can be a raw trail byte after a hex escape.
+      // Decode the text run together without crossing RTF control or group boundaries.
       if (nextChar === "'") {
         const bytes: number[] = [];
-        while (rtfContent[i] === "'") {
-          const hex = rtfContent.slice(i + 1, i + 3);
-          if (!/^[0-9a-f]{2}$/i.test(hex)) {
+        i--;
+        while (i < len) {
+          if (rtfContent.startsWith("\\'", i)) {
+            const hex = rtfContent.slice(i + 2, i + 4);
+            if (!/^[0-9a-f]{2}$/i.test(hex)) {
+              i += 2;
+              break;
+            }
+            bytes.push(Number.parseInt(hex, 16));
+            i += 4;
+          } else {
+            const code = rtfContent.charCodeAt(i);
+            if (code < 0x20 || code > 0x7e || /[\\{}]/.test(rtfContent[i])) break;
+            bytes.push(code);
             i++;
-            break;
           }
-          bytes.push(Number.parseInt(hex, 16));
-          i += 3;
-          if (!rtfContent.startsWith("\\'", i)) break;
-          i++;
         }
         appendText(byteDecoder.decode(Uint8Array.from(bytes)));
         continue;

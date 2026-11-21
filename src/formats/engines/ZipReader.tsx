@@ -91,6 +91,7 @@ export interface ArchiveReaderHandle {
 interface EntryLocation {
   page: number;
   fraction: number;
+  bookmarkFraction?: number;
   mode?: string;
 }
 
@@ -477,7 +478,7 @@ export const ArchiveReader = memo(function ArchiveReader({
         setCurrentFolder(entry.path);
         return;
       }
-      void openSubEntry(entry, undefined, { page: 1, fraction });
+      void openSubEntry(entry, undefined, { page: 1, fraction, bookmarkFraction: fraction });
     },
     goToProgress(fraction) {
       const clamped = Math.max(0, Math.min(1, fraction));
@@ -629,6 +630,7 @@ export const ArchiveReader = memo(function ArchiveReader({
               ref={registerSubReader}
               fileData={fileBuffer}
               initialPage={location.page}
+              bookmarkFraction={location.bookmarkFraction}
               readingMode={readingMode === 'scroll' ? 'scroll' : 'paginated'}
               onProgressUpdate={(_ch, fraction, page) => onProgressUpdate?.(entry.path, fraction, page)}
               onToggleControls={onToggleControls}
@@ -664,6 +666,7 @@ export const ArchiveReader = memo(function ArchiveReader({
               fileData={fileBuffer}
               format={entry.kind}
               initialPage={location.page}
+              bookmarkFraction={location.bookmarkFraction}
               readingMode={readingMode}
               onProgressUpdate={(_ch, fraction, page) => onProgressUpdate?.(entry.path, fraction, page)}
               onToggleControls={onToggleControls}

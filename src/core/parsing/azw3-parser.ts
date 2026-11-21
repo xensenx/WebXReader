@@ -773,7 +773,28 @@ export async function parseAzw3(
     .replace(/<guide[\s\S]*?<\/guide>/gi, '')
     .replace(/<idx:entry[\s\S]*?<\/idx:entry>/gi, '');
 
-  normalizedHtml = inlineKindleImages(normalizedHtml, firstImageIndex, getRecordData);
+  // Joint books number MOBI 7 resources before KF8 resources. Keep non-image
+  // slots in the range so later embed references retain their original index.
+  const precedingRecord = kf8RecordIndex > 0 ? getRecordData(kf8RecordIndex - 1) : null;
+  const legacyEnd = precedingRecord && isBoundaryRecord(precedingRecord) ? kf8RecordIndex - 1 : kf8RecordIndex;
+  const legacyHeader = legacyEnd > 0 && isMobiHeader(record0) && record0.length >= 16 + 96
+    ? new DataView(record0.buffer, record0.byteOffset, record0.byteLength)
+    : null;
+  const legacyImageIndex = legacyHeader?.getUint32(16 + 92, false) ?? 0;
+  const legacyStart = legacyHeader && legacyImageIndex === 0xffffffff ? legacyHeader.getUint16(8, false) + 1 : legacyImageIndex;
+  if (legacyStart > 0 && legacyStart < legacyEnd) {
+    const legacyCount = legacyEnd - legacyStart;
+    const kf8ImageIndex = isKf8Mobi && kf8Rec0.length >= 16 + 96 ? kf8View.getUint32(16 + 92, false) : 0;
+    const kf8Start = firstImageIndex > kf8RecordIndex ? firstImageIndex
+      : kf8ImageIndex === 0xffffffff ? kf8RecordIndex + 1 + textRecordCount
+      : kf8RecordIndex + kf8ImageIndex;
+    normalizedHtml = inlineKindleImages(normalizedHtml, 0, (index) => {
+      if (index < legacyCount) return getRecordData(legacyStart + index);
+      return kf8Start > kf8RecordIndex ? getRecordData(kf8Start + index - legacyCount) : null;
+    });
+  } else {
+    normalizedHtml = inlineKindleImages(normalizedHtml, firstImageIndex, getRecordData);
+  }
 
   if (autoDetectChapters) {
     let rawSections: string[] = [];

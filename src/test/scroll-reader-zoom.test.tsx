@@ -100,7 +100,7 @@ describe('ScrollReader Canvas Zoom & Layout Modes', () => {
 
 it('retains the saved paginated position through MHT image remeasurements', () => {
   const width = 400;
-  let trackWidth = width;
+  let trackWidth = 3 * width;
   vi.useFakeTimers();
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width);
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
@@ -118,12 +118,17 @@ it('retains the saved paginated position through MHT image remeasurements', () =
       />,
     );
     expect(onProgressUpdate).not.toHaveBeenCalled();
-    fireEvent.error(getByAltText('Failed'));
+    trackWidth = 4 * width;
+    const failed = getByAltText('Failed');
+    Object.defineProperty(failed, 'complete', { value: true });
+    fireEvent.error(failed);
     act(() => vi.advanceTimersToNextFrame());
     expect(onProgressUpdate).not.toHaveBeenCalled();
 
     trackWidth = 5 * width;
-    fireEvent.load(getByAltText('Loaded'));
+    const loaded = getByAltText('Loaded');
+    Object.defineProperty(loaded, 'complete', { value: true });
+    fireEvent.load(loaded);
     act(() => vi.advanceTimersToNextFrame());
     expect(container.querySelector('[data-reader-viewport]')?.scrollLeft).toBe(2 * width);
     expect(onProgressUpdate.mock.calls).toEqual([['saved', 0.5, 2]]);

@@ -176,6 +176,8 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
   const viewportRef = useRef<HTMLDivElement>(null);
   const pageStackRef = useRef<HTMLDivElement>(null);
   const isNavigatingRef = useRef(false);
+  const navigationFrameRef = useRef(0);
+  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scrollFrameRef = useRef<number | null>(null);
   const initialPageRef = useRef(initialPage);
   const initialProgressRef = useRef({ fraction: initialProgressFraction, mode: initialProgressMode });
@@ -401,6 +403,27 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
     return () => cancelAnimationFrame(frame);
   }, [currentPage, readingMode]);
 
+  const cancelScrollJump = useCallback(() => {
+    cancelAnimationFrame(navigationFrameRef.current);
+    clearTimeout(navigationTimerRef.current);
+    isNavigatingRef.current = false;
+  }, []);
+  useEffect(() => cancelScrollJump, [cancelScrollJump, readingMode, session]);
+
+  const jumpInScrollMode = useCallback((jump: () => void, behavior: ScrollBehavior) => {
+    cancelScrollJump();
+    isNavigatingRef.current = true;
+    navigationFrameRef.current = requestAnimationFrame(() => {
+      jump();
+      const finish = () => {
+        isNavigatingRef.current = false;
+        reportScrollPosition();
+      };
+      if (behavior === 'smooth') navigationTimerRef.current = setTimeout(finish, 400);
+      else finish();
+    });
+  }, [cancelScrollJump, reportScrollPosition]);
+
   const goToPage = useCallback((pageNum: number, behavior: ScrollBehavior = 'smooth') => {
     const clamped = Math.max(1, Math.min(pageNum, totalPages));
     setCurrentPage(clamped);
@@ -408,38 +431,27 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
       const progressFraction = (clamped - 1) / Math.max(1, totalPages - 1);
       onProgressUpdateRef.current(String(clamped), progressFraction, clamped - 1);
     } else {
-      isNavigatingRef.current = true;
-      requestAnimationFrame(() => scrollToPage(clamped, behavior));
-      const progressFraction = (clamped - 1) / Math.max(1, totalPages - 1);
-      onProgressUpdateRef.current(String(clamped), progressFraction, clamped - 1);
-      setTimeout(() => {
-        isNavigatingRef.current = false;
-      }, 400);
+      jumpInScrollMode(() => scrollToPage(clamped, behavior), behavior);
     }
-  }, [readingMode, scrollToPage, totalPages]);
+  }, [jumpInScrollMode, readingMode, scrollToPage, totalPages]);
 
   const goToProgress = useCallback((fraction: number) => {
-    const viewport = viewportRef.current;
     const clamped = Math.min(1, Math.max(0, fraction));
     const targetPage = totalPages > 1 ? Math.round(clamped * (totalPages - 1)) + 1 : 1;
-    setCurrentPage(targetPage);
 
     if (readingMode === 'paginated') {
-      onProgressUpdateRef.current(String(targetPage), clamped, targetPage - 1);
-    } else if (viewport) {
-      isNavigatingRef.current = true;
-      viewport.scrollTo({
-        top: clamped * Math.max(0, viewport.scrollHeight - viewport.clientHeight),
-        behavior: 'smooth',
-      });
-      onProgressUpdateRef.current(String(targetPage), clamped, targetPage - 1);
-      setTimeout(() => {
-        isNavigatingRef.current = false;
-      }, 400);
+      goToPage(targetPage);
     } else {
-      requestAnimationFrame(() => scrollToPage(targetPage, 'smooth'));
+      jumpInScrollMode(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        viewport.scrollTo({
+          top: clamped * Math.max(0, viewport.scrollHeight - viewport.clientHeight),
+          behavior: 'smooth',
+        });
+      }, 'smooth');
     }
-  }, [readingMode, scrollToPage, totalPages]);
+  }, [goToPage, jumpInScrollMode, readingMode, totalPages]);
 
   // Imperative handle
   useImperativeHandle(

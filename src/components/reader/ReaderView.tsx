@@ -562,7 +562,7 @@ export function ReaderView() {
     const currentProgress = getCurrentProgress() ?? progress;
     const currentFraction = currentProgress?.overallProgress ?? 0;
     const currentChapter = findChapter(book.tableOfContents, activeChapterId);
-    const bookmarkChapterId = isFixedLayout(book.sourceFormat)
+    const bookmarkChapterId = book.sourceFormat !== 'zip' && book.sourceFormat !== 'rar' && isFixedLayout(book.sourceFormat)
       ? String((currentProgress?.pageIndex ?? 0) + 1)
       : activeChapterId;
     const label = currentChapter
@@ -855,7 +855,7 @@ export function ReaderView() {
               initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
               initialProgressFraction={restoreLocation?.overallProgress}
               initialProgressMode={restoreLocation?.readingMode}
-              readingMode={readerSettings.readingMode === 'scroll' ? 'scroll' : 'paginated'}
+              readingMode={effectiveReadingMode === 'scroll' ? 'scroll' : 'paginated'}
               onProgressUpdate={handlePaginatedProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
