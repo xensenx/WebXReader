@@ -1,71 +1,115 @@
-Visual Identity License (VIL) Version 1.0
+                     VISUAL IDENTITY LICENSE (VIL)
+                              Version 1.1
 
-Copyright (c) 2026 Sen
+                 Copyright (c) 2026 Sen.
+                      All rights reserved.
 
-1. Definitions
 
-"Assets" shall mean all visual, branding, and design materials distributed
-under this License. This includes, but is not limited to, logos, logotypes,
-icons, color palettes, visual identity systems, marketing graphics, banners,
-illustrations, embedded scalable vector graphics (SVGs), and specific user
-interface (UI) design materials.
+1. SCOPE AND DEFINITIONS
 
-2. Grant of License (Permitted Use)
+  This License governs the original visual identity and branding
+materials expressly designated as VIL-protected (the "Assets"),
+including project names, logos, logotypes, banners, favicons,
+branded illustrations, interface graphics, and embedded SVG
+watermarks.
 
-Subject to the terms and conditions of this License, the Owner hereby grants
-you a worldwide, non-exclusive, royalty-free license to reproduce and display
-the Assets solely for informational, educational, editorial, and community
-documentation purposes.
+  The Assets are licensed separately from the underlying software.
 
-Permitted uses include viewing, referencing, and linking to the Assets in the
-context of discussing, reviewing, teaching, documenting, or referencing the
-original project.
+  Generic UI elements, functional icons, and third-party materials,
+including externally sourced SVGs, are not automatically covered
+by this License. Such materials retain their original licensing
+terms unless separately owned and expressly designated by the
+copyright holder.
 
-3. Restrictions
 
-Except as expressly permitted in Section 2, you shall not:
+2. PERMITTED USES
 
-Modify, alter, adapt, or create derivative works of the Assets for
-redistribution.
+  The Owner grants a worldwide, non-exclusive, royalty-free license
+to reproduce, display, and share the Assets for personal and
+non-commercial use of the official software; reviews, tutorials,
+educational materials, documentation, and commentary; screenshots,
+recordings, livestreams, and community discussions; and
+informational references, attribution, and legitimate promotion
+of the original project.
 
-Redistribute or use the Assets as your own branding or visual identity.
+  These permissions include incidental display in monetized
+editorial or educational content, provided the Assets are not
+independently commercialized as products or branding.
 
-Sell, sublicense, rent, lease, or otherwise commercialize the Assets.
+  No separate permission is required for the uses listed above.
 
-Use the Assets in any manner that falsely implies official affiliation,
-endorsement, sponsorship, partnership, or ownership without prior explicit
-written consent from the Owner.
 
-4. Interaction with Software Licenses (Forks and Derivative Projects)
+3. RESTRICTIONS
 
-This License governs the visual identity of a project independently from its
-underlying software codebase.
+  Unless expressly authorized in writing by the Owner, you may not
+use the Assets as the branding or identity of independently
+distributed software, services, or products; sell, sublicense,
+or commercially redistribute the Assets as standalone products,
+templates, merchandise, or branding resources; modify or
+redistribute protected Assets for use as unauthorized branding;
+or use the Assets to falsely imply official affiliation,
+endorsement, sponsorship, or ownership.
 
-If the Assets are bundled, distributed, embedded, or contained within software
-source code licensed under a separate open-source or source-available license
-(including but not limited to MIT, Apache, GPL, or similar licenses), those
-software licenses do not apply to the Assets.
+  These restrictions do not prohibit truthful references to the
+original project or uses otherwise permitted by applicable law.
 
-Any forks, redistributions, or derivative software projects must remove and
-replace all protected Assets prior to public distribution, deployment, or
-commercial release unless prior written permission is granted by the Owner.
 
-5. Reservation of Rights
+4. SOFTWARE LICENSES AND FORKS
 
-All rights, title, and interest in and to the Assets, including all associated
-copyrights, trademarks, and other intellectual property rights, remain the sole
-and exclusive property of the Owner.
+  This License applies only to designated Assets and does not
+restrict rights granted under separate software licenses,
+including the GNU Affero General Public License (AGPL).
 
-This License does not grant trademark rights, implied licenses, ownership
-claims, or exclusive rights to any user.
+  The underlying software may be freely used, modified, and
+redistributed according to its applicable license.
 
-6. Disclaimer of Warranty and Limitation of Liability
+  However, independently distributed forks, modifications, or
+repackaged versions must remove or replace VIL-protected Assets
+for which they have no independent redistribution rights, unless
+written authorization is obtained from the Owner.
 
-THE ASSETS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+  Protected Assets may appear in application headers, favicons,
+banners, default file covers, SVG watermarks, splash screens,
+and repository graphics.
 
-IN NO EVENT SHALL THE OWNER OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR
-OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE ASSETS OR THE USE
-OR OTHER DEALINGS IN THE ASSETS.
+  Removing branding does not remove any copyright, attribution,
+source-disclosure, or other obligations imposed by the applicable
+software license.
+
+  Where an Asset is also available under another valid license
+grant, this License does not revoke rights granted under that
+license.
+
+
+5. OWNERSHIP AND TERMINATION
+
+  All rights not expressly granted remain reserved by the Owner.
+
+  This License does not transfer copyright ownership or grant
+trademark rights to represent an unauthorized distribution
+as official.
+
+  Permissions under this License terminate upon material violation
+of its terms. They are reinstated if the violation is cured within
+30 days of discovery, unless the Owner has expressly terminated
+the permission in writing before the cure.
+
+  Termination does not affect rights independently granted under
+other applicable licenses.
+
+  Nothing in this License restricts statutory rights or exceptions,
+including applicable fair use or fair dealing.
+
+
+6. DISCLAIMER OF WARRANTY AND LIABILITY
+
+  THE ASSETS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+  TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE OWNER SHALL NOT BE
+LIABLE FOR DAMAGES OR CLAIMS ARISING FROM THE USE OF THE ASSETS.
+
+
+  Additional permissions may be granted separately in writing
+by the Owner.
