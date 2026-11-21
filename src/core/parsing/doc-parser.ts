@@ -138,10 +138,10 @@ function convertDocTextToHtml(rawDocText: string): string {
     if (trimmed.includes('\x07')) {
       const cells = trimmed
         .split('\x07')
-        .map((c) => c.replace(/[\x00-\x08\x0E-\x1F]/g, '').trim())
-        .filter((c) => c.length > 0);
+        .map((c) => c.replace(/[\x00-\x08\x0E-\x1F]/g, '').trim());
 
-      if (cells.length > 0) {
+      if (cells.at(-1) === '') cells.pop();
+      if (cells.some(Boolean)) {
         const rowHtml = cells
           .map((c) => `<td>${escapeHtml(c).replace(/\x0B/g, '<br />')}</td>`)
           .join('');
@@ -157,12 +157,13 @@ function convertDocTextToHtml(rawDocText: string): string {
 
     if (!plainTextForHeadingCheck) continue;
 
-    // Detect heading candidates: short text without sentence terminators
-    const isHeading =
-      plainTextForHeadingCheck.length < 60 &&
-      !plainTextForHeadingCheck.endsWith('.') &&
-      !plainTextForHeadingCheck.endsWith(',') &&
-      /^(?:chapter\s+\d+|part\s+\d+|section\s+\d+|prologue|epilogue|[A-Z0-9\s:—–-]+)$/i.test(plainTextForHeadingCheck);
+    // Binary DOC text has no style information at this stage. Require a chapter
+    // marker or an actual uppercase label before promoting a paragraph.
+    const isHeading = plainTextForHeadingCheck.length < 60 && (
+      /^(?:(?:chapter|part|section)\s+(?:\d+|[IVXLCDM]+)(?:\s*[:\-\u2013\u2014]\s*.+)?|prologue|epilogue)$/i.test(plainTextForHeadingCheck) ||
+      (/\p{Lu}/u.test(plainTextForHeadingCheck) && !/\p{Ll}/u.test(plainTextForHeadingCheck) &&
+        !/[.!?,]$/.test(plainTextForHeadingCheck))
+    );
 
     if (isHeading) {
       htmlParts.push(`<h2>${escaped}</h2>`);
@@ -343,6 +344,7 @@ export async function parseDoc(
   // 7. Convert to HTML and Detect Chapters
   const autoDetectChapters = options.autoDetectChapters ?? true;
   const fullHtml = convertDocTextToHtml(mainText);
+  if (!fullHtml.trim()) throw new Error('No readable text found in the Word document.');
 
   let chapters: Chapter[] = [];
 

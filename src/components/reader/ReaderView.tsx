@@ -18,7 +18,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-import { getBook, getBookContent, updateBook, saveBookContent } from '../../core/storage/database';
+import { getBook, getBookContent, updateBook, saveBookContent, saveRecoveredEpubCover } from '../../core/storage/database';
+import { extractEpubCover } from '../../core/parsing/epub-cover';
 import { splitHtmlIntoChapters } from '../../core/parsing/mht-parser';
 import { useReadingProgress } from '../../hooks/useReadingProgress';
 import { useBookmarks } from '../../hooks/useBookmarks';
@@ -27,8 +28,9 @@ import { useReaderSettings } from '../../hooks/useReaderSettings';
 
 import type { Book, BookContent, Chapter, Bookmark } from '../../types/book';
 
+import type { ArchiveReaderHandle } from '../../formats/engines/ZipReader';
 import { ScrollReader } from './ScrollReader';
-import { PaginatedReader } from './PaginatedReader';
+import { PaginatedReader, type PaginatedReaderHandle } from './PaginatedReader';
 import { DoubleSidedReader } from './DoubleSidedReader';
 import { TableOfContents } from './TableOfContents';
 import { BookmarkPanel } from './BookmarkPanel';
@@ -140,6 +142,15 @@ function scrollToReaderRange(range: Range, behavior: ScrollBehavior = 'smooth') 
   });
 }
 
+function findChapter(chapters: readonly Chapter[], target: string): Chapter | undefined {
+  for (const chapter of chapters) {
+    if (chapter.id === target || chapter.href === target) return chapter;
+    const child = chapter.children?.length ? findChapter(chapter.children, target) : undefined;
+    if (child) return child;
+  }
+  return undefined;
+}
+
 export function ReaderView() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
@@ -183,7 +194,17 @@ export function ReaderView() {
   const pdfReaderRef = useRef<PdfReaderHandle>(null);
   const cbzReaderRef = useRef<CbzReaderHandle>(null);
   const djvuReaderRef = useRef<DjvuReaderHandle>(null);
+  const archiveReaderRef = useRef<ArchiveReaderHandle>(null);
   const imageReaderRef = useRef<ImageReaderHandle>(null);
+  const flowPagesRef = useRef<PaginatedReaderHandle>(null);
+  const navigateToReaderElement = useCallback((element: HTMLElement, behavior?: ScrollBehavior) => {
+    if (flowPagesRef.current) flowPagesRef.current.goToElement(element);
+    else scrollToReaderElement(element, behavior);
+  }, []);
+  const navigateToReaderRange = useCallback((range: Range, behavior?: ScrollBehavior) => {
+    if (flowPagesRef.current) flowPagesRef.current.goToRange(range);
+    else scrollToReaderRange(range, behavior);
+  }, []);
   const flushRef = useRef(flush);
   useEffect(() => {
     flushRef.current = flush;
@@ -246,9 +267,13 @@ export function ReaderView() {
     isDjvu,
     readers: searchReaders,
     setActiveChapterId,
-    onScrollToElement: scrollToReaderElement,
-    onScrollToRange: scrollToReaderRange,
+    onScrollToElement: navigateToReaderElement,
+    onScrollToRange: navigateToReaderRange,
   });
+
+  useEffect(() => {
+    if (!searchOpen) djvuReaderRef.current?.cancelSearch();
+  }, [searchOpen]);
 
   // Capture initial progress once on load so readers are not re-rendered on scroll
   const initialProgressRef = useRef<{
@@ -312,8 +337,11 @@ export function ReaderView() {
         }
         if (c.format === 'epub' && c.originalFile) {
           const { openBudgetedZip } = await import('../../core/parsing/zip-budget');
-          await openBudgetedZip(c.originalFile);
+          const zip = await openBudgetedZip(c.originalFile);
           if (!isMounted) return;
+          if (!b.coverImage && b.originalCoverImage === undefined) {
+            void extractEpubCover(zip).then((cover) => saveRecoveredEpubCover(b.id, cover)).catch(() => {});
+          }
         }
 
         // Optimization: strip dead originalFile buffer and re-split oversized single chapter
@@ -427,6 +455,9 @@ export function ReaderView() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleFullscreen, tocOpen, bookmarksOpen, searchOpen, settingsOpen, zoomBy, resetZoom, setSearchOpen]);
 
+  const searchArchiveEntries = useCallback((query: string) =>
+    archiveReaderRef.current?.searchEntries(query) ?? Promise.resolve([]), []);
+
   const handleToggleControls = useCallback(() => {
     setHeaderVisible((p) => !p);
   }, []);
@@ -437,7 +468,7 @@ export function ReaderView() {
       if (isDjvu || isImage) return 'paginated';
       return 'scroll';
     }
-    if (!isEpub && !isPdf && !isCbz && readerSettings.readingMode === 'vertical') {
+    if (readerSettings.readingMode === 'vertical' && !formatSupportsFeature(book?.sourceFormat, 'doubleSided')) {
       return 'paginated';
     }
     return readerSettings.readingMode;
@@ -530,8 +561,8 @@ export function ReaderView() {
     if (!book) return;
     const currentProgress = getCurrentProgress() ?? progress;
     const currentFraction = currentProgress?.overallProgress ?? 0;
-    const currentChapter = book.tableOfContents.find((c) => c.id === activeChapterId);
-    const bookmarkChapterId = isFixedLayout(book.sourceFormat)
+    const currentChapter = findChapter(book.tableOfContents, activeChapterId);
+    const bookmarkChapterId = book.sourceFormat !== 'zip' && book.sourceFormat !== 'rar' && isFixedLayout(book.sourceFormat)
       ? String((currentProgress?.pageIndex ?? 0) + 1)
       : activeChapterId;
     const label = currentChapter
@@ -549,7 +580,9 @@ export function ReaderView() {
 
   // Handle jumping to bookmark
   const handleSelectBookmark = (bm: Bookmark) => {
-    if (book?.sourceFormat === 'epub' && bm.epubCfi && epubReaderRef.current) {
+    if (isArchive && bm.chapterId) {
+      archiveReaderRef.current?.goToEntry(bm.chapterId, bm.position);
+    } else if (book?.sourceFormat === 'epub' && bm.epubCfi && epubReaderRef.current) {
       epubReaderRef.current.goToCfi(bm.epubCfi);
     } else if ((book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && bm.chapterId && cbzReaderRef.current) {
       const page = parseInt(bm.chapterId, 10);
@@ -568,30 +601,25 @@ export function ReaderView() {
       }
     } else if (bm.chapterId) {
       setActiveChapterId(bm.chapterId);
-      const targetEl = document.getElementById(`chapter-${bm.chapterId}`);
-      if (targetEl) scrollToReaderElement(targetEl);
-
-      // Bookmarks for normalized books store the overall reading fraction.
-      // Restore that semantic position after the chapter target has rendered.
-      requestAnimationFrame(() => {
-        const container = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
-        if (!container) return;
-        const fraction = Math.min(1, Math.max(0, bm.position));
-        if (effectiveReadingMode !== 'scroll') {
-          container.scrollTo({ left: fraction * Math.max(0, container.scrollWidth - container.clientWidth), behavior: 'smooth' });
-        } else {
-          container.scrollTo({ top: fraction * Math.max(0, container.scrollHeight - container.clientHeight), behavior: 'smooth' });
-        }
-      });
+      const fraction = Math.min(1, Math.max(0, bm.position));
+      if (flowPagesRef.current) {
+        flowPagesRef.current.goToProgress(fraction);
+        return;
+      }
+      const container = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
+      if (!container) return;
+      container.scrollTo({ top: fraction * Math.max(0, container.scrollHeight - container.clientHeight), behavior: 'smooth' });
     }
   };
 
   // Handle jumping to chapter
   const handleSelectChapter = (chapterId: string) => {
     setActiveChapterId(chapterId);
-    const chapter = book?.tableOfContents.find((c) => c.id === chapterId);
+    const chapter = findChapter(book?.tableOfContents ?? [], chapterId);
 
-    if (book?.sourceFormat === 'epub' && chapter?.href && epubReaderRef.current) {
+    if (isArchive && chapter?.href) {
+      archiveReaderRef.current?.goToEntry(chapter.href);
+    } else if (book?.sourceFormat === 'epub' && chapter?.href && epubReaderRef.current) {
       epubReaderRef.current.goToHref(chapter.href);
     } else if ((book?.sourceFormat === 'cbz' || book?.sourceFormat === 'cbr' || book?.sourceFormat === 'cb7') && chapter?.href && cbzReaderRef.current) {
       const page = parseInt(chapter.href, 10);
@@ -610,14 +638,14 @@ export function ReaderView() {
       }
     } else {
       const targetEl = document.getElementById(`chapter-${chapterId}`);
-      if (targetEl) scrollToReaderElement(targetEl);
+      if (targetEl) navigateToReaderElement(targetEl);
     }
   };
 
   // Find active chapter title
   const currentChapterTitle = useMemo(() => {
     if (!book) return '';
-    const found = book.tableOfContents.find((c) => c.id === activeChapterId);
+    const found = findChapter(book.tableOfContents, activeChapterId);
     return found ? found.title : '';
   }, [book, activeChapterId]);
 
@@ -728,7 +756,7 @@ export function ReaderView() {
           <button
             className={`${styles.iconBtn} ${searchOpen ? styles.iconBtnActive : ''}`}
             onClick={() => setSearchOpen((p) => !p)}
-            title="Search in book (/)"
+            title={isArchive ? 'Search archive entries (/)' : 'Search in book (/)'}
             aria-label="Search"
             type="button"
           >
@@ -825,7 +853,9 @@ export function ReaderView() {
               ref={djvuReaderRef}
               fileData={content.originalFile!}
               initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
-              readingMode={readerSettings.readingMode === 'scroll' ? 'scroll' : 'paginated'}
+              initialProgressFraction={restoreLocation?.overallProgress}
+              initialProgressMode={restoreLocation?.readingMode}
+              readingMode={effectiveReadingMode === 'scroll' ? 'scroll' : 'paginated'}
               onProgressUpdate={handlePaginatedProgress}
               onToggleControls={handleToggleControls}
               readerZoom={readerZoom}
@@ -833,14 +863,16 @@ export function ReaderView() {
             />
           ) : isArchive ? (
             <ZipReader
+              ref={archiveReaderRef}
               fileData={content.originalFile!}
               book={book}
               archiveType={book?.sourceFormat as 'zip' | 'rar'}
               initialSubPath={restoreLocation?.chapterId}
               initialPage={restoreLocation?.pageIndex !== undefined ? restoreLocation.pageIndex + 1 : 1}
               initialProgressFraction={restoreLocation?.overallProgress}
-              readingMode={readerSettings.readingMode}
-              readerSettings={readerSettings}
+              initialProgressMode={restoreLocation?.readingMode}
+              readingMode={effectiveReadingMode}
+              readerSettings={effectiveReaderSettings}
               readerZoom={readerZoom}
               zoomAnchor={zoomAnchor}
               onProgressUpdate={handlePaginatedProgress}
@@ -892,8 +924,9 @@ export function ReaderView() {
             />
           ) : effectiveReadingMode === 'paginated' ? (
           <PaginatedReader
+            ref={flowPagesRef}
             chapters={chapters}
-            isMht={book.sourceFormat === 'mht'}
+            format={book.sourceFormat}
             settings={effectiveReaderSettings}
             initialPageIndex={restoreLocation?.pageIndex}
             initialChapterId={restoreLocation?.chapterId}
@@ -906,8 +939,10 @@ export function ReaderView() {
           />
         ) : effectiveReadingMode === 'vertical' ? (
           <DoubleSidedReader
+            ref={flowPagesRef}
             chapters={chapters}
-            settings={readerSettings}
+            format={book.sourceFormat}
+            settings={effectiveReaderSettings}
             initialPageIndex={restoreLocation?.pageIndex}
             initialChapterId={restoreLocation?.chapterId}
             initialProgressFraction={restoreLocation?.overallProgress}
@@ -920,7 +955,7 @@ export function ReaderView() {
         ) : (
           <ScrollReader
             chapters={chapters}
-            isMht={book.sourceFormat === 'mht'}
+            format={book.sourceFormat}
             settings={readerSettings}
             initialScrollPosition={restoreLocation?.scrollPosition}
             initialChapterId={restoreLocation?.chapterId}
@@ -940,6 +975,10 @@ export function ReaderView() {
         progress={currentOverallProgress}
         chapterTitle={currentChapterTitle}
         onSeek={(fraction) => {
+          if (isArchive) {
+            archiveReaderRef.current?.goToProgress(fraction);
+            return;
+          }
           if (isImage) {
             imageReaderRef.current?.goToProgress(fraction);
             return;
@@ -961,15 +1000,13 @@ export function ReaderView() {
             return;
           }
 
+          if (flowPagesRef.current) {
+            flowPagesRef.current.goToProgress(fraction);
+            return;
+          }
           const container = readerStageRef.current?.querySelector<HTMLElement>('[data-reader-viewport]');
           if (!container) return;
-          if (effectiveReadingMode === 'vertical') {
-            container.scrollTo({ left: fraction * Math.max(0, container.scrollWidth - container.clientWidth), behavior: 'smooth' });
-          } else if (effectiveReadingMode === 'paginated') {
-            container.scrollTo({ left: fraction * Math.max(0, container.scrollWidth - container.clientWidth), behavior: 'smooth' });
-          } else {
-            container.scrollTo({ top: fraction * Math.max(0, container.scrollHeight - container.clientHeight), behavior: 'smooth' });
-          }
+          container.scrollTo({ top: fraction * Math.max(0, container.scrollHeight - container.clientHeight), behavior: 'smooth' });
         }}
       />
 
@@ -978,7 +1015,7 @@ export function ReaderView() {
         isOpen={tocOpen}
         onClose={() => setTocOpen(false)}
         chapters={book.tableOfContents}
-        currentChapterId={activeChapterId}
+        currentChapterId={isArchive ? findChapter(book.tableOfContents, activeChapterId)?.id ?? activeChapterId : activeChapterId}
         onSelectChapter={handleSelectChapter}
       />
 
@@ -999,8 +1036,12 @@ export function ReaderView() {
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
         chapters={chapters}
-        searchProvider={isEpub || isPdf ? searchProvider : undefined}
-        onSelectResult={handleSelectSearchResult}
+        searchProvider={isArchive ? searchArchiveEntries : isEpub || isPdf || isDjvu ? searchProvider : undefined}
+        title={isArchive ? 'Search Archive Entries' : undefined}
+        onSelectResult={(result, query) => {
+          if (isArchive) archiveReaderRef.current?.goToEntry(result.chapterId);
+          else handleSelectSearchResult(result, query);
+        }}
       />
 
       {/* Reading Settings Drawer */}

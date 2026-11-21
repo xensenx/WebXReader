@@ -2,8 +2,7 @@
  * Fixed-layout DjVu reader powered by djvu-rs WebAssembly.
  *
  * Supports continuous vertical scrolling and paginated modes,
- * zooming with viewport anchors, high-DPI canvas rendering with off-screen
- * double-buffering, and text-layer search across document pages.
+ * zooming with viewport anchors and worker-based rasterization and search.
  */
 
 import {
@@ -12,15 +11,19 @@ import {
   useLayoutEffect,
   useRef,
   useCallback,
+  useMemo,
   useImperativeHandle,
   forwardRef,
+  memo,
   type KeyboardEvent,
 } from 'react';
-import { AlertCircle } from 'lucide-react';
-import { ensureDjvuInitialized, WasmDocument } from '../../core/parsing/djvu-init';
-import { createTextExcerpt, findTextMatches } from '../../utils/text-search';
+import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { createDjvuRenderSession, type DjvuRenderSession } from './djvu-render-session';
+import { DEFAULT_DJVU_PAGE_SIZE, getDjvuRasterDpi, type DjvuPageSize } from './djvu-render-protocol';
 import type { ReaderSearchResult } from '../../components/reader/search-types';
 import type { PdfZoomAnchor } from './PdfReader';
+import { findLeadingPage } from './visible-page';
+import { createPageVisibility } from './page-visibility';
 import styles from './DjvuReader.module.css';
 
 export type DjvuZoomAnchor = PdfZoomAnchor;
@@ -30,23 +33,20 @@ export interface DjvuReaderHandle {
   goToProgress: (fraction: number) => void;
   previewZoom: (zoom: number, anchor: DjvuZoomAnchor) => void;
   search: (query: string) => Promise<ReaderSearchResult[]>;
+  cancelSearch: () => void;
   goToSearchMatch: (pageNumber: number, query: string, matchIndex: number) => Promise<void>;
 }
 
 interface DjvuReaderProps {
   fileData: ArrayBuffer;
   initialPage?: number;
+  initialProgressFraction?: number;
+  initialProgressMode?: string;
   readingMode?: 'scroll' | 'paginated';
   onProgressUpdate: (chapterId: string, progressFraction: number, pageIndex: number) => void;
   onToggleControls?: () => void;
   readerZoom?: number;
   zoomAnchor?: DjvuZoomAnchor;
-}
-
-interface PageSize {
-  width: number;
-  height: number;
-  dpi: number;
 }
 
 interface DjvuZoomPreviewTransform {
@@ -57,138 +57,80 @@ interface DjvuZoomPreviewTransform {
   translateY: number;
 }
 
-function getDjvuDisplayScale(
-  baseWidth: number,
-  viewportWidth: number,
-  readerZoom: number
-) {
-  const availableWidth = Math.max(240, viewportWidth - 32);
-  const fitScale = availableWidth / Math.max(1, baseWidth);
-  return Math.min(2.5, Math.max(0.4, fitScale)) * readerZoom;
-}
-
 interface DjvuPageViewProps {
-  doc: WasmDocument;
+  session: DjvuRenderSession;
   pageNumber: number;
   viewportRef: React.RefObject<HTMLDivElement | null>;
-  pageSize: PageSize | undefined;
+  pageSize?: DjvuPageSize;
   readerZoom: number;
-  layoutVersion: number;
-  initiallyVisible: boolean;
+  viewportSize: DjvuPageSize;
+  paginated: boolean;
+  visibility: ReturnType<typeof createPageVisibility>;
 }
 
-function DjvuPageView({
-  doc,
-  pageNumber,
-  viewportRef,
-  pageSize,
-  readerZoom,
-  layoutVersion,
-  initiallyVisible,
+const DjvuPageView = memo(function DjvuPageView({
+  session, pageNumber, viewportRef, pageSize, readerZoom, viewportSize, paginated, visibility,
 }: DjvuPageViewProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [shouldRender, setShouldRender] = useState(initiallyVisible);
-  const [hasRendered, setHasRendered] = useState(false);
+  const [nearby, setNearby] = useState(paginated);
+  const [measuredSize, setMeasuredSize] = useState<DjvuPageSize>();
+  const [failed, setFailed] = useState(false);
+  const size = pageSize ?? measuredSize;
+  const { width, height } = size ?? DEFAULT_DJVU_PAGE_SIZE;
+  const fitWidth = Math.max(1, viewportSize.width - 32) / width;
+  const fitHeight = Math.max(1, viewportSize.height - 48) / height;
+  const displayScale = Math.min(2.5, fitWidth, paginated ? fitHeight : Infinity) * readerZoom;
+  const dpi = getDjvuRasterDpi({ width, height }, displayScale, window.devicePixelRatio || 1);
 
-  // Viewport intersection observer to lazy-render pages with a generous root margin
   useEffect(() => {
+    if (pageSize || !paginated) return;
+    let active = true;
+    session.size(pageNumber).then((value) => {
+      if (active) setMeasuredSize(value);
+    }, () => {
+      if (active) setFailed(true);
+    });
+    return () => { active = false; };
+  }, [pageNumber, pageSize, paginated, session]);
+
+  useEffect(() => {
+    if (paginated) return;
     const shell = shellRef.current;
     const root = viewportRef.current;
     if (!shell || !root) return;
+    return visibility.watch(root, shell, setNearby);
+  }, [paginated, viewportRef, visibility]);
 
-    if (typeof IntersectionObserver === 'undefined') {
-      setShouldRender(true);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setShouldRender(true);
-        } else if (!initiallyVisible) {
-          // Free canvas backing memory for distant pages
-          setShouldRender(false);
-        }
-      },
-      { root, rootMargin: '1200px 0px' }
-    );
-
-    observer.observe(shell);
-    return () => observer.disconnect();
-  }, [initiallyVisible, viewportRef]);
-
-  // Clean up canvas dimensions when page leaves render window
+  const shouldRender = paginated || nearby;
   useEffect(() => {
-    if (shouldRender) return;
-    if (canvasRef.current) {
-      canvasRef.current.width = 0;
-      canvasRef.current.height = 0;
-    }
-    setHasRendered(false);
-  }, [shouldRender]);
-
-  // Render page when visible using an off-screen staging canvas
-  // Debounced by 50ms so rapid zoom or scroll gestures do not thrash WASM rasterization
-  useEffect(() => {
-    if (!shouldRender || !pageSize || !canvasRef.current || !viewportRef.current) return;
-    let active = true;
-
-    const render = () => {
-      try {
-        const page = doc.page(pageNumber - 1);
-        if (!active || !canvasRef.current || !viewportRef.current) return;
-
-        const viewportWidth = viewportRef.current.clientWidth;
-        const displayScale = getDjvuDisplayScale(pageSize.width, viewportWidth, readerZoom);
-        const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-        // Base resolution is 96 DPI CSS pixels. Target rendering DPI matches screen device pixels:
-        const targetDpi = Math.max(36, Math.min(600, Math.round(96 * displayScale * dpr)));
-
-        const renderW = page.width_at(targetDpi);
-        const renderH = page.height_at(targetDpi);
-        if (renderW <= 0 || renderH <= 0) return;
-
-        const pixels = page.render(targetDpi);
-        if (!active || !canvasRef.current) return;
-
-        // Render into an off-screen staging canvas first
-        const stagingCanvas = document.createElement('canvas');
-        stagingCanvas.width = renderW;
-        stagingCanvas.height = renderH;
-        const stagingCtx = stagingCanvas.getContext('2d', { alpha: false });
-        if (!stagingCtx) return;
-
-        const imgData = new ImageData(pixels as any, renderW, renderH);
-        stagingCtx.putImageData(imgData, 0, 0);
-
-        if (!active || !canvasRef.current) return;
+    if (!shouldRender || !size || viewportSize.width <= 1) return;
+    const abort = new AbortController();
+    // Keep the current bitmap during zoom. Only settled, still-relevant
+    // requests enter the serial raster queue.
+    const timer = setTimeout(() => {
+      const shell = shellRef.current?.getBoundingClientRect();
+      const viewport = viewportRef.current?.getBoundingClientRect();
+      const visible = paginated || Boolean(shell && viewport && shell.bottom > viewport.top && shell.top < viewport.bottom);
+      session.render(pageNumber, dpi, abort.signal, visible).then((raster) => {
         const canvas = canvasRef.current;
-        // Swap bitmaps atomically to avoid blank/white canvas flashes during redraws
-        canvas.width = renderW;
-        canvas.height = renderH;
-        const visibleCtx = canvas.getContext('2d', { alpha: false });
-        if (visibleCtx) {
-          visibleCtx.drawImage(stagingCanvas, 0, 0);
-          setHasRendered(true);
-        }
-      } catch (err) {
-        if (active) console.warn(`Failed to render DjVu page ${pageNumber}:`, err);
-      }
-    };
-
-    const timer = window.setTimeout(render, 50);
+        if (abort.signal.aborted || !canvas) return;
+        canvas.width = raster.width;
+        canvas.height = raster.height;
+        const context = canvas.getContext('2d', { alpha: false });
+        if (!context) throw new Error('Canvas rendering is unavailable.');
+        context.putImageData(new ImageData(new Uint8ClampedArray(raster.pixels), raster.width, raster.height), 0, 0);
+        canvas.dataset.rendered = 'true';
+        setFailed(false);
+      }).catch(() => {
+        if (!abort.signal.aborted) setFailed(true);
+      });
+    }, paginated ? 0 : 48);
     return () => {
-      active = false;
-      window.clearTimeout(timer);
+      clearTimeout(timer);
+      abort.abort();
     };
-  }, [doc, pageNumber, pageSize, shouldRender, readerZoom, layoutVersion, viewportRef]);
-
-  const fallbackSize = pageSize ?? { width: 800, height: 1100, dpi: 100 };
-  const viewportWidth = viewportRef.current?.clientWidth ?? window.innerWidth;
-  const displayScale = getDjvuDisplayScale(fallbackSize.width, viewportWidth, readerZoom);
-  const displayWidth = Math.floor(fallbackSize.width * displayScale);
-  const displayHeight = Math.floor(fallbackSize.height * displayScale);
+  }, [dpi, pageNumber, paginated, session, shouldRender, size, viewportRef, viewportSize.width]);
 
   return (
     <div
@@ -196,26 +138,23 @@ function DjvuPageView({
       className={styles.pageShell}
       data-djvu-page={pageNumber}
       data-page-number={pageNumber}
-      style={{
-        width: `${displayWidth}px`,
-        height: `${displayHeight}px`,
-      }}
+      style={{ width: Math.max(1, Math.round(width * displayScale)), height: Math.max(1, Math.round(height * displayScale)) }}
       aria-label={`DjVu page ${pageNumber}`}
     >
-      <canvas
-        ref={canvasRef}
-        className={styles.djvuCanvas}
-        aria-label={`Page ${pageNumber}`}
-      />
-      {!hasRendered && <div className={styles.pagePlaceholder} aria-hidden="true" />}
+      {shouldRender && (
+        <canvas ref={canvasRef} className={styles.djvuCanvas} aria-label={`Page ${pageNumber}`} />
+      )}
+      {shouldRender && failed && <div className={styles.pagePlaceholder}>Unable to render this page.</div>}
     </div>
   );
-}
+});
 
 export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function DjvuReader(
   {
     fileData,
     initialPage = 1,
+    initialProgressFraction = 0,
+    initialProgressMode,
     readingMode = 'scroll',
     onProgressUpdate,
     onToggleControls,
@@ -224,21 +163,25 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
   },
   ref
 ) {
-  const [doc, setDoc] = useState<WasmDocument | null>(null);
+  const [session, setSession] = useState<DjvuRenderSession | null>(null);
   const [totalPages, setTotalPages] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(initialPage);
-  const [pageSizes, setPageSizes] = useState<Map<number, PageSize>>(new Map());
-  const [pageLayoutReady, setPageLayoutReady] = useState(false);
-  const [layoutVersion, setLayoutVersion] = useState(0);
+  const [pageSizes, setPageSizes] = useState<DjvuPageSize[]>();
+  const [viewportSize, setViewportSize] = useState<DjvuPageSize>({ width: 1, height: 1 });
+  const pageLayoutReady = readingMode === 'paginated' || Boolean(pageSizes);
+  const visibility = useMemo(createPageVisibility, []);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const pageStackRef = useRef<HTMLDivElement>(null);
   const isNavigatingRef = useRef(false);
+  const navigationFrameRef = useRef(0);
+  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scrollFrameRef = useRef<number | null>(null);
-  const textCacheRef = useRef<Map<number, string>>(new Map());
   const initialPageRef = useRef(initialPage);
+  const initialProgressRef = useRef({ fraction: initialProgressFraction, mode: initialProgressMode });
+  const lastReportedRef = useRef({ page: 0, fraction: -1 });
   const hasScrolledInitialRef = useRef(false);
   const previewTransformRef = useRef<DjvuZoomPreviewTransform | null>(null);
   const lastZoomAnchorRef = useRef<DjvuZoomAnchor | undefined>(undefined);
@@ -250,87 +193,79 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
     initialPageRef.current = initialPage;
   }, [initialPage]);
 
-  // Initialize document and synchronously pre-measure all page dimensions at 96 DPI
   useEffect(() => {
     let active = true;
+    let opened: DjvuRenderSession | undefined;
     setLoading(true);
     setError(null);
-    setDoc(null);
-    setPageSizes(new Map());
-    setPageLayoutReady(false);
+    setSession(null);
+    setPageSizes(undefined);
     hasScrolledInitialRef.current = false;
+    lastReportedRef.current = { page: 0, fraction: -1 };
 
-    (async () => {
+    async function openDocument() {
       try {
-        await ensureDjvuInitialized();
+        opened = createDjvuRenderSession();
+        const count = await opened.open(fileData);
         if (!active) return;
-
-        const bytes = new Uint8Array(fileData);
-        const parsedDoc = WasmDocument.from_bytes(bytes);
-        if (!active) return;
-
-        const count = parsedDoc.page_count();
-        const sizes = new Map<number, PageSize>();
-
-        // Pre-measure all page dimensions upfront to eliminate layout shift while scrolling
-        for (let i = 0; i < count; i++) {
-          try {
-            const page = parsedDoc.page(i);
-            const nativeDpi = page.dpi() || 100;
-            const w96 = page.width_at(96);
-            const h96 = page.height_at(96);
-            const width = w96 > 0 ? w96 : Math.round((page.width_at(nativeDpi) / nativeDpi) * 96);
-            const height = h96 > 0 ? h96 : Math.round((page.height_at(nativeDpi) / nativeDpi) * 96);
-            sizes.set(i + 1, { width, height, dpi: nativeDpi });
-          } catch (pageErr) {
-            console.warn(`Could not pre-measure DjVu page ${i + 1}:`, pageErr);
-            sizes.set(i + 1, { width: 800, height: 1100, dpi: 100 });
-          }
-        }
-
-        setDoc(parsedDoc);
         setTotalPages(count);
-        setPageSizes(sizes);
-        setPageLayoutReady(true);
-        const start = Math.max(1, Math.min(initialPageRef.current, count));
-        setCurrentPage(start);
-        setLoading(false);
-      } catch (err) {
-        if (active) {
-          setError(err instanceof Error ? err.message : String(err));
-          setLoading(false);
-        }
+        setCurrentPage(Math.max(1, Math.min(initialPageRef.current, count)));
+        setSession(opened);
+      } catch (error) {
+        if (active) setError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (active) setLoading(false);
       }
-    })();
-
+    }
+    void openDocument();
     return () => {
       active = false;
+      opened?.close();
     };
   }, [fileData]);
 
-  // ResizeObserver for container resizing
   useEffect(() => {
+    if (!session || readingMode !== 'scroll') return;
+    let active = true;
+    session.sizes().then((sizes) => {
+      if (active) setPageSizes(sizes);
+    }, (error: Error) => {
+      if (active) setError(error.message);
+    });
+    return () => { active = false; };
+  }, [readingMode, session]);
+
+  useLayoutEffect(() => {
     const viewport = viewportRef.current;
-    if (!viewport || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(() => setLayoutVersion((v) => v + 1));
+    if (!viewport) return;
+    const updateSize = () => {
+      const { clientWidth: width, clientHeight: height } = viewport;
+      setViewportSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
+    };
+    updateSize();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateSize);
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, [doc]);
+  }, []);
 
   const scrollToPage = useCallback((pageNumber: number, behavior: ScrollBehavior = 'smooth') => {
     const viewport = viewportRef.current;
     const page = pageStackRef.current?.querySelector<HTMLElement>(`[data-djvu-page="${pageNumber}"]`);
     if (!viewport || !page) return;
-    viewport.scrollTo({ top: Math.max(0, page.offsetTop - 16), behavior });
+    const top = viewport.scrollTop + page.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 16;
+    viewport.scrollTo({ top: Math.max(0, top), behavior });
   }, []);
 
   // Scroll to initial page only once when document layout is ready
   useEffect(() => {
-    if (!doc || !pageLayoutReady || totalPages <= 0 || hasScrolledInitialRef.current) return;
+    if (!session || readingMode !== 'scroll' || !pageLayoutReady || totalPages <= 0 || hasScrolledInitialRef.current) return;
     hasScrolledInitialRef.current = true;
 
     const page = Math.max(1, Math.min(initialPageRef.current, totalPages));
-    if (page <= 1) return;
+    const { fraction, mode } = initialProgressRef.current;
+    const restoreScroll = readingMode === 'scroll' && mode === 'scroll' && fraction > 0;
+    if (page <= 1 && !restoreScroll) return;
 
     let attempts = 0;
     let frame = 0;
@@ -338,14 +273,19 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
       attempts += 1;
       const target = pageStackRef.current?.querySelector<HTMLElement>(`[data-djvu-page="${page}"]`);
       if (target || attempts >= 12) {
-        scrollToPage(page, 'auto');
+        const viewport = viewportRef.current;
+        if (viewport && restoreScroll) {
+          viewport.scrollTop = Math.min(1, fraction) * Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+        } else {
+          scrollToPage(page, 'auto');
+        }
         return;
       }
       frame = requestAnimationFrame(seek);
     };
     frame = requestAnimationFrame(seek);
     return () => cancelAnimationFrame(frame);
-  }, [doc, pageLayoutReady, totalPages, scrollToPage]);
+  }, [session, pageLayoutReady, readingMode, totalPages, scrollToPage]);
 
   // Report scroll position based on the topmost visible page
   const reportScrollPosition = useCallback(() => {
@@ -354,37 +294,28 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
     if (!viewport || !stack || totalPages < 1) return;
 
     const viewportTop = viewport.getBoundingClientRect().top + 16;
-    const pages = Array.from(stack.querySelectorAll<HTMLElement>('[data-djvu-page]'));
-    let visiblePage = currentPage;
-    for (const page of pages) {
-      if (page.getBoundingClientRect().bottom > viewportTop) {
-        visiblePage = Number(page.dataset.djvuPage) || visiblePage;
-        break;
-      }
-    }
-
-    const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-    const withinPageFraction = maxScroll > 0 ? viewport.scrollTop / maxScroll : 0;
-    const fraction = readingMode === 'scroll'
-      ? withinPageFraction
-      : totalPages > 1
-        ? Math.min(1, (Math.max(0, visiblePage - 1) + withinPageFraction) / (totalPages - 1))
-        : withinPageFraction;
-
-    setCurrentPage((prev) => (prev === visiblePage ? prev : visiblePage));
-    onProgressUpdateRef.current(String(visiblePage), Math.min(1, Math.max(0, fraction)), visiblePage - 1);
-  }, [currentPage, readingMode, totalPages]);
+    const page = findLeadingPage(stack.children, (bounds) => bounds.bottom > viewportTop);
+    const visiblePage = Number(page?.getAttribute('data-djvu-page'));
+    if (!visiblePage) return;
+    const maxScroll = Math.max(1, viewport.scrollHeight - viewport.clientHeight);
+    const fraction = Math.min(1, Math.max(0, viewport.scrollTop / maxScroll));
+    const previous = lastReportedRef.current;
+    if (previous.page === visiblePage && previous.fraction === fraction) return;
+    lastReportedRef.current = { page: visiblePage, fraction };
+    setCurrentPage(visiblePage);
+    onProgressUpdateRef.current(String(visiblePage), fraction, visiblePage - 1);
+  }, [totalPages]);
 
   // Throttle scroll handling to animation frame
   const handleScroll = useCallback(() => {
-    if (isNavigatingRef.current || previewTransformRef.current !== null) return;
+    if (readingMode !== 'scroll' || isNavigatingRef.current || previewTransformRef.current !== null) return;
     if (scrollFrameRef.current !== null) return;
     scrollFrameRef.current = requestAnimationFrame(() => {
       scrollFrameRef.current = null;
       if (isNavigatingRef.current || previewTransformRef.current !== null) return;
       reportScrollPosition();
     });
-  }, [reportScrollPosition]);
+  }, [readingMode, reportScrollPosition]);
 
   useEffect(() => () => {
     if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
@@ -472,6 +403,27 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
     return () => cancelAnimationFrame(frame);
   }, [currentPage, readingMode]);
 
+  const cancelScrollJump = useCallback(() => {
+    cancelAnimationFrame(navigationFrameRef.current);
+    clearTimeout(navigationTimerRef.current);
+    isNavigatingRef.current = false;
+  }, []);
+  useEffect(() => cancelScrollJump, [cancelScrollJump, readingMode, session]);
+
+  const jumpInScrollMode = useCallback((jump: () => void, behavior: ScrollBehavior) => {
+    cancelScrollJump();
+    isNavigatingRef.current = true;
+    navigationFrameRef.current = requestAnimationFrame(() => {
+      jump();
+      const finish = () => {
+        isNavigatingRef.current = false;
+        reportScrollPosition();
+      };
+      if (behavior === 'smooth') navigationTimerRef.current = setTimeout(finish, 400);
+      else finish();
+    });
+  }, [cancelScrollJump, reportScrollPosition]);
+
   const goToPage = useCallback((pageNum: number, behavior: ScrollBehavior = 'smooth') => {
     const clamped = Math.max(1, Math.min(pageNum, totalPages));
     setCurrentPage(clamped);
@@ -479,38 +431,27 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
       const progressFraction = (clamped - 1) / Math.max(1, totalPages - 1);
       onProgressUpdateRef.current(String(clamped), progressFraction, clamped - 1);
     } else {
-      isNavigatingRef.current = true;
-      requestAnimationFrame(() => scrollToPage(clamped, behavior));
-      const progressFraction = (clamped - 1) / Math.max(1, totalPages - 1);
-      onProgressUpdateRef.current(String(clamped), progressFraction, clamped - 1);
-      setTimeout(() => {
-        isNavigatingRef.current = false;
-      }, 400);
+      jumpInScrollMode(() => scrollToPage(clamped, behavior), behavior);
     }
-  }, [readingMode, scrollToPage, totalPages]);
+  }, [jumpInScrollMode, readingMode, scrollToPage, totalPages]);
 
   const goToProgress = useCallback((fraction: number) => {
-    const viewport = viewportRef.current;
     const clamped = Math.min(1, Math.max(0, fraction));
     const targetPage = totalPages > 1 ? Math.round(clamped * (totalPages - 1)) + 1 : 1;
-    setCurrentPage(targetPage);
 
     if (readingMode === 'paginated') {
-      onProgressUpdateRef.current(String(targetPage), clamped, targetPage - 1);
-    } else if (viewport) {
-      isNavigatingRef.current = true;
-      viewport.scrollTo({
-        top: clamped * Math.max(0, viewport.scrollHeight - viewport.clientHeight),
-        behavior: 'smooth',
-      });
-      onProgressUpdateRef.current(String(targetPage), clamped, targetPage - 1);
-      setTimeout(() => {
-        isNavigatingRef.current = false;
-      }, 400);
+      goToPage(targetPage);
     } else {
-      requestAnimationFrame(() => scrollToPage(targetPage, 'smooth'));
+      jumpInScrollMode(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        viewport.scrollTo({
+          top: clamped * Math.max(0, viewport.scrollHeight - viewport.clientHeight),
+          behavior: 'smooth',
+        });
+      }, 'smooth');
     }
-  }, [readingMode, scrollToPage, totalPages]);
+  }, [goToPage, jumpInScrollMode, readingMode, totalPages]);
 
   // Imperative handle
   useImperativeHandle(
@@ -520,51 +461,23 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
       goToProgress,
       previewZoom,
       search: async (query: string): Promise<ReaderSearchResult[]> => {
-        if (!doc || !query.trim() || totalPages <= 0) return [];
         const trimmed = query.trim();
-        const results: ReaderSearchResult[] = [];
-
-        for (let i = 0; i < totalPages; i++) {
-          let text = textCacheRef.current.get(i);
-          if (text === undefined) {
-            try {
-              const page = doc.page(i);
-              text = page.text() || '';
-            } catch {
-              text = '';
-            }
-            textCacheRef.current.set(i, text);
-          }
-
-          if (!text) continue;
-
-          const matches = findTextMatches(text, trimmed, 100 - results.length, true);
-          matches.forEach((match, matchIndex) => {
-            results.push({
-              chapterId: String(i + 1),
-              chapterTitle: `Page ${i + 1}`,
-              ...createTextExcerpt(text!, match),
-              offset: match.start,
-              matchIndex,
-              pageNumber: i + 1,
-            });
-          });
-          if (results.length >= 100) break;
-        }
-
-        return results;
+        if (!session || !trimmed) return [];
+        return session.search(trimmed);
       },
+      cancelSearch: () => session?.cancelSearch(),
       goToSearchMatch: async (pageNumber: number) => {
         goToPage(pageNumber, 'smooth');
       },
     }),
-    [doc, goToPage, goToProgress, previewZoom, totalPages]
+    [session, goToPage, goToProgress, previewZoom]
   );
 
   // Keyboard navigation
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const viewport = viewportRef.current;
     if (!viewport) return;
+    if ((event.target as HTMLElement).closest('button, input, select, textarea, [contenteditable]')) return;
 
     if (readingMode === 'paginated') {
       if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
@@ -595,6 +508,25 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
     }
   };
 
+  const paginatedPage = readingMode === 'paginated' ? currentPage : 0;
+  const pages = useMemo(() => {
+    if (!session || !pageLayoutReady) return null;
+    const numbers = paginatedPage ? [paginatedPage] : Array.from({ length: totalPages }, (_, index) => index + 1);
+    return numbers.map((pageNumber) => (
+      <DjvuPageView
+        key={pageNumber}
+        session={session}
+        pageNumber={pageNumber}
+        viewportRef={viewportRef}
+        pageSize={pageSizes?.[pageNumber - 1]}
+        readerZoom={readerZoom}
+        viewportSize={viewportSize}
+        paginated={Boolean(paginatedPage)}
+        visibility={visibility}
+      />
+    ));
+  }, [pageLayoutReady, pageSizes, paginatedPage, readerZoom, session, totalPages, viewportSize, visibility]);
+
   return (
     <div
       className={styles.container}
@@ -610,7 +542,7 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
         data-current-page={currentPage}
         onScroll={handleScroll}
       >
-        {(loading || (doc && !pageLayoutReady)) && (
+        {!error && (loading || (session && !pageLayoutReady)) && (
           <div className={styles.loadingOverlay}>
             <div className={styles.spinner} />
             <p>Loading DjVu document…</p>
@@ -624,26 +556,23 @@ export const DjvuReader = forwardRef<DjvuReaderHandle, DjvuReaderProps>(function
           </div>
         )}
 
-        {doc && pageLayoutReady && (
+        {session && pageLayoutReady && (
           <div ref={pageStackRef} className={styles.pageStack}>
-            {(readingMode === 'scroll'
-              ? Array.from({ length: totalPages }, (_, index) => index + 1)
-              : [currentPage]
-            ).map((pageNumber) => (
-              <DjvuPageView
-                key={pageNumber}
-                doc={doc}
-                pageNumber={pageNumber}
-                viewportRef={viewportRef}
-                pageSize={pageSizes.get(pageNumber)}
-                readerZoom={readerZoom}
-                layoutVersion={layoutVersion}
-                initiallyVisible={Math.abs(pageNumber - currentPage) <= 1}
-              />
-            ))}
+            {pages}
           </div>
         )}
       </div>
+      {session && readingMode === 'paginated' && (
+        <div className={styles.pageControls} onClick={(event) => event.stopPropagation()}>
+          <button type="button" aria-label="Previous page" disabled={currentPage <= 1} onClick={() => goToPage(currentPage - 1)}>
+            <ChevronLeft size={18} />
+          </button>
+          <span>Page {currentPage} of {totalPages}</span>
+          <button type="button" aria-label="Next page" disabled={currentPage >= totalPages} onClick={() => goToPage(currentPage + 1)}>
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      )}
     </div>
   );
 });

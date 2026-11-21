@@ -162,6 +162,7 @@ export const ImageReader = memo(
     // Create and manage Blob Object URL lifecycle
     useEffect(() => {
       if (!fileData || fileData.byteLength === 0) {
+        setObjectUrl(null);
         setError('No image data provided.');
         setLoading(false);
         return;
@@ -189,16 +190,17 @@ export const ImageReader = memo(
       const observer = new ResizeObserver((entries) => {
         const entry = entries[0];
         if (entry) {
-          setViewportSize({
-            width: entry.contentRect.width,
-            height: entry.contentRect.height,
-          });
+          const { width, height } = entry.contentRect;
+          setViewportSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
         }
       });
 
       observer.observe(viewport);
       return () => observer.disconnect();
     }, []);
+
+    const currentBookId = book?.id;
+    const isArchived = Boolean(book?.archived);
 
     // Load sibling images for collection navigation
     useEffect(() => {
@@ -209,7 +211,7 @@ export const ImageReader = memo(
           if (!isMounted) return;
 
           const images = allBooks.filter(
-            (b) => b.sourceFormat === 'png' || b.sourceFormat === 'jpeg'
+            (b) => (b.sourceFormat === 'png' || b.sourceFormat === 'jpeg') && Boolean(b.archived) === isArchived
           );
 
           images.sort((a, b) =>
@@ -217,10 +219,7 @@ export const ImageReader = memo(
           );
 
           setSiblingImages(images);
-          if (book) {
-            const idx = images.findIndex((b) => b.id === book.id);
-            setCurrentIndex(idx);
-          }
+          setCurrentIndex(images.findIndex((image) => image.id === currentBookId));
         } catch {
           // Ignore library lookup errors
         }
@@ -230,14 +229,7 @@ export const ImageReader = memo(
       return () => {
         isMounted = false;
       };
-    }, [book]);
-
-    // Report initial progress
-    useEffect(() => {
-      if (onProgressUpdate) {
-        onProgressUpdate('image-1', 1.0, 0);
-      }
-    }, [onProgressUpdate]);
+    }, [currentBookId, isArchived]);
 
     const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
       const img = e.currentTarget;
@@ -246,6 +238,7 @@ export const ImageReader = memo(
         height: img.naturalHeight || 600,
       });
       setLoading(false);
+      onProgressUpdate?.('image-1', 1, 0);
     };
 
     const handleImageError = () => {
@@ -259,7 +252,7 @@ export const ImageReader = memo(
         const targetIndex = currentIndex + offset;
         if (targetIndex >= 0 && targetIndex < siblingImages.length) {
           const target = siblingImages[targetIndex];
-          navigate(`/reader/${target.id}`);
+          navigate(`/read/${target.id}`);
         }
       },
       [currentIndex, siblingImages, navigate]
@@ -268,14 +261,15 @@ export const ImageReader = memo(
     // Keyboard navigation (ArrowLeft/ArrowRight)
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey ||
+            (e.target instanceof Element && e.target.closest('input, textarea, select, button, [contenteditable], [role=dialog]'))) {
           return;
         }
 
-        if (e.key === 'ArrowLeft') {
+        if (e.key === 'ArrowLeft' && currentIndex > 0) {
           e.preventDefault();
           navigateToSibling(-1);
-        } else if (e.key === 'ArrowRight') {
+        } else if (e.key === 'ArrowRight' && currentIndex >= 0 && currentIndex < siblingImages.length - 1) {
           e.preventDefault();
           navigateToSibling(1);
         } else if (e.key.toLowerCase() === 'r') {
@@ -285,7 +279,7 @@ export const ImageReader = memo(
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [navigateToSibling]);
+    }, [currentIndex, navigateToSibling, siblingImages.length]);
 
     // Calculate dimensions
     const isRotatedQuarter = rotation === 90 || rotation === 270;
@@ -513,7 +507,7 @@ export const ImageReader = memo(
           </button>
         )}
 
-        {siblingImages.length > 1 && currentIndex < siblingImages.length - 1 && (
+        {siblingImages.length > 1 && currentIndex >= 0 && currentIndex < siblingImages.length - 1 && (
           <button
             type="button"
             className={`${styles.navArrow} ${styles.navArrowRight}`}
@@ -570,6 +564,7 @@ export const ImageReader = memo(
                   }}
                   onLoad={handleImageLoad}
                   onError={handleImageError}
+                  decoding="async"
                   draggable={false}
                 />
               </div>

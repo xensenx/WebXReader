@@ -82,7 +82,7 @@
 }
 
 .chapterBody {
-  /* Dynamic typography applied inline or via variables */
+  line-height: var(--reader-line-height, 1.7);
 }
 
 /* Rich prose styling */
@@ -160,11 +160,11 @@
   letter-spacing: 0.2em;
 }
 
-[data-mht] .chapterBody {
+[data-rich-content] .chapterBody {
   overflow-wrap: anywhere;
 }
 
-[data-mht] .chapterBody table {
+[data-rich-content] .chapterBody table {
   display: block;
   max-width: 100%;
   overflow-x: auto;

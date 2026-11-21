@@ -6,7 +6,7 @@
 
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
-import { ensureDjvuInitialized, WasmDocument } from './djvu-init';
+import { ensureDjvuInitialized, WasmDocument, withDjvuPage } from './djvu-init';
 
 export interface DjvuParseResult {
   metadata: Partial<BookMetadata>;
@@ -192,27 +192,28 @@ function extractCoverFromPage1(doc: WasmDocument): string | undefined {
     const pageCount = doc.page_count();
     if (pageCount === 0) return undefined;
 
-    const page0 = doc.page(0);
-    const nativeDpi = page0.dpi() || 100;
-    const targetWidth = 360;
-    const baseWidth = page0.width_at(nativeDpi) || 100;
-    const scale = Math.min(2.0, Math.max(0.2, targetWidth / baseWidth));
-    const targetDpi = Math.max(20, Math.round(nativeDpi * scale));
+    return withDjvuPage(doc, 0, (page0) => {
+      const nativeDpi = page0.dpi() || 100;
+      const targetWidth = 360;
+      const baseWidth = page0.width_at(nativeDpi) || 100;
+      const scale = Math.min(2.0, Math.max(0.2, targetWidth / baseWidth));
+      const targetDpi = Math.max(20, Math.round(nativeDpi * scale));
 
-    const pixels = page0.render(targetDpi);
-    const width = page0.width_at(targetDpi);
-    const height = page0.height_at(targetDpi);
+      const pixels = page0.render(targetDpi);
+      const width = page0.width_at(targetDpi);
+      const height = page0.height_at(targetDpi);
 
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return undefined;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return undefined;
 
-    const imgData = new ImageData(pixels as any, width, height);
-    ctx.putImageData(imgData, 0, 0);
+      const imgData = new ImageData(pixels as any, width, height);
+      ctx.putImageData(imgData, 0, 0);
 
-    return canvas.toDataURL('image/jpeg', 0.85);
+      return canvas.toDataURL('image/jpeg', 0.85);
+    });
   } catch (err) {
     console.warn('Could not extract DjVu cover thumbnail:', err);
     return undefined;
@@ -257,42 +258,45 @@ export async function parseDjvu(
     throw new Error(`Failed to parse DjVu file: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  const totalPages = doc.page_count();
-  if (totalPages === 0) {
-    throw new Error('Invalid DjVu file: document contains 0 pages.');
-  }
-
-  // 3. Extract IFF metadata (annotations) and bookmarks
-  const metadata = extractIffMetadata(bytes);
-  const tableOfContents = extractIffBookmarks(bytes, totalPages);
-
-  // 4. Extract cover image thumbnail from page 1
-  const coverImage = extractCoverFromPage1(doc);
-
-  // 5. Extract text layers for full-text search
-  const maxScan = options.maxTextPages ?? 200;
-  const scanLimit = Math.min(totalPages, maxScan);
-  const textParts: string[] = [];
-
-  for (let i = 0; i < scanLimit; i++) {
-    try {
-      const page = doc.page(i);
-      const txt = page.text();
-      if (txt && txt.trim()) {
-        textParts.push(txt.trim());
-      }
-    } catch {
-      // Non-critical: some pages may lack text layers
+  try {
+    const totalPages = doc.page_count();
+    if (totalPages === 0) {
+      throw new Error('Invalid DjVu file: document contains 0 pages.');
     }
+
+    // 3. Extract IFF metadata (annotations) and bookmarks
+    const metadata = extractIffMetadata(bytes);
+    const tableOfContents = extractIffBookmarks(bytes, totalPages);
+
+    // 4. Extract cover image thumbnail from page 1
+    const coverImage = extractCoverFromPage1(doc);
+
+    // 5. Extract text layers for full-text search
+    const maxScan = options.maxTextPages ?? 200;
+    const scanLimit = Math.min(totalPages, maxScan);
+    const textParts: string[] = [];
+
+    for (let i = 0; i < scanLimit; i++) {
+      try {
+        const txt = withDjvuPage(doc, i, (page) => page.text());
+        if (txt && txt.trim()) {
+          textParts.push(txt.trim());
+        }
+      } catch {
+        // Non-critical: some pages may lack text layers
+      }
+    }
+
+    const rawText = textParts.join('\n\n');
+
+    return {
+      metadata,
+      tableOfContents,
+      coverImage,
+      totalPages,
+      rawText,
+    };
+  } finally {
+    doc.free();
   }
-
-  const rawText = textParts.join('\n\n');
-
-  return {
-    metadata,
-    tableOfContents,
-    coverImage,
-    totalPages,
-    rawText,
-  };
 }

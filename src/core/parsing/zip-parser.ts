@@ -168,6 +168,11 @@ export async function parseZip(
     throw new Error(`Failed to read ZIP archive: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  return indexValidatedZip(zip, options.filename);
+}
+
+/** Read the directory of an archive that already passed ZIP budget validation. */
+export async function indexValidatedZip(zip: JSZip, filename?: string, includeCover = true): Promise<ZipParseResult> {
   const fileKeys = Object.keys(zip.files);
   if (fileKeys.length === 0) {
     throw new Error('ZIP archive contains no entries.');
@@ -282,7 +287,7 @@ export async function parseZip(
     preferredCoverCandidates[0] ||
     entries.find((e) => !e.isDirectory && e.kind === 'image');
 
-  if (coverCandidate) {
+  if (includeCover && coverCandidate) {
     try {
       const imgZipObj = zip.file(coverCandidate.path);
       if (imgZipObj) {
@@ -295,7 +300,7 @@ export async function parseZip(
     }
   }
 
-  const rawTitle = options.filename?.replace(/\.zip$/i, '') || 'ZIP Archive';
+  const rawTitle = filename?.replace(/\.zip$/i, '') || 'ZIP Archive';
 
   return {
     metadata: {

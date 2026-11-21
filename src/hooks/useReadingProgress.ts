@@ -19,12 +19,7 @@ export function useReadingProgress(bookId: string): UseReadingProgressResult {
   const [progress, setProgress] = useState<ReadingProgress | null>(null);
   const [loading, setLoading] = useState(true);
   const progressRef = useRef<ReadingProgress | null>(null);
-  const mountedRef = useRef(true);
-
-  // Keep ref in sync with state
-  useEffect(() => {
-    progressRef.current = progress;
-  }, [progress]);
+  const hasPublishedRef = useRef(false);
 
   // Persist progress to IndexedDB
   const persistProgress = useCallback(async (p: ReadingProgress) => {
@@ -50,6 +45,7 @@ export function useReadingProgress(bookId: string): UseReadingProgressResult {
     setLoading(true);
     setProgress(null);
     progressRef.current = null;
+    hasPublishedRef.current = false;
 
     async function load() {
       try {
@@ -76,16 +72,6 @@ export function useReadingProgress(bookId: string): UseReadingProgressResult {
     };
   }, [bookId, debouncedSave]);
 
-  // Cleanup on unmount: flush pending and cancel debounce
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      debouncedSave.flush();
-      debouncedSave.cancel();
-    };
-  }, [debouncedSave]);
-
   const updateProgressFn = useCallback(
     (partial: Partial<ReadingProgress>) => {
       const base: ReadingProgress = progressRef.current ?? {
@@ -98,12 +84,16 @@ export function useReadingProgress(bookId: string): UseReadingProgressResult {
         readingMode: 'scroll',
         lastUpdatedAt: Date.now(),
       };
+      if (hasPublishedRef.current && progressRef.current?.bookId === bookId &&
+          (Object.keys(partial) as (keyof ReadingProgress)[]).every((key) =>
+            key === 'lastUpdatedAt' || partial[key] === base[key])) return;
       const updated: ReadingProgress = {
         ...base,
         ...partial,
         bookId,
         lastUpdatedAt: Date.now(),
       };
+      hasPublishedRef.current = true;
       progressRef.current = updated;
 
       // Only trigger a React state update if integer percent, chapter, or page changed

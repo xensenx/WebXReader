@@ -6,7 +6,9 @@
 
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId } from '../../utils';
-import { sanitizeReaderHtml } from './sanitize-reader-html';
+import { escapeHtml, sanitizeBookChapter } from './sanitize-reader-html';
+import { embeddedRasterUrl } from './embedded-raster';
+import { inlineKindleImages } from './kindle-images';
 import { HuffReader } from './huffcdic';
 
 /** Result of parsing a MOBI document */
@@ -30,58 +32,6 @@ interface PdbRecord {
   offset: number;
   attributes: number;
   uniqueId: number;
-}
-
-/**
- * Converts a Uint8Array into a Base64 string in chunks to prevent call-stack limits.
- */
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunkSize = 8192;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-  }
-  return btoa(binary);
-}
-
-/**
- * Determines image MIME type from binary magic bytes.
- */
-function detectImageMimeType(bytes: Uint8Array): string | null {
-  if (bytes.length < 4) return null;
-
-  // JPEG: FF D8 FF
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return 'image/jpeg';
-  }
-  // PNG: 89 50 4E 47
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
-    return 'image/png';
-  }
-  // GIF: 47 49 46 (GIF)
-  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
-    return 'image/gif';
-  }
-  // WebP: 52 49 46 46 (RIFF) ... 57 45 42 50 (WEBP)
-  if (
-    bytes.length >= 12 &&
-    bytes[0] === 0x52 &&
-    bytes[1] === 0x49 &&
-    bytes[2] === 0x46 &&
-    bytes[3] === 0x46 &&
-    bytes[8] === 0x57 &&
-    bytes[9] === 0x45 &&
-    bytes[10] === 0x42 &&
-    bytes[11] === 0x50
-  ) {
-    return 'image/webp';
-  }
-  // BMP: 42 4D (BM)
-  if (bytes[0] === 0x42 && bytes[1] === 0x4d) {
-    return 'image/bmp';
-  }
-
-  return null;
 }
 
 /**
@@ -591,7 +541,7 @@ export async function parseMobi(
   if (!isMobi && !/<[a-z][\s\S]*>/i.test(decodedText)) {
     decodedText = decodedText
       .split(/\r?\n\r?\n+/)
-      .map((para) => `<p>${para.replace(/\r?\n/g, '<br/>')}</p>`)
+      .map((para) => `<p>${escapeHtml(para).replace(/\r?\n/g, '<br/>')}</p>`)
       .join('\n');
   }
 
@@ -603,13 +553,8 @@ export async function parseMobi(
       ? firstImageIndex + exth.coverOffset
       : firstImageIndex;
 
-    const coverRec = getRecordData(coverRecordIdx);
-    if (coverRec) {
-      const mime = detectImageMimeType(coverRec);
-      if (mime) {
-        coverImage = `data:${mime};base64,${uint8ArrayToBase64(coverRec)}`;
-      }
-    }
+    coverImage = embeddedRasterUrl(getRecordData(coverRecordIdx))
+      ?? embeddedRasterUrl(getRecordData(firstImageIndex));
   }
 
   // 9. Process and Split Chapters
@@ -623,6 +568,8 @@ export async function parseMobi(
   normalizedHtml = normalizedHtml
     .replace(/<guide[\s\S]*?<\/guide>/gi, '')
     .replace(/<idx:entry[\s\S]*?<\/idx:entry>/gi, '');
+
+  normalizedHtml = inlineKindleImages(normalizedHtml, firstImageIndex, getRecordData);
 
   if (autoDetectChapters) {
     let rawSections: string[] = [];
@@ -646,7 +593,7 @@ export async function parseMobi(
 
       const plainText = htmlToPlainText(sectionHtml);
       // Skip sections that have practically no readable content
-      if (plainText.length === 0 && !/<(?:p|div|h[1-6]|table|blockquote)/i.test(sectionHtml)) {
+      if (plainText.length === 0 && !/<(?:p|div|h[1-6]|table|blockquote|img)/i.test(sectionHtml)) {
         continue;
       }
 
@@ -655,7 +602,7 @@ export async function parseMobi(
         : `Chapter ${order + 1}`;
 
       const title = extractTitleFromSectionHtml(sectionHtml, defaultTitle);
-      const cleanHtml = sanitizeReaderHtml(sectionHtml);
+      const cleanHtml = sanitizeBookChapter(sectionHtml, 'mobi');
 
       chapters.push({
         id: generateId(),
@@ -678,7 +625,7 @@ export async function parseMobi(
         title: singleTitle,
         level: 0,
         order: 0,
-        content: sanitizeReaderHtml(normalizedHtml),
+        content: sanitizeBookChapter(normalizedHtml, 'mobi'),
       },
     ];
   }

@@ -15,7 +15,8 @@ import {
   forwardRef,
   type KeyboardEvent,
 } from 'react';
-import { PageFlip } from 'page-flip';
+import type { PageFlip } from 'page-flip';
+import { OnDemandPageFlip } from './on-demand-page-flip';
 import 'page-flip/src/Style/stPageFlip.css';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ComicReadingDirection } from '../../types/book';
@@ -322,7 +323,7 @@ export const ComicDoubleSidedReader = forwardRef<CbzReaderHandle, ComicDoubleSid
         mountEl.appendChild(sheet);
       }
 
-      const pageFlip = new PageFlip(mountEl, {
+      const pageFlip = new OnDemandPageFlip(mountEl, {
         width: dims.pageWidth,
         height: dims.pageHeight,
         size: 'fixed',

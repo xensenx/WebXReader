@@ -5,7 +5,6 @@
 import type { FormatDefinition, FormatParsedData, FormatImportContext } from '../types';
 import { readFileAsArrayBuffer } from '../../utils';
 import { parseMht } from '../../core/parsing/mht-parser';
-import { getDefaultBookCover } from '../../assets/covers/default-book-cover';
 import type { Chapter } from '../../types/book';
 
 export const mhtFormat: FormatDefinition = {
@@ -44,7 +43,7 @@ export const mhtFormat: FormatDefinition = {
       metadata,
       tableOfContents,
       chapters,
-      coverImage: coverImage ?? getDefaultBookCover('mht'),
+      coverImage,
       rawText,
     };
   },

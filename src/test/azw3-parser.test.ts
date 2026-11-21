@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseAzw3 } from '../core/parsing/azw3-parser';
 
+import { SAMPLE_JPEG } from './comic-test-helpers';
+
 describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
   const fixturePath = path.resolve(__dirname, '../../fixtures/sample-novel.azw3');
 
@@ -58,7 +60,7 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
   });
 
   describe('Dual-Format MOBI/KF8 Hybrid Handling', () => {
-    it('detects EXTH tag 121 and extracts the high-fidelity KF8 section instead of MOBI7 fallback', async () => {
+    it('reads KF8 text and resolves shared and KF8-only images in joint resource order', async () => {
       // Create minimal dual format binary
       const mobi7Html = '<html><body><h1>Legacy MOBI7</h1></body></html>';
       const kf8Xhtml = `<?xml version="1.0" encoding="utf-8"?>
@@ -70,6 +72,8 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
   <div style="page-break-before:always"></div>
   <h2>Chapter 1: The Modern Stream</h2>
   <p>Extracted from KF8 section.</p>
+  <img alt="shared" src="kindle:embed:0001" />
+  <img alt="KF8" src="kindle:embed:0003" />
 </body>
 </html>`;
 
@@ -84,6 +88,7 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
       kf8MobiHeader.writeUInt32BE(65001, 12);
       kf8MobiHeader.writeUInt32BE(8, 20); // fileVersion = 8
 
+      kf8MobiHeader.writeUInt32BE(2, 92); // relative to the KF8 header
       const kf8Title = Buffer.from('KF8 Masterpiece', 'utf-8');
       const kf8PalmDoc = Buffer.alloc(16);
       kf8PalmDoc.writeUInt16BE(1, 0); // compression: 1
@@ -92,19 +97,20 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
 
       const rec3_kf8Record0 = Buffer.concat([kf8PalmDoc, kf8MobiHeader, kf8Title]);
 
-      // MOBI 7 Record 0 with tag 121 = 3
+      // MOBI 7 Record 0 with tag 121 pointing to the KF8 header
       const m7MobiHeader = Buffer.alloc(248, 0);
       m7MobiHeader.write('MOBI', 0, 4, 'ascii');
       m7MobiHeader.writeUInt32BE(248, 4);
       m7MobiHeader.writeUInt32BE(2, 8);
       m7MobiHeader.writeUInt32BE(65001, 12);
       m7MobiHeader.writeUInt32BE(6, 20); // fileVersion = 6
+      m7MobiHeader.writeUInt32BE(2, 92); // absolute MOBI 7 resource start
       m7MobiHeader.writeUInt32BE(0x40, 112); // EXTH present
 
       const exthEntry = Buffer.alloc(12);
       exthEntry.writeUInt32BE(121, 0); // tag 121
       exthEntry.writeUInt32BE(12, 4);
-      exthEntry.writeUInt32BE(3, 8); // kf8 starts at record index 3
+      exthEntry.writeUInt32BE(5, 8); // KF8 starts at record index 5
 
       const exthHdr = Buffer.alloc(12);
       exthHdr.write('EXTH', 0, 4, 'ascii');
@@ -118,11 +124,12 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
       m7PalmDoc.writeUInt16BE(1, 8);
 
       const rec0_m7Record0 = Buffer.concat([m7PalmDoc, m7MobiHeader, m7ExthBlock]);
-      const rec1_m7Text = m7Buf;
-      const rec2_boundary = Buffer.from('BOUNDARY');
-      const rec4_kf8Text = kf8Buf;
-
-      const allRecs = [rec0_m7Record0, rec1_m7Text, rec2_boundary, rec3_kf8Record0, rec4_kf8Text];
+      const sharedImage = SAMPLE_JPEG;
+      const kf8Image = Buffer.concat([SAMPLE_JPEG, Buffer.from([0])]);
+      const allRecs = [
+        rec0_m7Record0, m7Buf, sharedImage, Buffer.from('FLIS'), Buffer.from('BOUNDARY'),
+        rec3_kf8Record0, kf8Buf, kf8Image,
+      ];
       const numRecords = allRecs.length;
 
       const pdbHeader = Buffer.alloc(78);
@@ -149,6 +156,8 @@ describe('AZW3 & Kindle Format 8 (KF8) Parser', () => {
       expect(result.chapters.length).toBe(2);
       expect(result.chapters[1].title).toBe('Chapter 1: The Modern Stream');
       expect(result.chapters[1].content).toContain('Extracted from KF8 section.');
+      expect(result.chapters[1].content).toContain(`data:image/jpeg;base64,${sharedImage.toString('base64')}`);
+      expect(result.chapters[1].content).toContain(`data:image/jpeg;base64,${kf8Image.toString('base64')}`);
       expect(result.rawText).not.toContain('Legacy MOBI7');
     });
   });

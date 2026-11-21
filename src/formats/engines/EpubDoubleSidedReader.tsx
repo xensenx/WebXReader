@@ -16,7 +16,8 @@ import {
 } from 'react';
 import type { CSSProperties, KeyboardEvent } from 'react';
 import ePub from 'epubjs';
-import { PageFlip } from 'page-flip';
+import type { PageFlip } from 'page-flip';
+import { OnDemandPageFlip } from './on-demand-page-flip';
 import 'page-flip/src/Style/stPageFlip.css';
 import {
   ChevronLeft,
@@ -634,7 +635,7 @@ export const EpubDoubleSidedReader = forwardRef<EpubReaderHandle, EpubDoubleSide
         }
 
         // Initialize PageFlip
-        const pageFlip = new PageFlip(mountEl, {
+        const pageFlip = new OnDemandPageFlip(mountEl, {
           width: dimensions.pageWidth,
           height: dimensions.pageHeight,
           size: 'fixed',

@@ -115,6 +115,20 @@ describe('FictionBook (FB2) Parser', () => {
     expect(fullHtml).toContain('Spaceguard');
   });
 
+  it('keeps binary illustrations and matching note anchors', async () => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/AwMDEwMDAAMYAAQMAA4d/nOIAAAAASUVORK5CYII=';
+    const { chapters } = await parseFb2(`
+      <FictionBook xmlns:l="http://www.w3.org/1999/xlink">
+        <body><section><p><image l:href="#illustration" alt="Local map"/><a l:href="#n1">Note</a></p></section></body>
+        <body name="notes"><section id="n1"><p>Note text</p></section></body>
+        <binary id="illustration" content-type="image/png">${png}</binary>
+      </FictionBook>
+    `);
+    expect(chapters[0].content).toContain('data:image/png;base64,');
+    expect(chapters[0].content).toContain('href="#n1"');
+    expect(chapters.at(-1)?.content).toContain('id="n1"');
+  });
+
   it('supports nested section hierarchies with parent and child levels', async () => {
     const nestedFb2 = `<?xml version="1.0" encoding="utf-8"?>
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">

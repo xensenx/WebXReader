@@ -6,7 +6,6 @@ import type { FormatDefinition, FormatParsedData, FormatImportContext } from '..
 import { readFileAsText } from '../../utils';
 import { parseTxt } from '../../core/parsing/txt-parser';
 import type { Chapter } from '../../types/book';
-import { DEFAULT_TXT_COVER } from '../../assets/covers/txt-default-cover';
 
 export const txtFormat: FormatDefinition = {
   id: 'txt',
@@ -40,7 +39,6 @@ export const txtFormat: FormatDefinition = {
       tableOfContents,
       chapters,
       rawText: text,
-      coverImage: DEFAULT_TXT_COVER,
     };
   },
 };

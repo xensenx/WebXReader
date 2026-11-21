@@ -23,43 +23,30 @@ export interface RtfParseOptions {
   defaultCodePage?: number;
 }
 
-/** Windows-1252 mapping for bytes 0x80 to 0x9F */
-const CP1252_MAP: Record<number, number> = {
-  0x80: 0x20AC, // €
-  0x82: 0x201A, // ‚
-  0x83: 0x0192, // ƒ
-  0x84: 0x201E, // „
-  0x85: 0x2026, // …
-  0x86: 0x2020, // †
-  0x87: 0x2021, // ‡
-  0x88: 0x02C6, // ˆ
-  0x89: 0x2030, // ‰
-  0x8A: 0x0160, // Š
-  0x8B: 0x2039, // ‹
-  0x8C: 0x0152, // Œ
-  0x8E: 0x017D, // Ž
-  0x91: 0x2018, // ‘
-  0x92: 0x2019, // ’
-  0x93: 0x201C, // “
-  0x94: 0x201D, // ”
-  0x95: 0x2022, // •
-  0x96: 0x2013, // –
-  0x97: 0x2014, // —
-  0x98: 0x02DC, // ˜
-  0x99: 0x2122, // ™
-  0x9A: 0x0161, // š
-  0x9B: 0x203A, // ›
-  0x9C: 0x0153, // œ
-  0x9E: 0x017E, // ž
-  0x9F: 0x0178, // Ÿ
-};
+function declaredCodePage(text: string): number | undefined {
+  const codePage = /\\ansicpg(\d+)\b/i.exec(text.slice(0, 4096))?.[1];
+  return codePage ? Number(codePage) : undefined;
+}
 
-function decodeCp1252Byte(byte: number): string {
-  if (byte >= 0x80 && byte <= 0x9F) {
-    const unicode = CP1252_MAP[byte];
-    return unicode ? String.fromCharCode(unicode) : String.fromCharCode(byte);
+function rtfDecoder(codePage = 1252): TextDecoder {
+  const labels: Record<number, string> = { 874: 'windows-874', 932: 'shift_jis', 936: 'gbk', 949: 'euc-kr', 950: 'big5', 65001: 'utf-8' };
+  try {
+    return new TextDecoder(labels[codePage] ?? `windows-${codePage}`);
+  } catch {
+    return new TextDecoder('windows-1252');
   }
-  return String.fromCharCode(byte);
+}
+
+export function decodeRtfDocument(buffer: ArrayBuffer, encoding?: string): string {
+  if (encoding) return new TextDecoder(encoding, { fatal: true }).decode(buffer);
+  const prefix = new TextDecoder().decode(buffer.slice(0, 4096));
+  const codePage = declaredCodePage(prefix);
+  if (codePage !== undefined) return rtfDecoder(codePage).decode(buffer);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch {
+    return rtfDecoder().decode(buffer);
+  }
 }
 
 /** Character styling flags in RTF state */
@@ -132,6 +119,7 @@ type RtfBlock =
  * Parses an RTF document string into HTML blocks and metadata.
  */
 export function parseRtf(rtfContent: string, options: RtfParseOptions = {}): RtfParseResult {
+  const byteDecoder = rtfDecoder(declaredCodePage(rtfContent) ?? options.defaultCodePage);
   const { autoDetectChapters = true } = options;
 
   // Verify header
@@ -331,15 +319,28 @@ export function parseRtf(rtfContent: string, options: RtfParseOptions = {}): Rtf
         continue;
       }
 
-      // Hex character escape: \'hh
+      // Printable ASCII can be a raw trail byte after a hex escape.
+      // Decode the text run together without crossing RTF control or group boundaries.
       if (nextChar === "'") {
-        i++;
-        const hex = rtfContent.slice(i, i + 2);
-        if (/^[0-9a-fA-F]{2}$/.test(hex)) {
-          const byteVal = parseInt(hex, 16);
-          appendText(decodeCp1252Byte(byteVal));
-          i += 2;
+        const bytes: number[] = [];
+        i--;
+        while (i < len) {
+          if (rtfContent.startsWith("\\'", i)) {
+            const hex = rtfContent.slice(i + 2, i + 4);
+            if (!/^[0-9a-f]{2}$/i.test(hex)) {
+              i += 2;
+              break;
+            }
+            bytes.push(Number.parseInt(hex, 16));
+            i += 4;
+          } else {
+            const code = rtfContent.charCodeAt(i);
+            if (code < 0x20 || code > 0x7e || /[\\{}]/.test(rtfContent[i])) break;
+            bytes.push(code);
+            i++;
+          }
         }
+        appendText(byteDecoder.decode(Uint8Array.from(bytes)));
         continue;
       }
 
@@ -459,6 +460,12 @@ export function parseRtf(rtfContent: string, options: RtfParseOptions = {}): Rtf
         case 'qj':
           currentState.paraFormat.align = 'justify';
           currentParaFormat.align = 'justify';
+          break;
+        case 'outlinelevel':
+          if (param !== null && param >= 0) {
+            currentState.paraFormat.headingLevel = param < 9 ? param + 1 : 0;
+            currentParaFormat.headingLevel = currentState.paraFormat.headingLevel;
+          }
           break;
         case 's':
           // Heading style (e.g. \s1 = h1, \s2 = h2)
@@ -694,7 +701,7 @@ function isChapterHeading(block: RtfBlock): string | null {
   if (plain.length === 0 || plain.length > 120) return null;
 
   // Explicit heading level (\s1, \s2)
-  if (block.headingLevel === 1 || block.headingLevel === 2) {
+  if (block.headingLevel > 0) {
     return plain;
   }
 
@@ -762,12 +769,14 @@ function assembleChapters(
   // Detect chapter partitions
   interface Partition {
     title: string;
+    level: number;
     blocks: RtfBlock[];
   }
 
   const partitions: Partition[] = [];
   let currentPartition: Partition = {
     title: metadata.title || 'Start',
+    level: 0,
     blocks: [],
   };
 
@@ -783,10 +792,12 @@ function assembleChapters(
         partitions.push(currentPartition);
         currentPartition = {
           title: headingTitle,
+          level: block.type === 'paragraph' ? Math.max(0, block.headingLevel - 1) : 0,
           blocks: [block],
         };
       } else {
         currentPartition.title = headingTitle;
+        currentPartition.level = block.type === 'paragraph' ? Math.max(0, block.headingLevel - 1) : 0;
         currentPartition.blocks.push(block);
       }
     } else if (isBreak && currentPartition.blocks.length > 2) {
@@ -794,6 +805,7 @@ function assembleChapters(
       partitions.push(currentPartition);
       currentPartition = {
         title: `Section ${partitions.length + 1}`,
+        level: 0,
         blocks: [],
       };
     } else {
@@ -829,7 +841,7 @@ function assembleChapters(
     id: generateId(),
     title: p.title || `Chapter ${idx + 1}`,
     content: sanitizeReaderHtml(p.blocks.map(blockToHtml).filter(Boolean).join('\n')),
-    level: 0,
+    level: p.level,
     order: idx,
   }));
 

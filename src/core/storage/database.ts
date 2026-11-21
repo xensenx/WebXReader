@@ -18,7 +18,7 @@ import type {
   BackupData,
   BackupBookContent,
 } from '../../types/book';
-import { sanitizeReaderHtml, sanitizeMhtReaderHtml } from '../parsing/sanitize-reader-html';
+import { sanitizeBookChapter } from '../parsing/sanitize-reader-html';
 
 const DB_NAME = 'webxreader';
 const DB_VERSION = 1;
@@ -239,6 +239,30 @@ export async function updateBookAndCover(book: Book, coverData?: string): Promis
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(new Error(`Failed to save book details: ${tx.error?.message ?? 'transaction failed'}`));
     tx.onabort = () => reject(new Error(`Book details were not saved: ${tx.error?.message ?? 'transaction aborted'}`));
+  });
+}
+
+/** Record a cover scan for an older EPUB while preserving later edits and legacy cover records. */
+export async function saveRecoveredEpubCover(bookId: string, coverImage?: string): Promise<void> {
+  const db = await getDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORES.books, STORES.covers], 'readwrite');
+    const books = tx.objectStore(STORES.books);
+    const covers = tx.objectStore(STORES.covers);
+    const bookRequest = books.get(bookId);
+    const coverRequest = covers.get(bookId);
+    coverRequest.onsuccess = () => {
+      const book = bookRequest.result as Book | undefined;
+      if (book?.sourceFormat !== 'epub' || book.coverImage || book.originalCoverImage !== undefined || coverRequest.result?.data) return;
+      if (coverImage) {
+        books.put({ ...book, coverImage });
+        covers.put({ bookId, data: coverImage });
+      } else {
+        books.put({ ...book, originalCoverImage: null });
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new Error('Could not save recovered EPUB cover.'));
   });
 }
 
@@ -677,11 +701,10 @@ function isBackupBookContent(value: unknown): value is BackupBookContent {
 }
 
 function sanitizeRestoredChapter(chapter: Chapter, format: BookFormat): Chapter {
-  const sanitize = format === 'mht' ? sanitizeMhtReaderHtml : sanitizeReaderHtml;
   return {
     id: chapter.id,
     title: chapter.title,
-    content: chapter.content === undefined ? undefined : sanitize(chapter.content),
+    content: chapter.content === undefined ? undefined : sanitizeBookChapter(chapter.content, format),
     href: chapter.href,
     level: chapter.level,
     order: chapter.order,

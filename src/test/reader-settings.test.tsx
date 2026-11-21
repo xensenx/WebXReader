@@ -168,54 +168,21 @@ describe('Reader Settings Enhancements', () => {
       expect(screen.queryByText(/^expand to full width$/i)).not.toBeInTheDocument();
     });
 
-    it('renders original Reading Mode options and Expand to Full Width toggle for non-txt formats (e.g. mobi)', () => {
-      const handleUpdate = vi.fn();
-      render(
-        <ReaderSettings
-          isOpen
-          onClose={vi.fn()}
-          settings={dummySettings}
-          onUpdate={handleUpdate}
-          onReset={vi.fn()}
-          format="mobi"
-        />
-      );
-
-      // Reading Mode options
-      expect(screen.getByRole('button', { name: /vertical scroll/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /^pages$/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /double sided/i })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /page mode/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /expanded mode/i })).not.toBeInTheDocument();
-
-      // Separate toggle switch
-      const expandToggle = screen.getByRole('switch', { name: /expand to full width/i });
-      expect(expandToggle).toBeInTheDocument();
-      expect(expandToggle).toHaveAttribute('aria-checked', 'false');
-
-      fireEvent.click(expandToggle);
-      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: true });
-    });
-
-    it('toggles expand off when already active for non-txt reflowable format', () => {
-      const handleUpdate = vi.fn();
-      render(
-        <ReaderSettings
-          isOpen
-          onClose={vi.fn()}
-          settings={{ ...dummySettings, expandContent: true }}
-          onUpdate={handleUpdate}
-          onReset={vi.fn()}
-          format="mobi"
-        />
-      );
-
-      const expandToggle = screen.getByRole('switch', { name: /expand to full width/i });
-      expect(expandToggle).toHaveAttribute('aria-checked', 'true');
-
-      fireEvent.click(expandToggle);
-      expect(handleUpdate).toHaveBeenCalledWith({ expandContent: false });
-    });
+    it.each(['mobi', 'azw3', 'fb2', 'docx', 'doc', 'rtf'] as const)(
+      'offers the shared reflowable modes for %s',
+      (format) => {
+        const onUpdate = vi.fn();
+        render(<ReaderSettings isOpen onClose={vi.fn()} settings={dummySettings} onUpdate={onUpdate} onReset={vi.fn()} format={format} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Expanded Mode' }));
+        expect(onUpdate).toHaveBeenLastCalledWith({ expandContent: true, readingMode: 'scroll' });
+        fireEvent.click(screen.getByRole('button', { name: 'Contracted Mode' }));
+        expect(onUpdate).toHaveBeenLastCalledWith({ expandContent: false, readingMode: 'scroll' });
+        fireEvent.click(screen.getByRole('button', { name: 'Pages' }));
+        expect(onUpdate).toHaveBeenLastCalledWith({ readingMode: 'paginated' });
+        fireEvent.click(screen.getByRole('button', { name: 'Double Sided' }));
+        expect(onUpdate).toHaveBeenLastCalledWith({ readingMode: 'vertical' });
+      },
+    );
 
     it('handles Font Size stepper and slider updates', () => {
       const handleUpdate = vi.fn();

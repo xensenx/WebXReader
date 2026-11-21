@@ -267,6 +267,16 @@ export function ReaderSettings({
                     <span>Pages</span>
                   </button>
                 )}
+                {format !== 'txt' && canDoubleSided && (
+                  <button
+                    className={`${styles.modeBtn} ${settings.readingMode === 'vertical' ? styles.modeBtnActive : ''}`}
+                    onClick={() => onUpdate({ readingMode: 'vertical' })}
+                    type="button"
+                  >
+                    <BookOpen size={18} />
+                    <span>Double Sided</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className={styles.modeRow} aria-label={isFixed ? 'Fixed-layout document' : 'Reading modes'}>

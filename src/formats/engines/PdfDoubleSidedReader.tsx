@@ -14,12 +14,14 @@ import {
   forwardRef,
   type KeyboardEvent,
 } from 'react';
-import { PageFlip } from 'page-flip';
+import type { PageFlip } from 'page-flip';
+import { OnDemandPageFlip } from './on-demand-page-flip';
 import 'page-flip/src/Style/stPageFlip.css';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { PdfDocument, PageSize } from './PdfPageView';
 import type { PdfReaderHandle, PdfZoomAnchor } from './PdfReader';
 import type { ReaderSearchResult } from '../../components/reader/search-types';
+import { getPageRasterScale } from './page-raster-budget';
 import styles from './PdfDoubleSidedReader.module.css';
 
 export interface PdfDoubleSidedReaderProps {
@@ -138,6 +140,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
 
         try {
           const page = await pdfDoc.getPage(pageNum);
+          if (!mount.contains(canvas) || renderedPageZoomsRef.current.get(pageNum) !== currentZoom) return;
           const baseViewport = page.getViewport({ scale: 1 });
           const dims = spreadDimensions ?? calculateDimensions();
           if (!dims) return;
@@ -145,20 +148,8 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
           const scale = Math.min(dims.pageWidth / baseViewport.width, dims.pageHeight / baseViewport.height);
           const viewport = page.getViewport({ scale });
 
-          // Render at high-DPI scaling up with readerZoom while respecting device and canvas memory bounds
-          const maxCanvasDim = 8192;
-          const maxPixelCount = 24_000_000;
-          const baseDpr = window.devicePixelRatio || 1;
-          const targetDpr = Math.max(
-            1.0,
-            Math.min(
-              4.0,
-              baseDpr * Math.max(1, currentZoom),
-              maxCanvasDim / Math.max(1, viewport.width),
-              maxCanvasDim / Math.max(1, viewport.height),
-              Math.sqrt(maxPixelCount / Math.max(1, viewport.width * viewport.height))
-            )
-          );
+          const preferredDpr = Math.min(2.5, (window.devicePixelRatio || 1) * Math.max(1, currentZoom));
+          const targetDpr = getPageRasterScale(viewport.width, viewport.height, preferredDpr, 4096, 4_000_000);
 
           const targetWidth = Math.max(1, Math.floor(viewport.width * targetDpr));
           const targetHeight = Math.max(1, Math.floor(viewport.height * targetDpr));
@@ -186,9 +177,8 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
           });
           renderTasksRef.current.set(pageNum, task);
           await task.promise;
-          if (renderTasksRef.current.get(pageNum) === task) {
-            renderTasksRef.current.delete(pageNum);
-          }
+          if (renderTasksRef.current.get(pageNum) !== task) return;
+          renderTasksRef.current.delete(pageNum);
 
           // Double-buffered copy to visible canvas prevents blank flickering
           canvas.width = targetWidth;
@@ -218,7 +208,9 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
 
         // Clear distant canvases and release memory
         renderedPageZoomsRef.current.forEach((_, p) => {
-          if (p >= start - 2 && p <= end + 2) return;
+          if (p >= start && p <= end) return;
+          renderTasksRef.current.get(p)?.cancel();
+          renderTasksRef.current.delete(p);
           const distantCanvas = mount?.querySelector<HTMLCanvasElement>(`[data-pdf-canvas="${p}"]`);
           if (distantCanvas) {
             distantCanvas.width = 0;
@@ -349,7 +341,7 @@ export const PdfDoubleSidedReader = forwardRef<PdfReaderHandle, PdfDoubleSidedRe
         mountEl.appendChild(sheet);
       }
 
-      const pageFlip = new PageFlip(mountEl, {
+      const pageFlip = new OnDemandPageFlip(mountEl, {
         width: dims.pageWidth,
         height: dims.pageHeight,
         size: 'fixed',

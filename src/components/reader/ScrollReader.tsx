@@ -3,15 +3,16 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, type UIEvent } from 'react';
-import type { Chapter } from '../../types/book';
+import type { BookFormat, Chapter } from '../../types/book';
 import type { EffectiveReaderSettings } from '../../hooks/useReaderSettings';
-import { sanitizeReaderHtml, sanitizeMhtReaderHtml } from '../../core/parsing/sanitize-reader-html';
+import { allowsEmbeddedReaderImages } from '../../core/parsing/sanitize-reader-html';
 import { ChapterBody } from './ChapterBody';
+import { getReaderChapterHtml } from './chapter-html';
 import styles from './ScrollReader.module.css';
 
 interface ScrollReaderProps {
   chapters: Chapter[];
-  isMht?: boolean;
+  format?: BookFormat;
   settings: EffectiveReaderSettings;
   initialScrollPosition?: number;
   initialChapterId?: string;
@@ -25,7 +26,7 @@ interface ScrollReaderProps {
 
 export const ScrollReader = memo(function ScrollReader({
   chapters,
-  isMht = false,
+  format,
   settings,
   initialScrollPosition = 0,
   initialChapterId,
@@ -37,11 +38,8 @@ export const ScrollReader = memo(function ScrollReader({
   zoomAnchor,
 }: ScrollReaderProps) {
   const safeChapterContents = useMemo(
-    () => {
-      const sanitize = isMht ? sanitizeMhtReaderHtml : sanitizeReaderHtml;
-      return chapters.map((chapter) => sanitize(chapter.content));
-    },
-    [chapters, isMht],
+    () => chapters.map((chapter) => getReaderChapterHtml(chapter, format)),
+    [chapters, format],
   );
   const containerRef = useRef<HTMLDivElement>(null);
   const isInitialRestored = useRef(false);
@@ -71,12 +69,12 @@ export const ScrollReader = memo(function ScrollReader({
   // Restore initial position on mount
   useEffect(() => {
     let frame: number | null = null;
+    let observer: ResizeObserver | undefined;
 
     const restore = () => {
       const container = containerRef.current;
       if (isInitialRestored.current) return;
       if (!container || container.clientHeight <= 0) {
-        frame = requestAnimationFrame(restore);
         return;
       }
 
@@ -90,16 +88,25 @@ export const ScrollReader = memo(function ScrollReader({
         if (chapter) container.scrollTop = Math.min(chapter.offsetTop, maxScroll);
       } else if (initialScrollPosition > 0) {
         container.scrollTop = Math.min(initialScrollPosition, maxScroll);
+      } else if (initialProgressFraction > 0) {
+        container.scrollTop = initialProgressFraction * maxScroll;
       }
 
       lastProgressFractionRef.current = maxScroll > 0
         ? container.scrollTop / maxScroll
         : initialProgressFraction;
       isInitialRestored.current = true;
+      observer?.disconnect();
     };
 
+    const container = containerRef.current;
+    if (container && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(restore);
+      observer.observe(container);
+    }
     frame = requestAnimationFrame(restore);
     return () => {
+      observer?.disconnect();
       if (frame !== null) cancelAnimationFrame(frame);
     };
   }, [initialChapterId, initialScrollPosition, initialProgressFraction, initialProgressMode, chapters]);
@@ -205,7 +212,8 @@ export const ScrollReader = memo(function ScrollReader({
       ref={containerRef}
       className={styles.container}
       data-reader-viewport="vertical-scroll"
-      data-mht={isMht || undefined}
+      data-rich-content={allowsEmbeddedReaderImages(format) || undefined}
+      data-mht={format === 'mht' || undefined}
       onScroll={handleScroll}
       onClick={(e) => {
         // Toggle controls if clicking on background/margins

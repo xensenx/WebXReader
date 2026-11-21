@@ -7,7 +7,9 @@
 import { openBudgetedZip, readZipEntryLimited } from './zip-budget';
 import type { Chapter, BookMetadata } from '../../types/book';
 import { generateId, escapeHtml } from '../../utils';
-import { sanitizeReaderHtml } from './sanitize-reader-html';
+import { escapeAttr, sanitizeBookChapter } from './sanitize-reader-html';
+import { detectRasterMimeType } from './embedded-raster';
+import { ZIP_LIMITS } from './zip-budget';
 
 /** Result of parsing an FB2 document */
 export interface Fb2ParseResult {
@@ -231,111 +233,142 @@ function extractMetadata(doc: Document): {
   return { metadata, coverImage };
 }
 
-/**
- * Converts inline elements of an FB2 node to HTML.
- */
-function renderInlineContent(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) {
-    return escapeHtml(node.textContent || '');
-  }
+function createFb2Renderer(doc: Document) {
+  const binaries = new Map(Array.from(doc.getElementsByTagNameNS('*', 'binary'), (element) => [element.id, element]));
+  const images = new Map<string, string | undefined>();
+  let remaining = 24 * 1024 * 1024;
 
-  if (node.nodeType !== Node.ELEMENT_NODE) {
-    return '';
-  }
+  /**
+   * Converts inline elements of an FB2 node to HTML.
+   */
+  function renderInlineContent(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeHtml(node.textContent || '');
+    }
 
-  const elem = node as Element;
-  const tagName = elem.tagName.toLowerCase().replace(/^.*:/, '');
-  const inner = Array.from(elem.childNodes).map(renderInlineContent).join('');
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return '';
+    }
 
-  switch (tagName) {
-    case 'strong':
-    case 'b':
-      return `<strong>${inner}</strong>`;
-    case 'emphasis':
-    case 'em':
-    case 'i':
-      return `<em>${inner}</em>`;
-    case 'strikethrough':
-    case 's':
-    case 'del':
-      return `<s>${inner}</s>`;
-    case 'sub':
-      return `<sub>${inner}</sub>`;
-    case 'sup':
-      return `<sup>${inner}</sup>`;
-    case 'code':
-      return `<code>${inner}</code>`;
-    case 'style':
-      return `<span class="fb2-style">${inner}</span>`;
-    case 'a': {
-      const href =
-        elem.getAttribute('l:href') ||
-        elem.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
-        elem.getAttribute('xlink:href') ||
-        elem.getAttribute('href') ||
-        '';
-      return `<a href="${escapeHtml(href)}">${inner}</a>`;
-    }
-    default:
-      return inner;
-  }
-}
+    const elem = node as Element;
+    const tagName = elem.tagName.toLowerCase().replace(/^.*:/, '');
+    const inner = Array.from(elem.childNodes).map(renderInlineContent).join('');
 
-/**
- * Converts block-level elements of an FB2 node to HTML.
- */
-function renderBlockContent(elem: Element): string {
-  const tagName = elem.tagName.toLowerCase().replace(/^.*:/, '');
-
-  switch (tagName) {
-    case 'p':
-      return `<p>${renderInlineContent(elem)}</p>`;
-    case 'subtitle':
-      return `<h3 class="fb2-subtitle">${renderInlineContent(elem)}</h3>`;
-    case 'empty-line':
-      return '<div class="fb2-empty-line" aria-hidden="true">&nbsp;</div>';
-    case 'epigraph': {
-      const inner = Array.from(elem.children).map(renderBlockContent).join('\n');
-      return `<blockquote class="fb2-epigraph">${inner}</blockquote>`;
-    }
-    case 'cite': {
-      const inner = Array.from(elem.children).map(renderBlockContent).join('\n');
-      return `<blockquote class="fb2-cite">${inner}</blockquote>`;
-    }
-    case 'text-author':
-      return `<p class="fb2-author"><em>${renderInlineContent(elem)}</em></p>`;
-    case 'poem': {
-      const stanzas = Array.from(elem.children).map(renderBlockContent).join('\n');
-      return `<div class="fb2-poem">${stanzas}</div>`;
-    }
-    case 'stanza': {
-      const verses = Array.from(elem.children).map(renderBlockContent).join('\n');
-      return `<div class="fb2-stanza">${verses}</div>`;
-    }
-    case 'v':
-      return `<p class="fb2-verse">${renderInlineContent(elem)}</p>`;
-    case 'table': {
-      const rows = Array.from(elem.querySelectorAll('tr'))
-        .map((tr) => {
-          const cells = Array.from(tr.children)
-            .map((cell) => {
-              const tag = cell.tagName.toLowerCase();
-              const cellTag = tag === 'th' ? 'th' : 'td';
-              return `<${cellTag}>${renderInlineContent(cell)}</${cellTag}>`;
-            })
-            .join('');
-          return `<tr>${cells}</tr>`;
-        })
-        .join('');
-      return `<table class="fb2-table"><tbody>${rows}</tbody></table>`;
-    }
-    default:
-      // If it has children, render them
-      if (elem.children.length > 0) {
-        return Array.from(elem.children).map(renderBlockContent).join('\n');
+    switch (tagName) {
+      case 'image': {
+        const href = elem.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || elem.getAttribute('href');
+        if (!href?.startsWith('#')) return '';
+        const id = href.slice(1);
+        if (!images.has(id)) {
+          const data = binaries.get(id)?.textContent?.replace(/\s/g, '');
+          let url: string | undefined;
+          if (data && data.length <= Math.ceil(ZIP_LIMITS.coverBytes / 3) * 4 && /^[a-z\d+/]+={0,2}$/i.test(data)) {
+            try {
+              const header = Uint8Array.from(atob(data.slice(0, 48)), (byte) => byte.charCodeAt(0));
+              const mime = detectRasterMimeType(header);
+              if (mime) url = `data:${mime};base64,${data}`;
+            } catch {
+              // Invalid base64 image.
+            }
+          }
+          images.set(id, url);
+        }
+        const url = images.get(id);
+        if (!url || url.length > remaining) return '';
+        remaining -= url.length;
+        return `<img src="${url}" alt="${escapeAttr(elem.getAttribute('alt') ?? '')}" />`;
       }
-      return renderInlineContent(elem);
+      case 'strong':
+      case 'b':
+        return `<strong>${inner}</strong>`;
+      case 'emphasis':
+      case 'em':
+      case 'i':
+        return `<em>${inner}</em>`;
+      case 'strikethrough':
+      case 's':
+      case 'del':
+        return `<s>${inner}</s>`;
+      case 'sub':
+        return `<sub>${inner}</sub>`;
+      case 'sup':
+        return `<sup>${inner}</sup>`;
+      case 'code':
+        return `<code>${inner}</code>`;
+      case 'style':
+        return `<span class="fb2-style">${inner}</span>`;
+      case 'a': {
+        const href =
+          elem.getAttribute('l:href') ||
+          elem.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
+          elem.getAttribute('xlink:href') ||
+          elem.getAttribute('href') ||
+          '';
+        return `<a href="${escapeAttr(href)}">${inner}</a>`;
+      }
+      default:
+        return inner;
+    }
   }
+
+  /**
+   * Converts block-level elements of an FB2 node to HTML.
+   */
+  function renderBlockContent(elem: Element): string {
+    const tagName = elem.tagName.toLowerCase().replace(/^.*:/, '');
+
+    switch (tagName) {
+      case 'p':
+        return `<p>${renderInlineContent(elem)}</p>`;
+      case 'subtitle':
+        return `<h3 class="fb2-subtitle">${renderInlineContent(elem)}</h3>`;
+      case 'empty-line':
+        return '<div class="fb2-empty-line" aria-hidden="true">&nbsp;</div>';
+      case 'epigraph': {
+        const inner = Array.from(elem.children).map(renderBlockContent).join('\n');
+        return `<blockquote class="fb2-epigraph">${inner}</blockquote>`;
+      }
+      case 'cite': {
+        const inner = Array.from(elem.children).map(renderBlockContent).join('\n');
+        return `<blockquote class="fb2-cite">${inner}</blockquote>`;
+      }
+      case 'text-author':
+        return `<p class="fb2-author"><em>${renderInlineContent(elem)}</em></p>`;
+      case 'poem': {
+        const stanzas = Array.from(elem.children).map(renderBlockContent).join('\n');
+        return `<div class="fb2-poem">${stanzas}</div>`;
+      }
+      case 'stanza': {
+        const verses = Array.from(elem.children).map(renderBlockContent).join('\n');
+        return `<div class="fb2-stanza">${verses}</div>`;
+      }
+      case 'v':
+        return `<p class="fb2-verse">${renderInlineContent(elem)}</p>`;
+      case 'table': {
+        const rows = Array.from(elem.querySelectorAll('tr'))
+          .map((tr) => {
+            const cells = Array.from(tr.children)
+              .map((cell) => {
+                const tag = cell.tagName.toLowerCase();
+                const cellTag = tag === 'th' ? 'th' : 'td';
+                return `<${cellTag}>${renderInlineContent(cell)}</${cellTag}>`;
+              })
+              .join('');
+            return `<tr>${cells}</tr>`;
+          })
+          .join('');
+        return `<table class="fb2-table"><tbody>${rows}</tbody></table>`;
+      }
+      default:
+        // If it has children, render them
+        if (elem.children.length > 0) {
+          return Array.from(elem.children).map(renderBlockContent).join('\n');
+        }
+        return renderInlineContent(elem);
+    }
+  }
+
+  return renderBlockContent;
 }
 
 /**
@@ -359,7 +392,8 @@ function extractTitleFromElement(elem: Element | null | undefined): string | nul
 function collectSectionChapters(
   section: Element,
   level: number,
-  orderRef: { count: number }
+  orderRef: { count: number },
+  renderBlockContent: (element: Element) => string,
 ): Chapter[] {
   const titleElem = Array.from(section.children).find(
     (c) => c.tagName.toLowerCase().replace(/^.*:/, '') === 'title'
@@ -384,7 +418,7 @@ function collectSectionChapters(
     chapters.push({
       id: generateId(),
       title,
-      content: sanitizeReaderHtml(html),
+      content: sanitizeBookChapter(html, 'fb2'),
       level,
       order: orderRef.count++,
     });
@@ -392,7 +426,7 @@ function collectSectionChapters(
 
   // Process nested child sections
   for (const childSec of childSections) {
-    const subChapters = collectSectionChapters(childSec, level + 1, orderRef);
+    const subChapters = collectSectionChapters(childSec, level + 1, orderRef, renderBlockContent);
     chapters.push(...subChapters);
   }
 
@@ -410,6 +444,7 @@ export async function parseFb2(
 
   const xmlString = await extractXmlString(input, defaultEncoding);
   const doc = parseXmlDocument(xmlString);
+  const renderBlockContent = createFb2Renderer(doc);
 
   const { metadata, coverImage } = extractMetadata(doc);
 
@@ -431,7 +466,7 @@ export async function parseFb2(
       chapters.push({
         id: generateId(),
         title: metadata.title || 'Full Document',
-        content: sanitizeReaderHtml(allHtml),
+        content: sanitizeBookChapter(allHtml, 'fb2'),
         level: 0,
         order: orderRef.count++,
       });
@@ -456,7 +491,7 @@ export async function parseFb2(
           chapters.push({
             id: generateId(),
             title: preambleTitle,
-            content: sanitizeReaderHtml(preambleHtml),
+            content: sanitizeBookChapter(preambleHtml, 'fb2'),
             level: 0,
             order: orderRef.count++,
           });
@@ -466,7 +501,7 @@ export async function parseFb2(
       // 2. Sections
       if (topSections.length > 0) {
         for (const section of topSections) {
-          const sectionChapters = collectSectionChapters(section, 0, orderRef);
+          const sectionChapters = collectSectionChapters(section, 0, orderRef, renderBlockContent);
           chapters.push(...sectionChapters);
         }
       } else if (chapters.length === 0) {
@@ -475,7 +510,7 @@ export async function parseFb2(
         chapters.push({
           id: generateId(),
           title: metadata.title || 'Full Document',
-          content: sanitizeReaderHtml(html),
+          content: sanitizeBookChapter(html, 'fb2'),
           level: 0,
           order: orderRef.count++,
         });
@@ -502,7 +537,7 @@ export async function parseFb2(
             .map(renderBlockContent)
             .join('\n');
 
-          notesHtml += `<div class="fb2-note-entry" id="note-${noteId}">
+          notesHtml += `<div class="fb2-note-entry" id="${escapeAttr(noteId)}">
             <p><strong>[${escapeHtml(title)}]</strong></p>
             ${content}
           </div>`;
@@ -512,7 +547,7 @@ export async function parseFb2(
         chapters.push({
           id: generateId(),
           title: 'Footnotes & Endnotes',
-          content: sanitizeReaderHtml(notesHtml),
+          content: sanitizeBookChapter(notesHtml, 'fb2'),
           level: 0,
           order: orderRef.count++,
         });

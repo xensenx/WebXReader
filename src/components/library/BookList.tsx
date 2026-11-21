@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import type { Book, ReadingStatus } from '../../types/book';
 import { formatDate } from '../../utils';
-import { getBookCoverUrl } from '../../assets/covers/default-book-cover';
+import { BookCoverImage } from './BookCoverImage';
 import styles from './BookList.module.css';
 
 interface BookListProps {
@@ -57,7 +57,6 @@ export function BookList({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const coverUrl = getBookCoverUrl(book);
 
   useEffect(() => {
     function handleClickOutside(e: globalThis.MouseEvent) {
@@ -141,19 +140,18 @@ export function BookList({
         </span>
       )}
       <div className={styles.thumbnailContainer} data-drag-preview>
-        {coverUrl ? (
-          <img
-            src={coverUrl}
-            alt=""
-            className={styles.thumbnail}
-            loading="lazy"
-            draggable={false}
-          />
-        ) : (
-          <div className={styles.fallbackThumbnail}>
-            {book.title.trim().charAt(0).toUpperCase()}
-          </div>
-        )}
+        <BookCoverImage
+          book={book}
+          alt=""
+          className={styles.thumbnail}
+          loading="lazy"
+          draggable={false}
+          placeholder={
+            <div className={styles.fallbackThumbnail}>
+              {book.title.trim().charAt(0).toUpperCase()}
+            </div>
+          }
+        />
       </div>
 
       <div className={styles.info}>

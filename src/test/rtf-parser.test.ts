@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { parseRtf } from '../core/parsing/rtf-parser';
+import { decodeRtfDocument, parseRtf } from '../core/parsing/rtf-parser';
 
 describe('RTF Parser', () => {
   it('parses basic styled RTF document with bold, italic, underline and strike', () => {
@@ -19,6 +19,19 @@ describe('RTF Parser', () => {
     expect(content).toContain('<u>underlined</u>');
     expect(content).toContain('<s>strikethrough</s>');
     expect(result.rawText).toContain('This is bold, italic, underlined, and strikethrough text.');
+  });
+
+  it('decodes multibyte hex escapes in the declared code page and keeps outline levels', () => {
+    const result = parseRtf(String.raw`{\rtf1\ansi\ansicpg932\pard\outlinelevel0 Part One\par\pard Heading body\par\pard\outlinelevel1 Topic\par\pard \'82\'a0\par}`);
+    expect(result.rawText).toContain('\u3042');
+    expect(result.chapters.map(({ title, level }) => [title, level])).toEqual([['Part One', 0], ['Topic', 1]]);
+  });
+
+  it.each([String.raw`\'83A`, String.raw`\'83\'41`])('imports a Shift-JIS trail byte in %s', (text) => {
+    const buffer = new TextEncoder().encode(String.raw`{\rtf1\ansi\ansicpg932 ASCII ${text} next {\b bold}\par}`).buffer;
+    const result = parseRtf(decodeRtfDocument(buffer));
+    expect(result.rawText.trim()).toBe('ASCII ア next bold');
+    expect(result.chapters[0].content).toContain('<strong>bold</strong>');
   });
 
   it('extracts metadata from \\info block', () => {
