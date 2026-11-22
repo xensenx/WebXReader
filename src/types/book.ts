@@ -391,9 +391,22 @@ export interface BookSettings {
   updatedAt: number;
 }
 
-/**
- * Backup data format.
- */
+export interface BookSeries {
+  id: string;
+  title: string;
+  createdAt?: number;
+  author?: string;
+  description?: string;
+  tags?: string[];
+  /** Optional user-uploaded cover. Otherwise use the first volume's cover. */
+  coverImage?: string;
+  /** Ordered IDs of the books in the series. */
+  bookIds: string[];
+  /** Present when the user orders the series by volume number. */
+  volumeNumbers?: Record<string, number>;
+}
+
+/** Backup data format. */
 export interface BackupData {
   /** Backup format version */
   version: number;
@@ -415,6 +428,7 @@ export interface BackupData {
   bookSettings: BookSettings[];
   /** Content payloads. Optional for backwards-compatible v1 backups. */
   contents?: BackupBookContent[];
+  series?: BookSeries[];
 }
 
 /** Default user settings */

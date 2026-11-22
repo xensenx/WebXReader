@@ -10,6 +10,7 @@ import { ReaderView } from './components/reader/ReaderView';
 import { SettingsView } from './components/settings/SettingsView';
 import { InformationPage } from './components/settings/InformationPage';
 import { PlannedFeaturePage } from './components/common/PlannedFeaturePage';
+import { SeriesView } from './components/series/SeriesView';
 
 export default function App() {
   return (
@@ -20,7 +21,8 @@ export default function App() {
             <Route path="/" element={<LibraryView />} />
             <Route path="/read/:bookId" element={<ReaderView />} />
             <Route path="/settings" element={<SettingsView />} />
-            <Route path="/series" element={<PlannedFeaturePage title="Series" />} />
+            <Route path="/series" element={<SeriesView />} />
+            <Route path="/series/:seriesId" element={<SeriesView />} />
             <Route path="/private-mode" element={<PlannedFeaturePage title="Private mode" />} />
             <Route path="/stats" element={<PlannedFeaturePage title="Stats" />} />
             <Route path="/about" element={<InformationPage kind="about" />} />

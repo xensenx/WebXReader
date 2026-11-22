@@ -4,9 +4,11 @@
  */
 
 import { normalizeLibraryName } from '../../features/library/library-name';
+import { appendSeriesBooks, BOOK_COMPLETION_THRESHOLD, normalizeSeries, reorderSeriesVolumes } from '../../features/series/series';
 import { APP_THEME_OPTIONS, DEFAULT_SETTINGS } from '../../types/book';
 import type {
   Book,
+  BookSeries,
   BookContent,
   BookFormat,
   Chapter,
@@ -21,7 +23,7 @@ import type {
 import { sanitizeBookChapter } from '../parsing/sanitize-reader-html';
 
 const DB_NAME = 'webxreader';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SETTINGS_STORAGE_KEY = 'webxreader.preferences.v1';
 
 function normalizeUserSettings(settings: Omit<Partial<UserSettings>, 'theme'> & { theme?: unknown }): UserSettings {
@@ -51,6 +53,7 @@ const STORES = {
   settings: 'settings',
   bookSettings: 'bookSettings',
   covers: 'covers',
+  series: 'series',
 } as const;
 
 type StoreName = (typeof STORES)[keyof typeof STORES];
@@ -109,6 +112,10 @@ function openDatabase(): Promise<IDBDatabase> {
         db.createObjectStore(STORES.bookSettings, { keyPath: 'bookId' });
 
         db.createObjectStore(STORES.covers, { keyPath: 'bookId' });
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore(STORES.series, { keyPath: 'id' })
+          .createIndex('bookId', 'bookIds', { multiEntry: true, unique: true });
       }
     };
   });
@@ -295,7 +302,7 @@ export async function deleteBooks(ids: string[]): Promise<void> {
   const db = await getDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
-      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.bookSettings, STORES.covers],
+      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.bookSettings, STORES.covers, STORES.series],
       'readwrite'
     );
 
@@ -303,6 +310,16 @@ export async function deleteBooks(ids: string[]): Promise<void> {
     const bookmarkIndex = bookmarkStore.index('bookId');
     const annotationStore = tx.objectStore(STORES.annotations);
     const annotationIndex = annotationStore.index('bookId');
+    const deletedIds = new Set(ids);
+    const seriesRequest = tx.objectStore(STORES.series).openCursor();
+    seriesRequest.onsuccess = () => {
+      const cursor = seriesRequest.result;
+      if (!cursor) return;
+      const series = cursor.value as BookSeries;
+      const bookIds = series.bookIds.filter((bookId) => !deletedIds.has(bookId));
+      if (bookIds.length !== series.bookIds.length) cursor.update(normalizeSeries({ ...series, bookIds }));
+      cursor.continue();
+    };
 
     for (const id of ids) {
       tx.objectStore(STORES.books).delete(id);
@@ -394,7 +411,7 @@ export async function saveProgress(progress: ReadingProgress): Promise<void> {
       const book = request.result as Book | undefined;
       if (!book) return;
       tx.objectStore(STORES.progress).put(progress);
-      const readingStatus = progress.overallProgress >= 0.98 ? 'completed'
+      const readingStatus = progress.overallProgress >= BOOK_COMPLETION_THRESHOLD ? 'completed'
         : progress.overallProgress > 0 ? 'reading' : book.readingStatus;
       const now = Date.now();
       if (readingStatus !== book.readingStatus || now - (book.lastOpenedAt ?? 0) > 30_000) {
@@ -409,6 +426,91 @@ export async function saveProgress(progress: ReadingProgress): Promise<void> {
 
 export async function listProgress(): Promise<ReadingProgress[]> {
   return getAllFromStore<ReadingProgress>(STORES.progress);
+}
+
+export async function listSeries(): Promise<BookSeries[]> {
+  return getAllFromStore<BookSeries>(STORES.series);
+}
+
+export async function getSeriesForBook(bookId: string): Promise<BookSeries | undefined> {
+  return withTransaction(STORES.series, 'readonly', (store) => store.index('bookId').get(bookId));
+}
+
+export async function saveSeries(input: BookSeries): Promise<BookSeries> {
+  return writeSeries({ series: normalizeSeries(input) });
+}
+
+export async function addBooksToSeries(seriesId: string, bookIds: readonly string[]): Promise<BookSeries> {
+  return writeSeries({ seriesId, bookIds, kind: 'append' });
+}
+
+export async function reorderBooksInSeries(seriesId: string, bookIds: readonly string[]): Promise<BookSeries> {
+  return writeSeries({ seriesId, bookIds, kind: 'reorder' });
+}
+
+async function writeSeries(change: { series: BookSeries } | { seriesId: string; bookIds: readonly string[]; kind: 'append' | 'reorder' }): Promise<BookSeries> {
+  const db = await getDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORES.books, STORES.series], 'readwrite');
+    const store = tx.objectStore(STORES.series);
+    const request = tx.objectStore(STORES.books).getAllKeys();
+    let message = 'Could not save the series.';
+    let saved: BookSeries;
+    const abort = (reason: string) => {
+      message = reason;
+      tx.abort();
+    };
+    const write = (series: BookSeries) => {
+      saved = series;
+      const put = store.put(series);
+      put.onerror = () => {
+        if (put.error?.name === 'ConstraintError') message = 'A selected book already belongs to another series.';
+      };
+    };
+    request.onsuccess = () => {
+      const availableIds = new Set(request.result);
+      const bookIds = 'series' in change ? change.series.bookIds : change.bookIds;
+      if (bookIds.some((bookId) => !availableIds.has(bookId))) {
+        abort('A selected book has been deleted. Refresh the page and try again.');
+        return;
+      }
+      if ('series' in change) {
+        write(change.series);
+        return;
+      }
+      // Read and update in one transaction so additions and metadata edits cannot be lost.
+      const current = store.get(change.seriesId);
+      current.onsuccess = () => {
+        if (!current.result) {
+          abort('This series has been deleted. Choose another series.');
+          return;
+        }
+        try {
+          const update = change.kind === 'reorder' ? reorderSeriesVolumes : appendSeriesBooks;
+          write(update(current.result, bookIds));
+        } catch (error) {
+          abort(error instanceof Error ? error.message : message);
+        }
+      };
+    };
+    tx.oncomplete = () => resolve(saved);
+    tx.onabort = () => reject(new Error(message));
+  });
+}
+
+export async function deleteSeries(id: string): Promise<void> {
+  await deleteSeriesBatch([id]);
+}
+
+export async function deleteSeriesBatch(ids: readonly string[]): Promise<void> {
+  const db = await getDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORES.series, 'readwrite');
+    const store = tx.objectStore(STORES.series);
+    for (const id of ids) store.delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new Error('Could not delete the selected series.'));
+  });
 }
 
 // ============================================================
@@ -512,7 +614,7 @@ export async function exportBackup(): Promise<BackupData> {
   
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
-      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.bookSettings],
+      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.bookSettings, STORES.series],
       'readonly'
     );
 
@@ -529,6 +631,7 @@ export async function exportBackup(): Promise<BackupData> {
       { store: STORES.bookmarks, key: 'bookmarks' as const },
       { store: STORES.annotations, key: 'annotations' as const },
       { store: STORES.bookSettings, key: 'bookSettings' as const },
+      { store: STORES.series, key: 'series' as const },
     ];
 
     let completed = 0;
@@ -570,7 +673,7 @@ export async function exportBackupStream(): Promise<ReadableStream<Uint8Array>> 
       const stores = [
         [STORES.books, 'books'], [STORES.progress, 'progress'],
         [STORES.bookmarks, 'bookmarks'], [STORES.annotations, 'annotations'],
-        [STORES.bookSettings, 'bookSettings'], [STORES.bookContent, 'contents'],
+        [STORES.bookSettings, 'bookSettings'], [STORES.bookContent, 'contents'], [STORES.series, 'series'],
       ] as const;
       const tx = db.transaction(stores.map(([name]) => name), 'readonly');
       let emittedBytes = 0;
@@ -723,7 +826,8 @@ function isBackupObject(value: unknown): value is BackupData {
     Array.isArray(candidate.bookmarks) &&
     Array.isArray(candidate.annotations) &&
     Array.isArray(candidate.bookSettings) &&
-    (candidate.contents === undefined || Array.isArray(candidate.contents))
+    (candidate.contents === undefined || Array.isArray(candidate.contents)) &&
+    (candidate.series === undefined || Array.isArray(candidate.series))
   );
 }
 
@@ -753,7 +857,8 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
   }
   if (backup.books.length > 1000 || backup.progress.length > 1000 ||
       backup.bookmarks.length > 100000 || backup.annotations.length > 100000 ||
-      backup.bookSettings.length > 1000 || (backup.contents?.length ?? 0) > 1000) {
+      backup.bookSettings.length > 1000 || (backup.contents?.length ?? 0) > 1000 ||
+      (backup.series?.length ?? 0) > 1000) {
     throw new Error('Backup contains too many records.');
   }
   let decodedBytes = 0;
@@ -776,7 +881,8 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
   const errors: string[] = [];
   const existingBooks = await listBooks();
   const existingIds = new Set(existingBooks.map((book) => book.id));
-  const existingHashes = new Set(existingBooks.map((book) => book.contentHash));
+  const existingHashes = new Map(existingBooks.map((book) => [book.contentHash, book.id]));
+  const bookIdRemap = new Map<string, string>();
   const booksToRestore: Book[] = [];
 
   for (const candidate of backup.books) {
@@ -788,13 +894,15 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
       errors.push(`Book "${candidate.title}" already exists, skipped`);
       continue;
     }
-    if (candidate.contentHash && existingHashes.has(candidate.contentHash)) {
+    const matchingId = candidate.contentHash ? existingHashes.get(candidate.contentHash) : undefined;
+    if (matchingId) {
+      bookIdRemap.set(candidate.id, matchingId);
       errors.push(`Book "${candidate.title}" has matching content already in the library, skipped`);
       continue;
     }
     booksToRestore.push(candidate);
     existingIds.add(candidate.id);
-    existingHashes.add(candidate.contentHash);
+    existingHashes.set(candidate.contentHash, candidate.id);
   }
 
   const restorableIds = new Set(booksToRestore.map((book) => book.id));
@@ -813,7 +921,7 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
-      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.bookSettings],
+      [STORES.books, STORES.bookContent, STORES.progress, STORES.bookmarks, STORES.annotations, STORES.bookSettings, STORES.series],
       'readwrite'
     );
 
@@ -847,6 +955,7 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
         tx.objectStore(STORES.bookSettings).put(bookSetting);
       }
     }
+    if (backup.series?.length) restoreSeriesRecords(tx, backup.series, bookIdRemap, errors);
     tx.oncomplete = () => {
       if (backup.settings) {
         saveSettings(backup.settings)
@@ -859,6 +968,43 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
     tx.onerror = () => reject(new Error(`Backup restore failed: ${tx.error?.message ?? 'transaction failed'}`));
     tx.onabort = () => reject(new Error(`Backup restore was rolled back: ${tx.error?.message ?? 'transaction aborted'}`));
   });
+}
+
+function restoreSeriesRecords(tx: IDBTransaction, candidates: BookSeries[], remap: Map<string, string>, errors: string[]) {
+  const store = tx.objectStore(STORES.series);
+  const books = tx.objectStore(STORES.books).getAllKeys();
+  const request = store.getAll();
+  request.onsuccess = () => {
+    const existing = request.result as BookSeries[];
+    const ids = new Set(existing.map(({ id }) => id));
+    const occupied = new Set(existing.flatMap(({ bookIds }) => bookIds));
+    const available = new Set(books.result);
+    for (const candidate of candidates) {
+      let series: BookSeries;
+      try {
+        if (candidate?.bookIds?.length > 1000) throw new Error('Too many books.');
+        series = normalizeSeries(candidate);
+      } catch {
+        errors.push('Skipped an invalid series record');
+        continue;
+      }
+      if (ids.has(series.id)) continue;
+      const members = new Map<string, number | undefined>();
+      for (const originalId of series.bookIds) {
+        const bookId = remap.get(originalId) ?? originalId;
+        if (available.has(bookId) && !occupied.has(bookId) && !members.has(bookId)) {
+          members.set(bookId, series.volumeNumbers?.[originalId]);
+        }
+      }
+      if (members.size !== series.bookIds.length) errors.push(`Skipped unavailable books in series "${series.title}"`);
+      if (!members.size && series.bookIds.length) continue;
+      const bookIds = [...members.keys()];
+      const volumeNumbers = series.volumeNumbers ? Object.fromEntries(members) : undefined;
+      store.add({ ...series, bookIds, volumeNumbers });
+      ids.add(series.id);
+      for (const bookId of bookIds) occupied.add(bookId);
+    }
+  };
 }
 
 /**
@@ -897,6 +1043,7 @@ export async function clearDatabase(): Promise<void> {
       STORES.annotations,
       STORES.bookSettings,
       STORES.covers,
+      STORES.series,
     ].filter((name) => db.objectStoreNames.contains(name));
     const tx = db.transaction(storeNames, 'readwrite');
     for (const name of storeNames) {

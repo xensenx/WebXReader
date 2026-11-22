@@ -1,0 +1,4 @@
+@media (max-width: 480px) {
+  .tools { flex-wrap: wrap; }
+  .sortGroup { min-width: 124px; }
+}

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import { useSidePanelContext } from '../../app/providers/useSidePanelContext';
+import { getAppNavigationState, getAppTab } from '../../app/navigation';
 import { IncognitoIcon } from './IncognitoIcon';
 import { KoFiIcon } from './KoFiIcon';
 import styles from './MainPageHeader.module.css';
@@ -106,9 +107,7 @@ export function MainPageHeader({ libraryName }: MainPageHeaderProps) {
   }, []);
 
   const navigateFromPanel = (path: string) => {
-    const isMainPage = path === '/' || path === '/series' || path === '/stats' ||
-      path === '/private-mode';
-    if (isMainPage) {
+    if (getAppTab(path)) {
       setIsOpen(false);
 
       if (location.pathname === path) return;
@@ -128,7 +127,7 @@ export function MainPageHeader({ libraryName }: MainPageHeaderProps) {
       return;
     }
     // Leave the shared open state intact for subpages so Back restores the panel.
-    if (location.pathname !== path) navigate(path);
+    if (location.pathname !== path) navigate(path, { state: getAppNavigationState(location.pathname) });
   };
 
   return (
@@ -197,7 +196,7 @@ export function MainPageHeader({ libraryName }: MainPageHeaderProps) {
               <button
                 key={path}
                 className={styles.navigationItem}
-                aria-current={location.pathname === path ? 'page' : undefined}
+                aria-current={getAppTab(location.pathname) === path ? 'page' : undefined}
                 onClick={() => navigateFromPanel(path)}
                 type="button"
               >
