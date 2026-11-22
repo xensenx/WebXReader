@@ -1,0 +1,63 @@
+name: Deploy Hugging Face Spaces mirror
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.npmrc'
+      - 'vite.config.*'
+      - 'tsconfig*.json'
+      - '.env'
+      - '.env.production'
+      - '.github/scripts/deploy-huggingface.py'
+      - '.github/workflows/deploy-huggingface.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.repository == 'xensenx/WebXReader' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: huggingface-spaces-production
+      cancel-in-progress: true
+    steps:
+      - name: Check out latest production branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production site
+        run: npm run build
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Hugging Face Hub client
+        run: python -m pip install huggingface_hub==2.4.0
+
+      - name: Publish static site to WebXReader/app
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python .github/scripts/deploy-huggingface.py dist "$(git rev-parse HEAD)"
