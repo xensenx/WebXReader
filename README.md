@@ -162,7 +162,7 @@ If you'd like to support its continued development, you can do so through Ko-fi.
 
 Have a question, suggestion, or feedback? Feel free to get in touch.
 
-**Bug Reports & Feature Requests:** [Open an issue on GitHub](https://github.com/xensenx/WebXReader/issues) so we can track and address it.
+**Bug Reports & Feature Requests:** [Open an issue on GitHub](https://github.com/xensenx/WebXReader/issues) so we can track and address it. <br>
 **General Inquiries:** For other questions, collaboration, or private matters, contact me at **xensenx.dev@gmail.com** or use the [contact form](https://xensenx.dev/contact/).
 
 
