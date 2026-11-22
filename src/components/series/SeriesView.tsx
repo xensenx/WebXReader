@@ -22,6 +22,7 @@ export function SeriesView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editor, setEditor] = useState<{ series: BookSeries; isNew: boolean } | null>(null);
+  const [pendingReorders, setPendingReorders] = useState<Map<string, number>>(() => new Map());
   const [removing, setRemoving] = useState<BookSeries | null>(null);
 
   useEffect(() => {
@@ -64,8 +65,19 @@ export function SeriesView() {
   }
 
   async function reorder(id: string, bookIds: string[]) {
-    const saved = await reorderBooksInSeries(id, bookIds);
-    setSeries((current) => current.map((item) => item.id === saved.id ? saved : item));
+    setPendingReorders((current) => new Map(current).set(id, (current.get(id) ?? 0) + 1));
+    try {
+      const saved = await reorderBooksInSeries(id, bookIds);
+      setSeries((current) => current.map((item) => item.id === saved.id ? saved : item));
+    } finally {
+      setPendingReorders((current) => {
+        const next = new Map(current);
+        const remaining = (current.get(id) ?? 1) - 1;
+        if (remaining) next.set(id, remaining);
+        else next.delete(id);
+        return next;
+      });
+    }
   }
 
   async function deleteRows(ids: string[]) {
@@ -97,6 +109,7 @@ export function SeriesView() {
         {waiting && <p className={styles.muted} role="status">Loading series...</p>}
         {!waiting && activeEntry && (
           <SeriesDetail series={activeEntry.series} volumes={activeEntry.volumes}
+            editDisabled={pendingReorders.has(activeEntry.series.id)}
             onEdit={() => setEditor({ series: activeEntry.series, isNew: false })} onRemove={() => setRemoving(activeEntry.series)}
             onReorder={(bookIds) => reorder(activeEntry.series.id, bookIds)} />
         )}

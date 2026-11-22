@@ -83,11 +83,13 @@ export function AddToSeriesDialog({ bookIds, onClose, onCreateSeries, onAdded }:
         {error && <p className={styles.error} role="alert">{error}</p>}
         <div className={styles.actions}>
           <Button type="button" onClick={onClose} disabled={saving}>Cancel</Button>
-          {series?.length === 0 ? (
-            <Button type="button" variant="primary" icon={<Plus size={16} />} onClick={() => { if (bookIds) onCreateSeries(bookIds); }}>
+          {series && bookIds?.length && addCount === bookIds.length ? (
+            <Button type="button" variant={series.length ? 'secondary' : 'primary'} icon={<Plus size={16} />}
+              disabled={saving} onClick={() => onCreateSeries(bookIds)}>
               Create series
             </Button>
-          ) : (
+          ) : null}
+          {series?.length !== 0 && (
             <Button type="submit" variant="primary" loading={saving} disabled={!canAdd}>Add to series</Button>
           )}
         </div>

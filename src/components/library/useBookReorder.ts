@@ -411,13 +411,17 @@ export function useBookReorder<T extends Book>({ books, layout, onCommit, enable
     triggerAutoScroll(e.clientY);
   };
 
-  const shouldSuppressBookClick = () => {
-    if (!suppressBookClickRef.current) return false;
+  const clearBookClickSuppression = () => {
     suppressBookClickRef.current = false;
     if (suppressBookClickTimerRef.current !== null) {
       window.clearTimeout(suppressBookClickTimerRef.current);
       suppressBookClickTimerRef.current = null;
     }
+  };
+
+  const shouldSuppressBookClick = () => {
+    if (!suppressBookClickRef.current) return false;
+    clearBookClickSuppression();
     return true;
   };
 
@@ -437,7 +441,9 @@ export function useBookReorder<T extends Book>({ books, layout, onCommit, enable
         e.clientX >= containerRect.left && e.clientX <= containerRect.right &&
         e.clientY >= containerRect.top && e.clientY <= containerRect.bottom);
 
-      if (!canceled && pointerInsideCollection) {
+      // Rechecking the same point against the reordered layout can change the displayed drop slot.
+      const pointerMoved = e.clientX !== drag.currentX || e.clientY !== drag.currentY;
+      if (!canceled && pointerInsideCollection && pointerMoved) {
         updateBookDropPreview(e.clientX, e.clientY);
       }
 
@@ -451,12 +457,9 @@ export function useBookReorder<T extends Book>({ books, layout, onCommit, enable
 
       }
 
+      clearBookClickSuppression();
       suppressBookClickRef.current = true;
-      if (suppressBookClickTimerRef.current !== null) window.clearTimeout(suppressBookClickTimerRef.current);
-      suppressBookClickTimerRef.current = window.setTimeout(() => {
-        suppressBookClickRef.current = false;
-        suppressBookClickTimerRef.current = null;
-      }, 250);
+      suppressBookClickTimerRef.current = window.setTimeout(clearBookClickSuppression, 250);
     }
 
     try {
@@ -477,6 +480,7 @@ export function useBookReorder<T extends Book>({ books, layout, onCommit, enable
   // Cleanup drag timers on unmount or blur, and intercept active touch moves
   useEffect(() => {
     const handleGlobalCancel = () => {
+      clearBookClickSuppression();
       clearLongPressTimer();
       stopAutoScroll();
       document.body.style.touchAction = '';
@@ -511,7 +515,7 @@ export function useBookReorder<T extends Book>({ books, layout, onCommit, enable
         document.body.style.touchAction = '';
         document.body.style.userSelect = '';
       }
-      if (suppressBookClickTimerRef.current !== null) window.clearTimeout(suppressBookClickTimerRef.current);
+      clearBookClickSuppression();
       window.removeEventListener('touchmove', handleWindowTouchMove);
       window.removeEventListener('blur', handleGlobalCancel);
     };

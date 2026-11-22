@@ -79,7 +79,7 @@ export function SeriesBrowser({ entries, waiting, canCreate, onCreate, onDelete 
     setError('');
     try {
       await onDelete([...selected]);
-      update({ customOrder: customOrder.filter((id) => !selected.has(id)) });
+      setState((previous) => ({ ...previous, customOrder: previous.customOrder.filter((id) => !selected.has(id)) }));
       setSelected(new Set());
     } catch {
       setError('Could not delete the selected series.');

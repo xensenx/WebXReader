@@ -132,3 +132,7 @@ export function readSeriesBrowserState(): SeriesBrowserState {
 export function saveSeriesBrowserState(state: SeriesBrowserState) {
   try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* Keep using in-memory controls. */ }
 }
+
+export function clearSeriesBrowserState(): void {
+  try { localStorage.removeItem(storageKey); } catch { /* Storage may be unavailable. */ }
+}

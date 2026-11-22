@@ -15,5 +15,5 @@ export function SeriesCover({ customCover, firstVolume, decorative, className, .
   const sources = customCover ? [customCover, ...fallback.filter((source) => source !== customCover)] : fallback;
   const placeholder = decorative ? null : <div className={`${className ?? ''} ${styles.coverFallback}`} aria-hidden="true"><Layers size={28} /></div>;
 
-  return <CoverImage key={sources[0]} sources={sources} placeholder={placeholder} className={className} {...props} />;
+  return <CoverImage key={JSON.stringify(sources)} sources={sources} placeholder={placeholder} className={className} {...props} />;
 }

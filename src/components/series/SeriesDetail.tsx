@@ -13,12 +13,13 @@ import styles from './SeriesDetail.module.css';
 interface SeriesDetailProps {
   series: BookSeries;
   volumes: LibraryBook[];
+  editDisabled: boolean;
   onEdit: () => void;
   onRemove: () => void;
   onReorder: (ids: string[]) => Promise<void>;
 }
 
-export function SeriesDetail({ series, volumes, onEdit, onRemove, onReorder }: SeriesDetailProps) {
+export function SeriesDetail({ series, volumes, editDisabled, onEdit, onRemove, onReorder }: SeriesDetailProps) {
   const { fraction, completed, total } = summarizeSeries(volumes);
   return (
     <>
@@ -26,7 +27,7 @@ export function SeriesDetail({ series, volumes, onEdit, onRemove, onReorder }: S
         <Link to="/series" className={styles.back} onClick={() => saveSeriesScroll(series.id)}>
           <ArrowLeft size={17} aria-hidden="true" /> All series
         </Link>
-        <Button type="button" variant="secondary" size="sm" icon={<Pencil size={15} />} onClick={onEdit}>Edit series</Button>
+        <Button type="button" variant="secondary" size="sm" icon={<Pencil size={15} />} disabled={editDisabled} onClick={onEdit}>Edit series</Button>
         <Button type="button" variant="ghost" size="sm" icon={<Trash2 size={16} />} aria-label="Delete series" onClick={onRemove} />
       </nav>
 

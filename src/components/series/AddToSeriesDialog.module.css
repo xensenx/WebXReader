@@ -45,4 +45,4 @@
 .note, .error { margin: 0; font-size: var(--text-sm); line-height: 1.5; }
 .note { color: var(--color-text-secondary); }
 .error { color: var(--color-danger); }
-.actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }

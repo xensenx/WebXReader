@@ -125,6 +125,20 @@ describe('Series', () => {
     expect(await getSeriesForBook('a')).toMatchObject({ id: 'second', bookIds: ['a'] });
   });
 
+  it('opens the editor with the selected book when other series exist', async () => {
+    await addBook(book('a', 'Book A'));
+    await saveSeries({ id: 'existing', title: 'Existing Series', bookIds: [] });
+    renderLibrary('/');
+    fireEvent.click(await screen.findByRole('button', { name: 'Actions for Book A' }));
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Add to series' }));
+    const picker = within(await screen.findByRole('dialog', { name: 'Add to series' }));
+    fireEvent.click(await picker.findByRole('radio', { name: /Existing Series/ }));
+    expect(picker.getByRole('button', { name: 'Add to series' })).toBeEnabled();
+    fireEvent.click(picker.getByRole('button', { name: 'Create series' }));
+    const editor = within(await screen.findByRole('dialog', { name: 'Create series' }));
+    expect(editor.getByRole('button', { name: 'Remove Book A' })).toBeInTheDocument();
+  });
+
   it.each([false, true])('appends a bulk selection in click order with numbered order %s', async (numbered) => {
     await Promise.all([addBook(book('a', 'Book A')), addBook(book('b', 'Book B')), addBook(book('c', 'Book C'))]);
     const series = await saveSeries({ id: 's', title: 'Reading Order', bookIds: ['b'], volumeNumbers: numbered ? { b: 2.5 } : undefined });
@@ -186,6 +200,56 @@ describe('Series', () => {
     fireEvent.click(grid);
     expect(grid).toHaveAttribute('aria-pressed', 'true');
     expect(within(feed).getAllByRole('button').map((item) => item.dataset.bookId)).toEqual(['b', 'a']);
+  });
+
+  it('commits the displayed drop slot when releasing in a two column grid', async () => {
+    for (const id of ['a', 'b', 'c', 'd']) await addBook(book(id, `Book ${id.toUpperCase()}`));
+    await saveSeries({ id: 's', title: 'Grid Series', bookIds: ['a', 'b', 'c', 'd'] });
+    renderLibrary('/series/s');
+    const feed = await screen.findByRole('feed', { name: 'Series volumes' });
+    feed.style.gridTemplateColumns = '100px 100px';
+    vi.spyOn(feed, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 100, 210, 170));
+    const cards = within(feed).getAllByRole('button');
+    const displayedOrder = () => within(feed).getAllByRole('button').map((card) => card.dataset.bookId);
+    for (const card of cards) {
+      Object.assign(card, { animate: () => ({ cancel: vi.fn() }) });
+      vi.spyOn(card, 'getBoundingClientRect').mockImplementation(() => {
+        const index = displayedOrder().indexOf(card.dataset.bookId);
+        return new DOMRect((index % 2) * 110, 100 + Math.floor(index / 2) * 90, 100, 80);
+      });
+    }
+    const source = cards[0];
+    Object.assign(source, { setPointerCapture: vi.fn(), hasPointerCapture: () => false });
+
+    const pointer = { pointerId: 1, pointerType: 'mouse', button: 0, clientY: 125 };
+    fireEvent.pointerDown(source, { ...pointer, clientX: 50 });
+    fireEvent.pointerMove(source, { ...pointer, clientX: 195 });
+    expect(displayedOrder()).toEqual(['b', 'a', 'c', 'd']);
+    fireEvent.pointerUp(source, { ...pointer, clientX: 195 });
+    const edit = screen.getByRole('button', { name: 'Edit series' });
+    expect(edit).toBeDisabled();
+    fireEvent.click(source);
+    expect(screen.getByRole('heading', { name: 'Grid Series' })).toBeInTheDocument();
+    await waitFor(() => expect(edit).toBeEnabled());
+    expect(await getSeriesForBook('a')).toMatchObject({ bookIds: ['b', 'a', 'c', 'd'] });
+  });
+
+  it('lets the next click open a volume after blur cancels a touch drag', async () => {
+    await addBook(book('a', 'Book A'));
+    await addBook(book('b', 'Book B'));
+    await saveSeries({ id: 's', title: 'Touch Series', bookIds: ['a', 'b'] });
+    renderLibrary('/series/s');
+    const source = await screen.findByRole('button', { name: /Book A/ });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(source, { pointerId: 1, pointerType: 'touch', button: 0 });
+      act(() => vi.advanceTimersByTime(180));
+      fireEvent.blur(window);
+      fireEvent.click(source);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(screen.queryByRole('heading', { name: 'Touch Series' })).not.toBeInTheDocument();
   });
 
   it('keeps new volumes when saving a stale reorder', async () => {
@@ -375,21 +439,25 @@ describe('Series', () => {
     }
   });
 
-  it('recommends the next ordered book at the end and opens it on request', async () => {
+  it('updates completed volume progress after rewinding and recommends the next book at the end', async () => {
     for (const [id, title] of [['a', 'Book A'], ['b', 'Book B']]) {
       await addBook(book(id, title));
       await saveBookContent({ bookId: id, format: 'txt', chapters: [{ id: 'chapter-1', title: 'Chapter', content: '<p>Story text</p>', level: 0, order: 0 }] });
     }
     await saveSeries({ id: 's', title: 'Reading Series', bookIds: ['a', 'b'] });
-    await saveProgress(progress('a', 0.979));
+    await saveProgress(progress('a', 0.98));
     const { container } = renderLibrary('/read/a');
     await screen.findByText('Story text');
-    await screen.findByRole('link', { name: '49% of series' });
-    expect(screen.queryByRole('complementary', { name: 'Next in series' })).not.toBeInTheDocument();
+    await screen.findByRole('link', { name: '50% of series' });
 
     const viewport = container.querySelector<HTMLElement>('[data-reader-viewport="vertical-scroll"]')!;
     Object.defineProperties(viewport, { scrollHeight: { value: 1100 }, clientHeight: { value: 100 } });
     await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    viewport.scrollTop = 979;
+    fireEvent.scroll(viewport);
+    await screen.findByRole('link', { name: '49% of series' });
+    expect(screen.queryByRole('complementary', { name: 'Next in series' })).not.toBeInTheDocument();
+
     viewport.scrollTop = 980;
     fireEvent.scroll(viewport);
     const recommendation = within(await screen.findByRole('complementary', { name: 'Next in series' }));

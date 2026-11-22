@@ -703,7 +703,7 @@ export function ReaderView() {
   const volumeIndex = seriesContext?.volumes.findIndex((volume) => volume.id === book.id) ?? -1;
   const reachedEnd = currentOverallProgress >= BOOK_COMPLETION_THRESHOLD;
   const seriesSummary = seriesContext && summarizeSeries(seriesContext.volumes.map((volume) =>
-    volume.id === book.id ? { ...volume, readingProgress: reachedEnd ? 1 : currentOverallProgress } : volume));
+    volume.id === book.id ? { ...volume, readingStatus: reachedEnd ? 'completed' : 'reading', readingProgress: currentOverallProgress } : volume));
   const nextVolume = seriesContext && volumeIndex >= 0 && reachedEnd && dismissedRecommendation !== book.id
     ? seriesContext.volumes[volumeIndex + 1]
     : undefined;

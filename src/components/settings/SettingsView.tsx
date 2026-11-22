@@ -21,6 +21,7 @@ import {
 import { useSettingsContext } from '../../app/providers/SettingsContext';
 import { useAppBack } from '../../app/navigation';
 import { clearLibraryViewState } from '../../features/library/library-state';
+import { clearSeriesBrowserState } from '../../features/series/series-browser';
 import {
   getStorageEstimate,
   getSettings,
@@ -211,6 +212,7 @@ export function SettingsView() {
     try {
       await resetSettings();
       clearLibraryViewState();
+      clearSeriesBrowserState();
       setResetConfirmOpen(false);
       setStatusMessage('Site preferences reset to factory defaults.');
     } catch (err) {
