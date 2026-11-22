@@ -149,7 +149,6 @@ If you'd like to help the project grow, here are a few other ways:
 ### Financial Support
 
 WebXReader is completely free and open source, and donations are entirely optional.
-
 If you'd like to support its continued development, you can do so through Ko-fi.
 
 <p align="left">
