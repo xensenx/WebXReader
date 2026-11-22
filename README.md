@@ -124,7 +124,7 @@ WebXReader is built around a simple idea: your digital library should be private
 
 ## License
 
-Code is released under the **AGPL-3.0 lICENSE** — see [LICENSE](./LICENSE).
+Code is released under the **AGPL-3.0 LICENSE** — see [LICENSE](./LICENSE).
 
 The **WebXReader** name, logos, icons, and overall visual identity remain the intellectual property of &copy; Sen and are not covered under the AGPL License.
 These branding elements are included in the source code solely for functional product use. Public forks, redistributions, or derivative projects must remove or replace original branding unless explicit written permission is granted.
