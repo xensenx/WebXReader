@@ -100,7 +100,7 @@ npm run preview
 </details>
 
 
-# So what can WebXReader actually do?
+## So what can WebXReader actually do?
 
 WebXReader is built around a simple idea: your digital library should be private, fast, and accessible anywhere without needing an account or an internet connection.
 
@@ -122,35 +122,49 @@ WebXReader is built around a simple idea: your digital library should be private
 | **Plain Text & Web** | `TXT`, `MD`, `HTML`, `MHT` |
 | **Archives & Images** | `ZIP`, `RAR`, `PNG`, `JPEG` |
 
+
 ## License
 
-Code is Open source and is released under the **AGPL-3.0 LICENSE** — see [LICENSE](./LICENSE).
+WebXReader is free and open-source software licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. See [LICENSE](./LICENSE) for details.
 
-The **WebXReader** name, logos, icons, and overall visual identity remain the intellectual property of &copy; Sen and are not covered under the AGPL License.
-These branding elements are included in the source code solely for functional product use. Public forks, redistributions, or derivative projects must remove or replace original branding unless explicit written permission is granted.
-see — [LICENSE-BRANDING](./LICENSE-BRANDING.md) 
+### Branding and Visual Identity
+
+The **WebXReader** name, original logos, icons, and other designated visual identity assets are separately protected and are not licensed under the AGPL-3.0.
+
+You are welcome to fork, modify, and redistribute WebXReader under the terms of the AGPL-3.0. However, independent distributions must follow the branding requirements described in [LICENSE-BRANDING](./LICENSE-BRANDING.md), including replacing protected branding where required.
+
+This distinction allows the software to remain open source while preserving the identity of the official WebXReader project.
 
 ## Support
 
+The best way to support WebXReader is by actually using it!
+
+If you'd like to help the project grow, here are a few other ways:
+
+- **Star the repository** to help more people discover WebXReader.
+- **Share WebXReader** with friends, family, or anyone who might find it useful.
+- **Report bugs or suggest features** through [GitHub Issues](https://github.com/xensenx/WebXReader/issues).
+- **Contribute to development** by reading our [Contributing Guide](./CONTRIBUTING.md).
+
+### Financial Support
+
+WebXReader is completely free and open source, and donations are entirely optional.
+
+If you'd like to support its continued development, you can do so through Ko-fi.
+
 <p align="left">
-  <a href="https://ko-fi.com/xensenx" target="_blank">
-  <img src="assets/icons/ko-fi-svgrepo-com.svg" alt="support" width="150">
+  <a href="https://ko-fi.com/xensenx" target="_blank" rel="noopener noreferrer">
+    <img src="assets/icons/ko-fi-svgrepo-com.svg" alt="Support WebXReader on Ko-fi" width="150">
+  </a>
 </p>
 
-<br>
+Every contribution is appreciated, but simply using and sharing WebXReader is already a great way to help.
 
-<div>
-  <strong>WebXReader is 100% free and open source. A small donation helps fuel late-night debugging and keep development moving.</strong><br>
-  <strong>Ko-fi allows guest donations, so no sign-up is needed..</strong>
-</div>
+## Contact
 
-<br clear="all" />
+Have a question, suggestion, or feedback? Feel free to get in touch.
 
-## Contact & help
-
-Have a question or a suggestion? Here is how to get in touch:
-
-* **Bug Reports & Feature Request?:** Please **[open an issue on GitHub](https://github.com/xensenx/WebXReader/issues)** so we can track and fix it.
-* **Other:** For all other genuine Reach outs, feel free to email at **xensenx.dev@gmail.com** or fill out the form here [xensenx.dev](https://xensenx.dev/contact/)
+**Bug Reports & Feature Requests:** [Open an issue on GitHub](https://github.com/xensenx/WebXReader/issues) so we can track and address it.
+**General Inquiries:** For other questions, collaboration, or private matters, contact me at **xensenx.dev@gmail.com** or use the [contact form](https://xensenx.dev/contact/).
 
 
