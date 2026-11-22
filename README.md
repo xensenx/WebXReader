@@ -133,7 +133,7 @@ see — [LICENSE-BRANDING](./LICENSE-BRANDING.md)
 ## Support
 
 <p align="center">
-  <img src="assets/icon/ko-fi-svgrepo-com.svg" alt="support" width="150">
+  <img src="assets/icons/ko-fi-svgrepo-com.svg" alt="support" width="150">
 </p>
 
 <br>
