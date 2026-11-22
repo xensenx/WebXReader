@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, RepoFile, SpaceCard
+from huggingface_hub._commit_api import _fetch_upload_modes
 from huggingface_hub.errors import HfHubHTTPError
 
 
@@ -92,12 +93,28 @@ def publish(api: HfApi, files: dict[str, Path], source_sha: str) -> None:
         raise DeploymentError(f"Build paths conflict with unmanaged Space files: {', '.join(sorted(collisions))}")
 
     stale = sorted((managed & remote.keys()) - files.keys())
-    operations = [CommitOperationAdd(path, file) for path, file in files.items()]
-    operations.extend([
+    build_additions = [CommitOperationAdd(path, file) for path, file in files.items()]
+    additions = build_additions + [
         CommitOperationAdd(README, str(card).encode("utf-8")),
         CommitOperationAdd(INVENTORY, (json.dumps(sorted(files), indent=2) + "\n").encode("utf-8")),
-    ])
-    operations.extend(CommitOperationDelete(path) for path in stale)
+    ]
+
+    # Use the pinned Hub client's preupload check so the Space applies its own .gitignore rules.
+    # create_commit reuses these results and still checks the parent before updating main.
+    _fetch_upload_modes(
+        additions=additions,
+        **repo,
+        headers=api._build_hf_headers(),
+        revision="main",
+        endpoint=api.endpoint,
+    )
+    ignored = sorted(
+        op.path_in_repo for op in build_additions if op._upload_mode == "lfs" and op._should_ignore
+    )
+    if ignored:
+        raise DeploymentError(f"The Space's .gitignore excludes LFS build files: {', '.join(ignored)}")
+
+    operations = [*additions, *(CommitOperationDelete(path) for path in stale)]
 
     # Publish the whole update atomically and reject changes made since reading the Space.
     print(f"Syncing {len(files)} build files and removing {len(stale)} obsolete files in {SPACE}.", flush=True)
