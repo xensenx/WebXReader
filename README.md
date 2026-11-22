@@ -158,7 +158,6 @@ If you'd like to support its continued development, you can do so through Ko-fi.
   </a>
 </p>
 
-Every contribution is appreciated, but simply using and sharing WebXReader is already a great way to help.
 
 ## Contact
 
