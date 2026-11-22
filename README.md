@@ -153,7 +153,7 @@ If you'd like to support its continued development, you can do so through Ko-fi.
 
 <p align="left">
   <a href="https://ko-fi.com/xensenx" target="_blank" rel="noopener noreferrer">
-    <img src="assets/icons/ko-fi-custo.svg" alt="Support WebXReader on Ko-fi" width="400">
+    <img src="assets/icons/ko-fi-custom.svg" alt="Support WebXReader on Ko-fi" width="400">
   </a>
 </p>
 
