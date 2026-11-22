@@ -86,6 +86,12 @@ export function getTitleInitial(title: string): string {
   return letter?.toUpperCase() ?? '#';
 }
 
+export function getTitleInitialOptions(titles: readonly string[], selected = ''): string[] {
+  return [...new Set([...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...titles.map(getTitleInitial), selected, '#'])]
+    .filter(Boolean)
+    .sort((a, b) => a === '#' ? 1 : b === '#' ? -1 : a.localeCompare(b));
+}
+
 export function getLibraryFilterOptions(books: readonly Book[], filters: LibraryFilters) {
   function options(values: Iterable<string>, selected: readonly string[]) {
     const labels = new Map(selected.filter(Boolean).map((value) => [value, value]));
@@ -101,10 +107,7 @@ export function getLibraryFilterOptions(books: readonly Book[], filters: Library
     author: options(books.map((book) => book.author), [filters.author]),
     language: options(books.map((book) => book.language), [filters.language]),
     publisher: options(books.map((book) => book.publisher), [filters.publisher]),
-    initials: [...new Set([
-      ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...books.map((book) => getTitleInitial(book.title)),
-      ...(filters.initial ? [filters.initial] : []), '#',
-    ])].sort((a, b) => a === '#' ? 1 : b === '#' ? -1 : a.localeCompare(b)),
+    initials: getTitleInitialOptions(books.map((book) => book.title), filters.initial),
   };
 }
 

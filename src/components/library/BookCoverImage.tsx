@@ -15,7 +15,7 @@ interface CoverImageProps extends Omit<BookCoverImageProps, 'book'> {
   sources: readonly string[];
 }
 
-function CoverImage({ sources, placeholder, ...props }: CoverImageProps) {
+export function CoverImage({ sources, placeholder, ...props }: CoverImageProps) {
   const [failures, setFailures] = useState(0);
   const src = sources[failures];
   return src ? <img {...props} src={src} onError={() => setFailures((count) => count + 1)} /> : placeholder;

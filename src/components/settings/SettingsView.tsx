@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, type ChangeEvent, type KeyboardEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Palette,
@@ -19,7 +19,9 @@ import {
 } from 'lucide-react';
 
 import { useSettingsContext } from '../../app/providers/SettingsContext';
+import { useAppBack } from '../../app/navigation';
 import { clearLibraryViewState } from '../../features/library/library-state';
+import { clearSeriesBrowserState } from '../../features/series/series-browser';
 import {
   getStorageEstimate,
   getSettings,
@@ -90,6 +92,8 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
 export function SettingsView() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const { goBack, backLabel } = useAppBack();
   const { settings, updateSettings, resetSettings } = useSettingsContext();
 
   const applySettings = (partial: Parameters<typeof updateSettings>[0]) => {
@@ -127,7 +131,7 @@ export function SettingsView() {
         next.set('section', id);
         return next;
       },
-      { replace: true }
+      { replace: true, state: location.state }
     );
   };
 
@@ -208,6 +212,7 @@ export function SettingsView() {
     try {
       await resetSettings();
       clearLibraryViewState();
+      clearSeriesBrowserState();
       setResetConfirmOpen(false);
       setStatusMessage('Site preferences reset to factory defaults.');
     } catch (err) {
@@ -235,9 +240,9 @@ export function SettingsView() {
       <header className={styles.header}>
         <button
           className={styles.backBtn}
-          onClick={() => navigate('/')}
-          title="Back to Library"
-          aria-label="Back to Library"
+          onClick={goBack}
+          title={backLabel}
+          aria-label={backLabel}
           type="button"
         >
           <ArrowLeft size={20} />

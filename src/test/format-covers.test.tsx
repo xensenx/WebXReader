@@ -88,12 +88,6 @@ describe('Format fallback covers', () => {
       <BookCard
         book={dummyTxtBook}
         onOpen={vi.fn()}
-        onEdit={vi.fn()}
-        onToggleFavorite={vi.fn()}
-        onUpdateStatus={vi.fn()}
-        onToggleArchive={vi.fn()}
-        onExport={vi.fn()}
-        onDelete={vi.fn()}
         selectionMode={false}
         selected={false}
         onToggleSelection={vi.fn()}
@@ -111,12 +105,6 @@ describe('Format fallback covers', () => {
       <BookList
         book={dummyTxtBook}
         onOpen={vi.fn()}
-        onEdit={vi.fn()}
-        onToggleFavorite={vi.fn()}
-        onUpdateStatus={vi.fn()}
-        onToggleArchive={vi.fn()}
-        onExport={vi.fn()}
-        onDelete={vi.fn()}
         selectionMode={false}
         selected={false}
         onToggleSelection={vi.fn()}

@@ -7,8 +7,6 @@ import {
   Upload,
   SlidersHorizontal,
   CheckSquare,
-  LayoutGrid,
-  List,
   ArrowDownUp,
 } from 'lucide-react';
 import type {
@@ -22,6 +20,7 @@ import { Button } from '../common/Button';
 import { DropdownSelect } from '../common/DropdownSelect';
 import type { LibraryFilters } from '../../features/library/library-filters';
 import { LibraryFilterPanel } from './LibraryFilterPanel';
+import { LibraryLayoutControls } from './LibraryLayoutControls';
 import styles from './LibraryToolbar.module.css';
 
 interface LibraryToolbarProps {
@@ -140,28 +139,7 @@ export function LibraryToolbar({
             {selectionMode ? 'Done' : 'Select'}
           </Button>
 
-          <div className={styles.viewGroup} role="group" aria-label="Library layout">
-            <button
-              className={styles.viewButton}
-              onClick={() => onLayoutChange('grid')}
-              title="Grid view"
-              aria-label="Grid view"
-              aria-pressed={layout === 'grid'}
-              type="button"
-            >
-              <LayoutGrid size={16} />
-            </button>
-            <button
-              className={styles.viewButton}
-              onClick={() => onLayoutChange('list')}
-              title="List view"
-              aria-label="List view"
-              aria-pressed={layout === 'list'}
-              type="button"
-            >
-              <List size={16} />
-            </button>
-          </div>
+          <LibraryLayoutControls layout={layout} onLayoutChange={onLayoutChange} />
         </div>
 
         <Button

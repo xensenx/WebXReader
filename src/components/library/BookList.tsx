@@ -2,10 +2,10 @@
  * BookList component for list view in the library.
  */
 
-import { useState, useRef, useEffect, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useState, useRef, useEffect, type MouseEvent } from 'react';
 import {
   MoreVertical,
-  BookOpen,
+  Layers,
   Info,
   Star,
   CheckCircle,
@@ -14,46 +14,24 @@ import {
   Trash2,
   Check,
 } from 'lucide-react';
-import type { Book, ReadingStatus } from '../../types/book';
+import type { BookItemProps } from './book-item-props';
 import { formatDate } from '../../utils';
 import { BookCoverImage } from './BookCoverImage';
 import styles from './BookList.module.css';
-
-interface BookListProps {
-  book: Book;
-  progress?: number;
-  onOpen: (id: string) => void;
-  onEdit: (book: Book) => void;
-  onToggleFavorite: (id: string) => void;
-  onUpdateStatus: (id: string, status: ReadingStatus) => void;
-  onToggleArchive: (id: string) => void;
-  onExport: (id: string) => void;
-  onDelete: (book: Book) => void;
-  selectionMode: boolean;
-  selected: boolean;
-  onToggleSelection: (id: string) => void;
-  isDragging?: boolean;
-  onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  shouldSuppressClick?: () => boolean;
-}
 
 export function BookList({
   book,
   progress,
   onOpen,
-  onEdit,
-  onToggleFavorite,
-  onUpdateStatus,
-  onToggleArchive,
-  onExport,
-  onDelete,
+  actions,
+  volumeLabel,
   selectionMode,
   selected,
   onToggleSelection,
   isDragging,
   onPointerDown,
   shouldSuppressClick,
-}: BookListProps) {
+}: BookItemProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -93,7 +71,7 @@ export function BookList({
   const handleRowClick = () => {
     if (shouldSuppressClick?.()) return;
     if (selectionMode) {
-      onToggleSelection(book.id);
+      onToggleSelection?.(book.id);
       return;
     }
     onOpen(book.id);
@@ -164,6 +142,7 @@ export function BookList({
           )}
         </div>
         <span className={styles.author} title={book.author || 'Unknown'}>
+          {volumeLabel && `${volumeLabel} · `}
           {book.author || 'Unknown Author'}
         </span>
       </div>
@@ -182,7 +161,7 @@ export function BookList({
           : formatDate(book.importedAt)}
       </div>
 
-      {!selectionMode && (
+      {actions && !selectionMode && (
         <button
           ref={buttonRef}
           className={styles.menuButton}
@@ -195,21 +174,24 @@ export function BookList({
         </button>
       )}
 
-      {menuOpen && !selectionMode && (
+      {actions && menuOpen && !selectionMode && (
         <div ref={menuRef} className={styles.dropdown} role="menu">
           <button
             className={styles.menuItem}
-            onClick={(e) => handleAction(e, () => onOpen(book.id))}
+            onClick={(e) => handleAction(e, () => {
+              buttonRef.current?.focus();
+              actions.onAddToSeries(book.id);
+            })}
             role="menuitem"
             type="button"
           >
-            <BookOpen size={14} />
-            <span>Read</span>
+            <Layers size={14} />
+            <span>Add to series</span>
           </button>
 
           <button
             className={styles.menuItem}
-            onClick={(e) => handleAction(e, () => onEdit(book))}
+            onClick={(e) => handleAction(e, () => actions.onEdit(book))}
             role="menuitem"
             type="button"
           >
@@ -219,7 +201,7 @@ export function BookList({
 
           <button
             className={styles.menuItem}
-            onClick={(e) => handleAction(e, () => onToggleFavorite(book.id))}
+            onClick={(e) => handleAction(e, () => actions.onToggleFavorite(book.id))}
             role="menuitem"
             type="button"
           >
@@ -235,7 +217,7 @@ export function BookList({
             className={styles.menuItem}
             onClick={(e) =>
               handleAction(e, () =>
-                onUpdateStatus(
+                actions.onUpdateStatus(
                   book.id,
                   isCompleted ? 'unread' : 'completed'
                 )
@@ -254,7 +236,7 @@ export function BookList({
 
           <button
             className={styles.menuItem}
-            onClick={(e) => handleAction(e, () => onToggleArchive(book.id))}
+            onClick={(e) => handleAction(e, () => actions.onToggleArchive(book.id))}
             role="menuitem"
             type="button"
           >
@@ -264,7 +246,7 @@ export function BookList({
 
           <button
             className={styles.menuItem}
-            onClick={(e) => handleAction(e, () => onExport(book.id))}
+            onClick={(e) => handleAction(e, () => actions.onExport(book.id))}
             role="menuitem"
             type="button"
           >
@@ -276,7 +258,7 @@ export function BookList({
 
           <button
             className={`${styles.menuItem} ${styles.menuItemDanger}`}
-            onClick={(e) => handleAction(e, () => onDelete(book))}
+            onClick={(e) => handleAction(e, () => actions.onDelete(book))}
             role="menuitem"
             type="button"
           >

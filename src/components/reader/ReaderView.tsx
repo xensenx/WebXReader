@@ -4,9 +4,10 @@
  */
 
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
+  ArrowRight,
   List,
   Search,
   Bookmark as BookmarkIcon,
@@ -16,6 +17,7 @@ import {
   ZoomIn,
   ZoomOut,
   AlertCircle,
+  X,
 } from 'lucide-react';
 
 import { getBook, getBookContent, updateBook, saveBookContent, saveRecoveredEpubCover } from '../../core/storage/database';
@@ -24,6 +26,8 @@ import { splitHtmlIntoChapters } from '../../core/parsing/mht-parser';
 import { useReadingProgress } from '../../hooks/useReadingProgress';
 import { useBookmarks } from '../../hooks/useBookmarks';
 import { useReaderSettings } from '../../hooks/useReaderSettings';
+import { useBookSeries } from '../../features/series/use-book-series';
+import { BOOK_COMPLETION_THRESHOLD, getSeriesPath, getVolumeLabel, summarizeSeries } from '../../features/series/series';
 
 
 import type { Book, BookContent, Chapter, Bookmark } from '../../types/book';
@@ -154,6 +158,11 @@ function findChapter(chapters: readonly Chapter[], target: string): Chapter | un
 export function ReaderView() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
+  const fromSeries: unknown = useLocation().state?.fromSeries;
+  const returnPath = typeof fromSeries === 'string' ? getSeriesPath(fromSeries) : '/';
+  const returnLabel = returnPath === '/' ? 'Return to Library' : 'Return to series';
+  const seriesContext = useBookSeries(bookId);
+  const [dismissedRecommendation, setDismissedRecommendation] = useState<string>();
 
   const [book, setBook] = useState<Book | null>(null);
   const [content, setContent] = useState<BookContent | null>(null);
@@ -675,9 +684,9 @@ export function ReaderView() {
           <Button
             variant="primary"
             icon={<ArrowLeft size={16} />}
-            onClick={() => navigate('/')}
+            onClick={() => navigate(returnPath)}
           >
-            Back to Library
+            {returnPath === '/' ? 'Back to Library' : 'Back to series'}
           </Button>
         </div>
       </div>
@@ -691,6 +700,13 @@ export function ReaderView() {
 
   const liveProgress = getCurrentProgress() ?? progress;
   const currentOverallProgress = liveProgress?.overallProgress ?? 0;
+  const volumeIndex = seriesContext?.volumes.findIndex((volume) => volume.id === book.id) ?? -1;
+  const reachedEnd = currentOverallProgress >= BOOK_COMPLETION_THRESHOLD;
+  const seriesSummary = seriesContext && summarizeSeries(seriesContext.volumes.map((volume) =>
+    volume.id === book.id ? { ...volume, readingStatus: reachedEnd ? 'completed' : 'reading', readingProgress: currentOverallProgress } : volume));
+  const nextVolume = seriesContext && volumeIndex >= 0 && reachedEnd && dismissedRecommendation !== book.id
+    ? seriesContext.volumes[volumeIndex + 1]
+    : undefined;
   const restoreLocation = liveProgress ?? (initialProgressRef.current ? {
     scrollPosition: initialProgressRef.current.scrollPosition,
     chapterId: initialProgressRef.current.chapterId,
@@ -721,10 +737,10 @@ export function ReaderView() {
             className={styles.backBtn}
             onClick={() => {
               flush();
-              navigate('/');
+              navigate(returnPath);
             }}
-            title="Return to Library"
-            aria-label="Return to Library"
+            title={returnLabel}
+            aria-label={returnLabel}
             type="button"
           >
             <ArrowLeft size={20} />
@@ -734,11 +750,16 @@ export function ReaderView() {
             <span className={styles.bookTitle} title={book.title}>
               {book.title}
             </span>
-            {currentChapterTitle && (
-              <span className={styles.chapterTitle} title={currentChapterTitle}>
-                {currentChapterTitle}
-              </span>
-            )}
+            <div className={styles.readerMetadata}>
+              {currentChapterTitle && <span className={styles.chapterTitle} title={currentChapterTitle}>{currentChapterTitle}</span>}
+              {seriesContext && seriesSummary && volumeIndex >= 0 && (
+                <Link className={styles.seriesPosition}
+                  to={getSeriesPath(seriesContext.series.id)}
+                  title={`${seriesContext.series.title} · ${getVolumeLabel(seriesContext.series, book.id, volumeIndex)}`} onClick={flush}>
+                  {Math.round(seriesSummary.fraction * 100)}% of series
+                </Link>
+              )}
+            </div>
           </div>
         </div>
 
@@ -969,6 +990,17 @@ export function ReaderView() {
           )}
         </Suspense>
       </main>
+
+      {nextVolume && (
+        <aside className={styles.nextVolume} aria-label="Next in series">
+          <span className={styles.nextVolumeDetails}><small>Next in series</small><strong>{nextVolume.title}</strong></span>
+          <Link className={styles.nextVolumeLink} to={`/read/${nextVolume.id}`} state={{ fromSeries }} onClick={flush}>
+            Open next <ArrowRight size={15} aria-hidden="true" />
+          </Link>
+          <Button size="sm" variant="ghost" type="button" icon={<X size={16} />} aria-label="Dismiss next book"
+            onClick={() => setDismissedRecommendation(book.id)} />
+        </aside>
+      )}
 
       {/* Progress Bar & Scrubber */}
       <ProgressBar

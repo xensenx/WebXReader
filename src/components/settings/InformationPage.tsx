@@ -1,5 +1,4 @@
 import { useLayoutEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   BookOpen,
@@ -11,6 +10,7 @@ import {
 } from 'lucide-react';
 
 import { KoFiIcon } from '../common/KoFiIcon';
+import { useAppBack } from '../../app/navigation';
 import styles from './InformationPage.module.css';
 
 type InformationPageKind = 'about' | 'privacy';
@@ -20,7 +20,7 @@ interface InformationPageProps {
 }
 
 export function InformationPage({ kind }: InformationPageProps) {
-  const navigate = useNavigate();
+  const { goBack, backLabel } = useAppBack();
   const isPrivacyPage = kind === 'privacy';
   const title = isPrivacyPage ? 'Privacy Policy' : 'About WebXReader';
 
@@ -33,9 +33,9 @@ export function InformationPage({ kind }: InformationPageProps) {
       <header className={styles.header}>
         <button
           className={styles.backBtn}
-          onClick={() => navigate('/')}
-          title="Back to Library"
-          aria-label="Back to Library"
+          onClick={goBack}
+          title={backLabel}
+          aria-label={backLabel}
           type="button"
         >
           <ArrowLeft size={20} />

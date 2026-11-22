@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ReadingProgress } from '../types/book';
 import { getProgress, saveProgress } from '../core/storage/database';
 import { debounce } from '../utils';
+import { BOOK_COMPLETION_THRESHOLD } from '../features/series/series';
 
 interface UseReadingProgressResult {
   progress: ReadingProgress | null;
@@ -96,13 +97,15 @@ export function useReadingProgress(bookId: string): UseReadingProgressResult {
       hasPublishedRef.current = true;
       progressRef.current = updated;
 
-      // Only trigger a React state update if integer percent, chapter, or page changed
+      // Publish completion even when it falls inside the same rounded percent.
       const prevPercent = Math.round((base.overallProgress || 0) * 100);
       const newPercent = Math.round((updated.overallProgress || 0) * 100);
       const chapterChanged = base.chapterId !== updated.chapterId;
       const pageChanged = base.pageIndex !== updated.pageIndex;
+      const completionChanged = (base.overallProgress >= BOOK_COMPLETION_THRESHOLD) !==
+        (updated.overallProgress >= BOOK_COMPLETION_THRESHOLD);
 
-      if (prevPercent !== newPercent || chapterChanged || pageChanged) {
+      if (prevPercent !== newPercent || chapterChanged || pageChanged || completionChanged) {
         setProgress(updated);
       }
 

@@ -1,0 +1,48 @@
+.form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.choices {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choices legend {
+  padding: 0 0 var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.list {
+  display: grid;
+  gap: var(--space-2);
+  max-height: min(320px, 45dvh);
+  overflow: auto;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.option:hover { background: var(--color-surface-hover); }
+.option:has(:checked), .option:focus-within { border-color: var(--color-accent); }
+.option svg { flex-shrink: 0; }
+.option span { display: grid; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.option strong { color: var(--color-text); font-size: var(--text-sm); }
+.option small { font-size: var(--text-xs); }
+.option input { flex-shrink: 0; accent-color: var(--color-accent); }
+.note, .error { margin: 0; font-size: var(--text-sm); line-height: 1.5; }
+.note { color: var(--color-text-secondary); }
+.error { color: var(--color-danger); }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }

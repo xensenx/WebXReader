@@ -29,7 +29,7 @@ interface ChipOptionsProps<T extends string> {
   scrollable?: boolean;
 }
 
-function FilterChips<T extends string>({ label, options, selected, onChange, scrollable }: ChipOptionsProps<T>) {
+export function FilterChips<T extends string>({ label, options, selected, onChange, scrollable }: ChipOptionsProps<T>) {
   return (
     <fieldset className={styles.group}>
       <legend>{label}</legend>
