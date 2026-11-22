@@ -132,7 +132,8 @@ see — [LICENSE-BRANDING](./LICENSE-BRANDING.md)
 
 ## Support
 
-<p align="center">
+<p align="left">
+  <a href="https://ko-fi.com/xensenx" target="_blank">
   <img src="assets/icons/ko-fi-svgrepo-com.svg" alt="support" width="150">
 </p>
 
