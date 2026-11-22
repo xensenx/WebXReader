@@ -124,25 +124,23 @@ WebXReader is built around a simple idea: your digital library should be private
 
 ## License
 
-Code is released under the **AGPL-3.0 LICENSE** — see [LICENSE](./LICENSE).
+Code is Open source and is released under the **AGPL-3.0 LICENSE** — see [LICENSE](./LICENSE).
 
 The **WebXReader** name, logos, icons, and overall visual identity remain the intellectual property of &copy; Sen and are not covered under the AGPL License.
 These branding elements are included in the source code solely for functional product use. Public forks, redistributions, or derivative projects must remove or replace original branding unless explicit written permission is granted.
 see — [LICENSE-BRANDING](./LICENSE-BRANDING.md) 
 
 ## Support
-<div align="left">
-  <a href="https://ko-fi.com/xensenx" target="_blank">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/Secure-Smart-Sync/Secure-Smart-Sync-assets/Icons/SVG/Ko-fi_white.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://cdn.jsdelivr.net/gh/Secure-Smart-Sync/Secure-Smart-Sync-assets/Icons/SVG/Ko-fi_black.svg">
-      <img align="left" src="https://cdn.jsdelivr.net/gh/Secure-Smart-Sync/Secure-Smart-Sync-assets/Icons/SVG/Ko-fi_white.svg" width="90" alt="Support on Ko-fi">
-    </picture>
-  </a>
-  
-  <br>
-  <strong>&nbsp;&nbsp;WebXReader is 100% free and open source. A small donation helps fuel late-night debugging and keep development moving.</strong><br>
-  <strong>&nbsp;&nbsp;Ko-fi allows guest donations, so no sign-up is needed..</strong>
+
+<p align="center">
+  <img src="assets/icon/ko-fi-svgrepo-com.svg" alt="support" width="150">
+</p>
+
+<br>
+
+<div>
+  <strong>WebXReader is 100% free and open source. A small donation helps fuel late-night debugging and keep development moving.</strong><br>
+  <strong>Ko-fi allows guest donations, so no sign-up is needed..</strong>
 </div>
 
 <br clear="all" />
