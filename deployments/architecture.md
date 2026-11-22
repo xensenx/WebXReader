@@ -35,7 +35,7 @@ The provider-side integration details for Cloudflare, Netlify and Vercel are not
 | Static application behavior | HTTP headers, redirects, caching and asset serving |
 | Application bugs present in the same revision | Provider-specific outages and configuration errors |
 
-The two explicit GitHub Actions deployment workflows are [Firebase](../.github/workflows/firebase-hosting-production.yml) and [Hugging Face](../.github/workflows/deploy-huggingface.yml). They build independently. Netlify has a [build configuration](../netlify.toml); Vercel has [provider configuration](../vercel.json). Cloudflare Pages has no dedicated deployment workflow in the inspected repository.
+The two explicit GitHub Actions deployment workflows are [Firebase](../.github/workflows/firebase-hosting-production.yml) and [Hugging Face](../.github/workflows/deploy-huggingface.yml). They build independently. Netlify has a [build configuration](../netlify.toml); Vercel has [provider configuration](../vercel.json). Cloudflare Pages has no dedicated deployment workflow in this repository.
 
 A source or build defect can affect every mirror once the same revision is deployed. A provider outage may affect only that mirror. Different deployment timings mean mirrors can temporarily serve different revisions.
 
