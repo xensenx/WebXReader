@@ -41,7 +41,7 @@ Choose from any of the following sites. Each platform deploys updates independen
 | Vercel | [webxreader.vercel.app](https://webxreader.vercel.app/) |
 | Hugging Face Spaces | [webxreader-app.static.hf.space](https://webxreader-app.static.hf.space/) |
 
-*The primary Netlify deployment is supported by [Netlify's Open Source Program](https://www.netlify.com/open-source/).*
+*The Netlify deployment is supported by [Netlify's Open Source Program.](https://www.netlify.com/open-source/).*
 
 > [!IMPORTANT]
 > Your library data is not shared between these mirrors. Each site stores books, bookmarks, reading progress, and preferences separately in your browser.
