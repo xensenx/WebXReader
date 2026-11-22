@@ -43,6 +43,8 @@ Choose from any of the following sites. Each platform deploys updates independen
 
 *The Netlify deployment is supported by [Netlify's Open Source Program.](https://www.netlify.com/open-source/).*
 
+Maintainer documentation for all five mirrors is available in the [deployment reference](deployments/README.md).
+
 > [!IMPORTANT]
 > Your library data is not shared between these mirrors. Each site stores books, bookmarks, reading progress, and preferences separately in your browser.
 > (You can use multiple or all sites simultaneously if you want to have multiple separate libraries.)
