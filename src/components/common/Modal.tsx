@@ -16,12 +16,13 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   size?: ModalSize;
+  initialFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
 const FOCUSABLE_SELECTORS =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, size = 'md', initialFocusRef }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -32,15 +33,16 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
       previousFocusRef.current = document.activeElement as HTMLElement;
 
       // Focus first focusable element in modal
-      requestAnimationFrame(() => {
-        const firstFocusable = contentRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTORS);
-        firstFocusable?.focus();
+      const focusFrame = requestAnimationFrame(() => {
+        const target = initialFocusRef?.current ?? contentRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTORS);
+        target?.focus();
       });
+      return () => cancelAnimationFrame(focusFrame);
     } else if (previousFocusRef.current) {
       previousFocusRef.current.focus();
       previousFocusRef.current = null;
     }
-  }, [isOpen]);
+  }, [isOpen, initialFocusRef]);
 
   // Lock body scroll
   useEffect(() => {

@@ -19,7 +19,6 @@ import { countLibraryFilters, DEFAULT_LIBRARY_FILTERS, filterLibraryBooks, type 
 import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
-  Upload,
   BookX,
   SearchX,
   ArrowRight,
@@ -44,6 +43,7 @@ import { ImportDialog } from './ImportDialog';
 import { BookDetailsDialog } from './BookDetailsDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState } from '../common/EmptyState';
+import { FileDropOverlay } from '../common/FileDropOverlay';
 import { Button } from '../common/Button';
 import { MainPageHeader } from '../common/MainPageHeader';
 import { AddToSeriesDialog } from '../series/AddToSeriesDialog';
@@ -674,14 +674,7 @@ export function LibraryView() {
       <BookReorderPreview preview={reorder.dragPreview} previewRef={reorder.dragPreviewElementRef} />
 
       {/* Drag and Drop Overlay */}
-      {isDraggingOver && (
-        <div className={styles.dragOverlay}>
-          <div className={styles.dragCard}>
-            <Upload size={48} />
-            <span>Drop book, comic, or image to import</span>
-          </div>
-        </div>
-      )}
+      {isDraggingOver && <FileDropOverlay />}
 
       {/* Import Dialog */}
       <ImportDialog
