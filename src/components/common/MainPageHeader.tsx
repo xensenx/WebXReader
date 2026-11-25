@@ -14,6 +14,7 @@ import {
 
 import { useSidePanelContext } from '../../app/providers/useSidePanelContext';
 import { getAppNavigationState, getAppTab } from '../../app/navigation';
+import { endLogoDrag, startLogoDrag } from '../../features/easter-egg/logo-drag';
 import { IncognitoIcon } from './IncognitoIcon';
 import { KoFiIcon } from './KoFiIcon';
 import styles from './MainPageHeader.module.css';
@@ -134,7 +135,15 @@ export function MainPageHeader({ libraryName }: MainPageHeaderProps) {
     <>
       <header className={libraryName ? `${styles.header} ${styles.namedHeader}` : styles.header}>
         <div className={styles.brand}>
-          <img src="/webxreader.svg" alt="" className={styles.brandLogo} aria-hidden="true" />
+          <img
+            src="/webxreader.svg"
+            alt=""
+            className={styles.brandLogo}
+            aria-hidden="true"
+            draggable
+            onDragStart={(event) => startLogoDrag(event.dataTransfer)}
+            onDragEnd={endLogoDrag}
+          />
           <span className={styles.brandName}>WebXReader</span>
         </div>
         {libraryName && (

@@ -11,6 +11,7 @@ import { SettingsView } from './components/settings/SettingsView';
 import { InformationPage } from './components/settings/InformationPage';
 import { PlannedFeaturePage } from './components/common/PlannedFeaturePage';
 import { SeriesView } from './components/series/SeriesView';
+import { LogoEasterEgg } from './components/easter-egg/LogoEasterEgg';
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="/privacy-policy" element={<InformationPage kind="privacy" />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          <LogoEasterEgg />
         </SidePanelProvider>
       </HashRouter>
     </SettingsProvider>

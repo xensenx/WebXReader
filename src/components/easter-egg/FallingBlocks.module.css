@@ -1,0 +1,117 @@
+.game {
+  display: grid;
+  grid-template-columns: minmax(0, min(15rem, 30dvh)) minmax(7.25rem, 10rem);
+  align-items: start;
+  justify-content: center;
+  gap: var(--space-4);
+}
+
+.board {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+}
+
+.board:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.board svg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 9 / 18;
+  background-image: linear-gradient(to right, var(--color-border-light) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-border-light) 1px, transparent 1px);
+  background-size: calc(100% / 9) calc(100% / 18);
+}
+
+.tile { color: #5aa5bd; fill: currentColor; }
+.tile[data-shape='1'] { color: #e7a35d; }
+.tile[data-shape='2'] { color: #6ebe8f; }
+.tile[data-shape='3'] { color: #a991dd; }
+.tile[data-shape='4'] { color: #d6758e; }
+.tile[data-shape='5'] { color: #cfb55c; }
+.tile[data-shape='6'] { color: #6f98e3; }
+
+.ghost {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.07;
+  opacity: 0.68;
+}
+
+.boardMessage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--color-bg) 85%, transparent);
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  text-align: center;
+}
+
+.sidebar {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.stats, .next {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.stats > div, .next {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.stats dd {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.next svg { width: 2.5rem; }
+
+.controls, .actions {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.game button {
+  min-height: 2.5rem;
+  touch-action: manipulation;
+}
+
+.controls button { padding-inline: var(--space-1); }
+
+.instructions {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+@media (max-width: 400px) {
+  .game {
+    grid-template-columns: minmax(0, min(15rem, 30dvh)) 7.25rem;
+    gap: var(--space-2);
+  }
+  .sidebar { gap: var(--space-2); }
+}

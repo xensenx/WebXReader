@@ -161,18 +161,6 @@
   }
 }
 
-.dragOverlay {
-  position: fixed;
-  inset: 0;
-  background-color: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
 .bookDragPreview {
   position: fixed;
   top: 0;
@@ -223,21 +211,6 @@
   font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-}
-
-.dragCard {
-  background-color: var(--color-surface);
-  border: 2px dashed var(--color-accent);
-  border-radius: var(--radius-xl);
-  padding: var(--space-10);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  color: var(--color-accent);
-  font-size: var(--text-lg);
-  font-weight: 600;
-  box-shadow: var(--shadow-xl);
 }
 
 .seriesNotice {
