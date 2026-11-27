@@ -1,6 +1,6 @@
 // WebXReader Offline Application Shell Service Worker
 const CACHE_PREFIX = 'webxreader-';
-const CACHE_NAME = `${CACHE_PREFIX}shell-v7`;
+const CACHE_NAME = `${CACHE_PREFIX}shell-v8`;
 const CACHE_SIZE_HEADER = 'X-WebXReader-Cache-Bytes';
 const MAX_CACHE_ENTRY_BYTES = 5 * 1024 * 1024;
 const MAX_CACHE_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -165,6 +165,37 @@ async function cacheResponseWithinLimits(cache, cacheKey, response) {
   }
 }
 
+async function discoverWorkspaceAssets() {
+  try {
+    const response = await fetch(appUrl('shell-manifest.json'), { cache: 'no-cache' });
+    const bounded = await copyResponseWithinLimit(response);
+    if (!bounded) return [];
+    const manifest = await bounded.response.json();
+    // Cache the workspace without executing it or prefetching its optional reader engines.
+    const pending = ['src/app/WorkspaceRoutes.tsx'];
+    const visited = new Set();
+    const assets = new Set();
+    while (pending.length > 0) {
+      const key = pending.pop();
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const entry = Object.hasOwn(manifest, key) ? manifest[key] : undefined;
+      if (!entry || typeof entry.file !== 'string') continue;
+      const files = [entry.file, ...(Array.isArray(entry.css) ? entry.css : [])];
+      for (const file of files) {
+        if (typeof file !== 'string') continue;
+        const url = appUrl(file);
+        if (isKnownShellAsset(url)) assets.add(url);
+      }
+      if (Array.isArray(entry.imports)) pending.push(...entry.imports);
+    }
+    return [...assets];
+  } catch {
+    // Development or older hosts may not serve a build manifest.
+    return [];
+  }
+}
+
 async function discoverShellAssets() {
   const indexUrl = appUrl('index.html');
   const response = await fetch(indexUrl, { cache: 'no-cache' });
@@ -186,6 +217,7 @@ async function discoverShellAssets() {
       // Ignore malformed, cross-origin, or non-shell references.
     }
   }
+  for (const url of await discoverWorkspaceAssets()) assets.add(url);
   return [...assets].filter(isKnownShellAsset);
 }
 
@@ -232,14 +264,15 @@ async function handleShellAsset(request) {
   let cache;
   try {
     cache = await caches.open(CACHE_NAME);
-    const cached = await cache.match(request);
+    // Shell assets are cached by URL. Module requests may send Origin even when the precache fetch did not.
+    const cached = await cache.match(request, { ignoreVary: true });
     if (cached) return cached;
   } catch {
     // Keep the network path available when Cache Storage is unavailable.
   }
 
   const response = await fetch(request);
-  if (cache) await cacheResponseWithinLimits(cache, request, response);
+  if (cache) await cacheResponseWithinLimits(cache, request.url, response);
   return response;
 }
 

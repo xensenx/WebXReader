@@ -26,13 +26,13 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: false,
+    manifest: 'shell-manifest.json',
     rollupOptions: {
       output: {
         manualChunks(id: string) {
           if (id.includes('epubjs')) return 'vendor-epub';
           if (id.includes('pdfjs-dist')) return 'vendor-pdf';
           if (id.includes('djvu-rs')) return 'vendor-djvu';
-          if (id.includes('7z-wasm')) return 'vendor-7z';
           if (id.includes('jszip')) return 'vendor-zip';
           if (id.includes('marked') || id.includes('dompurify')) return 'vendor-parser';
           if (id.includes('lucide-react')) return 'vendor-icons';

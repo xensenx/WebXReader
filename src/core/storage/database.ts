@@ -4,6 +4,7 @@
  */
 
 import { normalizeLibraryName } from '../../features/library/library-name';
+import type { TermsAcceptance } from '../../app/legal';
 import { appendSeriesBooks, BOOK_COMPLETION_THRESHOLD, normalizeSeries, reorderSeriesVolumes } from '../../features/series/series';
 import { APP_THEME_OPTIONS, DEFAULT_SETTINGS } from '../../types/book';
 import type {
@@ -20,12 +21,12 @@ import type {
   BackupData,
   BackupBookContent,
 } from '../../types/book';
-import { sanitizeBookChapter } from '../parsing/sanitize-reader-html';
 import { BROWSER_QUOTA_ERROR, MAX_JSON_BACKUP_BYTES, isStorageQuotaError, libraryLimitError, normalizeStorageLimit } from './storage-limits';
 
 const DB_NAME = 'webxreader';
 const DB_VERSION = 3;
 const SETTINGS_STORAGE_KEY = 'webxreader.preferences.v1';
+const TERMS_ACCEPTANCE_ID = 'terms-acceptance';
 
 function normalizeUserSettings(settings: Omit<Partial<UserSettings>, 'theme'> & { theme?: unknown }): UserSettings {
   const savedTheme = settings.theme === 'light' ? 'dark' : settings.theme;
@@ -652,6 +653,18 @@ export async function saveSettings(settings: UserSettings): Promise<void> {
   }
 }
 
+/** Keep acknowledgment local to this browser, outside settings exports and preference resets. */
+export async function getTermsAcceptance(): Promise<TermsAcceptance | undefined> {
+  const record = await withTransaction<{ value: TermsAcceptance } | undefined>(
+    STORES.settings, 'readonly', (store) => store.get(TERMS_ACCEPTANCE_ID),
+  );
+  return record?.value;
+}
+
+export async function saveTermsAcceptance(value: TermsAcceptance): Promise<void> {
+  await withTransaction(STORES.settings, 'readwrite', (store) => store.put({ id: TERMS_ACCEPTANCE_ID, value }));
+}
+
 export async function clearSettings(): Promise<void> {
   try {
     localStorage.removeItem(SETTINGS_STORAGE_KEY);
@@ -834,12 +847,14 @@ function serializeBookContent(content: StoredBookContent): BackupBookContent {
   };
 }
 
-function deserializeBookContent(content: BackupBookContent): BookContent {
+type SanitizeBookChapter = typeof import('../parsing/sanitize-reader-html').sanitizeBookChapter;
+
+function deserializeBookContent(content: BackupBookContent, sanitizeChapter: SanitizeBookChapter): BookContent {
   return {
     bookId: content.bookId,
     format: content.format,
     rawText: content.rawText,
-    chapters: content.chapters?.map((chapter) => sanitizeRestoredChapter(chapter, content.format)),
+    chapters: content.chapters?.map((chapter) => sanitizeRestoredChapter(chapter, content.format, sanitizeChapter)),
     originalFile: content.originalFileBase64 ? fromBase64(content.originalFileBase64) : undefined,
   };
 }
@@ -878,15 +893,15 @@ function isBackupBookContent(value: unknown): value is BackupBookContent {
   );
 }
 
-function sanitizeRestoredChapter(chapter: Chapter, format: BookFormat): Chapter {
+function sanitizeRestoredChapter(chapter: Chapter, format: BookFormat, sanitizeChapter: SanitizeBookChapter): Chapter {
   return {
     id: chapter.id,
     title: chapter.title,
-    content: chapter.content === undefined ? undefined : sanitizeBookChapter(chapter.content, format),
+    content: chapter.content === undefined ? undefined : sanitizeChapter(chapter.content, format),
     href: chapter.href,
     level: chapter.level,
     order: chapter.order,
-    children: chapter.children?.map((child) => sanitizeRestoredChapter(child, format)),
+    children: chapter.children?.map((child) => sanitizeRestoredChapter(child, format, sanitizeChapter)),
   };
 }
 
@@ -982,12 +997,13 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
 
   const restorableIds = new Set(booksToRestore.map((book) => book.id));
   const contentRecords = new Map<string, BookContent>();
+  const { sanitizeBookChapter } = await import('../parsing/sanitize-reader-html');
   for (const candidate of backup.contents ?? []) {
     if (!isBackupBookContent(candidate)) {
       throw new Error('Invalid content payload in backup');
     }
     try {
-      contentRecords.set(candidate.bookId, deserializeBookContent(candidate));
+      contentRecords.set(candidate.bookId, deserializeBookContent(candidate, sanitizeBookChapter));
     } catch {
       throw new Error(`Invalid content payload for book "${candidate.bookId}"`);
     }

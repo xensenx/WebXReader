@@ -53,10 +53,24 @@ import { BookReorderPreview } from './BookReorderPreview';
 import { useBookReorder } from './useBookReorder';
 import styles from './LibraryView.module.css';
 
-export function LibraryView() {
+export function LibraryView({ onReady }: { onReady?: () => void }) {
   const navigate = useNavigate();
   const { books, loading, refreshBooks, removeBook, removeBooks, toggleFavorite, updateReadingStatus, toggleArchive } = useBooks();
   const { settings, updateSettings } = useSettingsContext();
+
+  useEffect(() => {
+    if (loading || !onReady) return;
+
+    // Let the browser paint the loaded library before opening Welcome over it.
+    let nextFrame: number;
+    const frame = requestAnimationFrame(() => {
+      nextFrame = requestAnimationFrame(onReady);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (nextFrame !== undefined) cancelAnimationFrame(nextFrame);
+    };
+  }, [loading, onReady]);
 
   const applySettings = (partial: Parameters<typeof updateSettings>[0]) => {
     // The settings hook already logs persistence failures.

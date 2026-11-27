@@ -4,6 +4,7 @@ import {
   BarChart3,
   BookOpen,
   ExternalLink,
+  FileText,
   Info,
   Layers,
   Menu,
@@ -31,6 +32,7 @@ const PAGE_LINKS = [
 const SECONDARY_PAGE_LINKS = [
   { path: '/settings', label: 'Settings', icon: <Settings size={18} /> },
   { path: '/privacy-policy', label: 'Privacy Policy', icon: <ShieldCheck size={18} /> },
+  { path: '/terms-of-use', label: 'Terms of Use', icon: <FileText size={18} /> },
   { path: '/about', label: 'About', icon: <Info size={18} /> },
 ];
 
