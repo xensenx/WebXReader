@@ -132,6 +132,7 @@
 .navigationItem[aria-current='page'] {
   background-color: var(--color-surface-hover);
   border-color: var(--color-border);
+  text-decoration: none;
 }
 
 .navigationItem[aria-current='page'] {
