@@ -295,11 +295,20 @@
   font-weight: 600;
 }
 
-.proseSection p {
+.proseSection p,
+.proseSection ul {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
   line-height: 1.7;
+}
+
+.proseSection ul {
+  padding-inline-start: var(--space-5);
+}
+
+.proseSection li + li {
+  margin-top: var(--space-1);
 }
 
 .proseSection a,
@@ -317,6 +326,12 @@
 .proseSection a:hover,
 .linkRow a:hover {
   text-decoration: underline;
+}
+
+.proseSection .documentLink {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .proseSection a:focus-visible,

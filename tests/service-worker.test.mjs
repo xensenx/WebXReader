@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Blob as NodeBlob } from 'node:buffer';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -14,7 +15,7 @@ const sizeHeader = 'X-WebXReader-Cache-Bytes';
 function worker() {
   const listeners = {};
   const context = vm.createContext({
-    URL, Request, Response, Headers, Blob, console,
+    URL, Request, Response, Headers, Blob: NodeBlob, console,
     self: { registration: { scope }, addEventListener: (name, callback) => { listeners[name] = callback; } },
   });
   vm.runInContext(source, context);
@@ -113,4 +114,42 @@ test('hashed JS bundles reach the shell handler while development modules bypass
     sw.listeners.fetch({ request: new Request(scope + path), respondWith: () => assert.fail(`intercepted ${path}`) });
   }
   assert.equal(handled.length, 2);
+});
+
+test('caches the deferred workspace and its styles without prefetching optional reader engines', async () => {
+  const sw = worker();
+  sw.context.fetch = async (url) => {
+    if (url === scope + 'index.html') return new Response('<script src="assets/index-Ab12_cd3.js"></script>');
+    assert.equal(url, scope + 'shell-manifest.json');
+    return Response.json({
+      'src/app/WorkspaceRoutes.tsx': {
+        file: 'assets/WorkspaceRoutes-077fdb13.js', css: ['assets/WorkspaceRoutes-2476acde.css'],
+        imports: ['_common'], dynamicImports: ['src/formats/engines/EpubReader.tsx'],
+      },
+      _common: {
+        file: 'assets/common-45ab21ef.js', css: ['https://outside.test/assets/invalid-12345678.css'],
+        imports: ['src/app/WorkspaceRoutes.tsx'],
+      },
+      'src/formats/engines/EpubReader.tsx': { file: 'assets/EpubReader-0112ccab.js' },
+    });
+  };
+  const assets = Array.from(await sw.run('discoverShellAssets()'));
+  for (const path of ['webxreader.svg', 'assets/index-Ab12_cd3.js', 'assets/WorkspaceRoutes-077fdb13.js',
+    'assets/WorkspaceRoutes-2476acde.css', 'assets/common-45ab21ef.js']) assert.ok(assets.includes(scope + path));
+  assert.ok(!assets.some((url) => url.includes('EpubReader') || url.includes('outside.test')));
+});
+
+test('serves a precached same-origin module when its request has an Origin header', async () => {
+  const sw = worker();
+  sw.context.caches = { open: async () => ({
+    match: async (request, options) => {
+      assert.equal(request.headers.get('origin'), new URL(scope).origin);
+      return options?.ignoreVary ? new Response('cached module', { headers: { Vary: 'Origin' } }) : undefined;
+    },
+  }) };
+  sw.context.fetch = () => { throw new Error('offline'); };
+  const request = new Request(scope + 'assets/index-Ab12_cd3.js', { headers: { Origin: new URL(scope).origin } });
+  let response;
+  sw.listeners.fetch({ request, respondWith: (value) => { response = value; } });
+  assert.equal(await (await response).text(), 'cached module');
 });

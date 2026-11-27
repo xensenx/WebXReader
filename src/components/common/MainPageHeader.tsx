@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   BookOpen,
   ExternalLink,
+  FileText,
   Info,
   Layers,
   Menu,
@@ -31,6 +32,7 @@ const PAGE_LINKS = [
 const SECONDARY_PAGE_LINKS = [
   { path: '/settings', label: 'Settings', icon: <Settings size={18} /> },
   { path: '/privacy-policy', label: 'Privacy Policy', icon: <ShieldCheck size={18} /> },
+  { path: '/terms-of-use', label: 'Terms of Use', icon: <FileText size={18} /> },
   { path: '/about', label: 'About', icon: <Info size={18} /> },
 ];
 
@@ -215,16 +217,20 @@ export function MainPageHeader({ libraryName }: MainPageHeaderProps) {
             ))}
             <div className={styles.navigationDivider} role="separator" />
             {SECONDARY_PAGE_LINKS.map(({ path, label, icon }) => (
-              <button
+              <Link
                 key={path}
+                to={path}
                 className={styles.navigationItem}
                 aria-current={location.pathname === path ? 'page' : undefined}
-                onClick={() => navigateFromPanel(path)}
-                type="button"
+                onClick={(event) => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+                  event.preventDefault();
+                  navigateFromPanel(path);
+                }}
               >
                 {icon}
                 <span>{label}</span>
-              </button>
+              </Link>
             ))}
             <button
               ref={donateTriggerRef}

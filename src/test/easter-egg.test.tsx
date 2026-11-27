@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import App from '../App';
+import { TERMS_VERSION } from '../app/legal';
+import { saveTermsAcceptance } from '../core/storage/database';
 import { BOARD_COLUMNS, BOARD_ROWS, SHAPES, createGame, levelForRows, play } from '../features/easter-egg/falling-blocks';
 
 afterEach(() => {
@@ -15,7 +17,9 @@ function dragTransfer(files: File[] = []) {
 
 it('opens only for a drag from the header logo and starts fresh after closing', async () => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  await saveTermsAcceptance({ accepted: true, termsVersion: TERMS_VERSION, acceptedAt: 1 });
   const { container } = render(<App />);
+  await screen.findByRole('heading', { name: 'Your Library is Empty' }, { timeout: 5000 });
   const logo = container.querySelector('header img[draggable="true"]')!;
   const target = container.querySelector('main')!;
   const transfer = dragTransfer();

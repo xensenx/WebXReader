@@ -44,6 +44,7 @@ function renderLibrary(pathname: string) {
             <Route path="/settings" element={<SettingsView />} />
             <Route path="/about" element={<InformationPage kind="about" />} />
             <Route path="/privacy-policy" element={<InformationPage kind="privacy" />} />
+            <Route path="/terms-of-use" element={<InformationPage kind="terms" />} />
             <Route path="/stats" element={<PlannedFeaturePage title="Stats" />} />
             <Route path="/private-mode" element={<PlannedFeaturePage title="Private mode" />} />
           </Routes>
@@ -55,7 +56,8 @@ function renderLibrary(pathname: string) {
 
 function openMenuPage(name: string) {
   if (!screen.queryByRole('dialog', { name: 'Menu' })) fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Menu' })).getByRole('button', { name }));
+  const menu = within(screen.getByRole('dialog', { name: 'Menu' }));
+  fireEvent.click(menu.queryByRole('link', { name }) ?? menu.getByRole('button', { name }));
 }
 
 describe('Series', () => {
@@ -296,6 +298,25 @@ describe('Series', () => {
     expect(screen.queryByRole('button', { name: /^Back to/ })).toBeNull();
     openMenuPage('Series');
     expect(await screen.findByRole('heading', { name: 'Series' })).toBeInTheDocument();
+  });
+
+  it('opens Terms of Use below Privacy Policy and returns to the originating page', async () => {
+    renderLibrary('/stats');
+    fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    const menu = within(screen.getByRole('dialog', { name: 'Menu' }));
+    const labels = menu.getAllByRole('link').map((link) => link.textContent?.trim());
+    expect(labels[labels.indexOf('Privacy Policy') + 1]).toBe('Terms of Use');
+    fireEvent.click(menu.getByRole('link', { name: 'Terms of Use' }));
+
+    expect(screen.getByRole('heading', { name: 'Terms of Use', level: 1 })).toBeInTheDocument();
+    expect(screen.getByText('November 28, 2026')).toHaveAttribute('datetime', '2026-11-28');
+    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(20);
+    fireEvent.click(screen.getByRole('link', { name: 'Privacy Policy' }));
+    expect(screen.getByRole('heading', { name: 'Privacy Policy', level: 1 })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Terms of Use' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Stats' }));
+    expect(screen.getByRole('heading', { name: 'Stats is coming in a future update' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
   });
 
   it('selects books first, suggests editable details, and preserves click order and progress', async () => {

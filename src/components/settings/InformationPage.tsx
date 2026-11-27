@@ -11,18 +11,23 @@ import {
 
 import { KoFiIcon } from '../common/KoFiIcon';
 import { useAppBack } from '../../app/navigation';
+import type { WELCOME_PATH } from '../../app/legal';
+import { TermsOfUse } from './TermsOfUse';
 import styles from './InformationPage.module.css';
 
-type InformationPageKind = 'about' | 'privacy';
+const pageTitles = {
+  about: 'About WebXReader',
+  privacy: 'Privacy Policy',
+  terms: 'Terms of Use',
+} as const;
 
 interface InformationPageProps {
-  kind: InformationPageKind;
+  kind: keyof typeof pageTitles;
+  backFallback?: '/' | typeof WELCOME_PATH;
 }
 
-export function InformationPage({ kind }: InformationPageProps) {
-  const { goBack, backLabel } = useAppBack();
-  const isPrivacyPage = kind === 'privacy';
-  const title = isPrivacyPage ? 'Privacy Policy' : 'About WebXReader';
+export function InformationPage({ kind, backFallback }: InformationPageProps) {
+  const { goBack, backLabel } = useAppBack(backFallback);
 
   useLayoutEffect(() => {
     window.scrollTo(0, 0);
@@ -40,11 +45,13 @@ export function InformationPage({ kind }: InformationPageProps) {
         >
           <ArrowLeft size={20} />
         </button>
-        <h1 className={styles.title}>{title}</h1>
+        <h1 className={styles.title}>{pageTitles[kind]}</h1>
       </header>
 
       <main className={styles.main}>
-        {isPrivacyPage ? <PrivacyPolicy /> : (
+        {kind === 'privacy' && <PrivacyPolicy />}
+        {kind === 'terms' && <TermsOfUse />}
+        {kind === 'about' && (
           <>
             <AboutWebXReader />
             <AboutSupportSection />
