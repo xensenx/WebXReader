@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import styles from './Modal.module.css';
 
-type ModalSize = 'sm' | 'md' | 'lg';
+type ModalSize = 'sm' | 'md' | 'lg' | 'xl';
 
 interface ModalProps {
   isOpen: boolean;
@@ -32,8 +32,9 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', initialFo
     if (isOpen) {
       previousFocusRef.current = document.activeElement as HTMLElement;
 
-      // Focus first focusable element in modal
+      // A panel may have already placed focus inside the dialog.
       const focusFrame = requestAnimationFrame(() => {
+        if (contentRef.current?.contains(document.activeElement)) return;
         const target = initialFocusRef?.current ?? contentRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTORS);
         target?.focus();
       });

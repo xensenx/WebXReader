@@ -28,6 +28,8 @@ export function BookCard({
   volumeLabel,
   selectionMode,
   selected,
+  selectionIndex,
+  showSourceDetails,
   onToggleSelection,
   isDragging,
   onPointerDown,
@@ -87,7 +89,7 @@ export function BookCard({
 
   return (
     <div
-      className={`${styles.card} ${selected ? styles.cardSelected : ''} ${isDragging ? styles.cardDragging : ''}`}
+      className={`${styles.card} ${selected ? styles.cardSelected : ''} ${isDragging ? styles.cardDragging : ''} ${showSourceDetails ? styles.sourceDetails : ''}`}
       data-book-id={book.id}
       onPointerDown={onPointerDown}
       onClick={handleCardClick}
@@ -101,8 +103,9 @@ export function BookCard({
           handleCardClick();
         }
       }}
-      aria-label={`${book.title} by ${book.author || 'Unknown'}`}
+      aria-label={`${book.title} by ${book.author || 'Unknown'}${showSourceDetails && book.originalFilename ? `, ${book.originalFilename}` : ''}`}
       aria-checked={selectionMode ? selected : undefined}
+      aria-description={selectionIndex === undefined ? undefined : `Selection position ${selectionIndex}`}
     >
       <div className={styles.coverContainer} data-drag-preview>
         <BookCoverImage
@@ -123,7 +126,7 @@ export function BookCard({
 
         {selectionMode && (
           <span className={`${styles.selectionIndicator} ${selected ? styles.selectionIndicatorSelected : ''}`} aria-hidden="true">
-            {selected && <Check size={14} />}
+            {selected && (selectionIndex ?? <Check size={14} />)}
           </span>
         )}
 
@@ -155,6 +158,7 @@ export function BookCard({
         <p className={styles.author} title={book.author || 'Unknown Author'}>
           {book.author || 'Unknown Author'}
         </p>
+        {showSourceDetails && book.originalFilename && <p className={styles.filename}>{book.originalFilename}</p>}
 
         <div className={styles.footer}>
           <div className={styles.metaInfo}>

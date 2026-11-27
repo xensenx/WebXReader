@@ -6,11 +6,14 @@ import CFB from 'cfb';
 import { SAMPLE_JPEG, createSyntheticRar, createSyntheticCb7 } from './comic-test-helpers';
 import { importFile } from '../features/import/import-service';
 import { getBookCoverSources } from '../assets/covers/default-book-cover';
-import { clearDatabase, listBooks, getBookContent, getCover } from '../core/storage/database';
+import { clearDatabase, clearSettings, listBooks, getBookContent, getCover, saveSettings } from '../core/storage/database';
+import { MEGABYTE } from '../core/storage/storage-limits';
+import { DEFAULT_SETTINGS } from '../types/book';
 
 describe('Import Service', () => {
   beforeEach(async () => {
     await clearDatabase();
+    await clearSettings();
   });
 
   it('rejects unsupported file formats', async () => {
@@ -21,6 +24,35 @@ describe('Import Service', () => {
     if (!result.success) {
       expect(result.error).toContain('Unsupported file type');
     }
+  });
+
+  it('accepts a comic above the old limit and enforces the new limit by extension or MIME type', async () => {
+    const zip = new JSZip();
+    zip.file('page.jpg', SAMPLE_JPEG);
+    const buffer = await zip.generateAsync({ type: 'arraybuffer' });
+    const comic = new File([buffer], 'volume.cbz');
+    Object.defineProperty(comic, 'size', { value: 500 * MEGABYTE });
+    expect(await importFile(comic)).toMatchObject({ success: true, book: { sourceFormat: 'cbz' } });
+
+    for (const [name, type] of [['volume.cbz', ''], ['volume.cbr', ''], ['volume.cb7', ''], ['volume', 'application/vnd.comicbook+zip']]) {
+      const file = new File(['no parsing needed'], name, { type });
+      Object.defineProperty(file, 'size', { value: 500 * MEGABYTE + 1 });
+      expect(await importFile(file)).toMatchObject({ success: false, error: expect.stringMatching(/500(?:\.0)? MB import limit/) });
+    }
+
+    const text = new File(['large'], 'volume.txt');
+    Object.defineProperty(text, 'size', { value: 101 * MEGABYTE });
+    expect(await importFile(text)).toMatchObject({ success: false, error: expect.stringMatching(/100(?:\.0)? MB import limit/) });
+  });
+
+  it('enforces user limits while letting duplicates open when the library is full', async () => {
+    await saveSettings({ ...DEFAULT_SETTINGS, importFileLimitBytes: 12, librarySizeLimitBytes: 12 });
+    const first = new File(['twelve bytes'], 'first.txt');
+    expect(await importFile(first)).toMatchObject({ success: true, isDuplicate: false });
+    expect(await importFile(first)).toMatchObject({ success: true, isDuplicate: true });
+    expect(await importFile(first, { forceImport: true })).toMatchObject({ success: false, error: expect.stringContaining('library limit') });
+    expect(await importFile(new File(['thirteen bits'], 'second.txt'))).toMatchObject({ success: false, error: expect.stringContaining('per-file limit') });
+    expect(await listBooks()).toHaveLength(1);
   });
 
   it('successfully imports a plain text (.txt) novel', async () => {

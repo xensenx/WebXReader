@@ -136,7 +136,13 @@ describe('Series', () => {
     expect(picker.getByRole('button', { name: 'Add to series' })).toBeEnabled();
     fireEvent.click(picker.getByRole('button', { name: 'Create series' }));
     const editor = within(await screen.findByRole('dialog', { name: 'Create series' }));
-    expect(editor.getByRole('button', { name: 'Remove Book A' })).toBeInTheDocument();
+    expect(editor.getByText('1 selected')).toBeInTheDocument();
+    expect(editor.getByLabelText('Series name')).toHaveValue('Book A');
+    expect(editor.getByLabelText('Author')).toHaveValue('Example Author');
+    fireEvent.click(editor.getByRole('button', { name: 'Select' }));
+    const selected = within(screen.getByRole('dialog', { name: 'Select books' })).getByRole('checkbox', { name: /Book A/ });
+    expect(selected).toHaveAttribute('aria-checked', 'true');
+    expect(selected).toHaveAttribute('aria-description', 'Selection position 1');
   });
 
   it.each([false, true])('appends a bulk selection in click order with numbered order %s', async (numbered) => {
@@ -166,9 +172,9 @@ describe('Series', () => {
     expect(await getSeriesForBook('d')).toBeUndefined();
   });
 
-  it.each([false, true])('reorders volumes by dragging and saves numbered slots when enabled (%s)', async (numbered) => {
+  it.each([false, true])('reorders volumes by dragging and preserves assigned numbers when present (%s)', async (numbered) => {
     await addBook(book('a', 'Book A'));
-    await addBook(book('b', 'Book B'));
+    await addBook({ ...book('b', 'Book B'), originalFilename: 'Reorder Series - Vol. 0.25.txt' });
     await saveSeries({ id: 's', title: 'Reorder Series', author: 'Series Author', bookIds: ['a', 'b'],
       volumeNumbers: numbered ? { a: 0.5, b: 3 } : undefined });
     renderLibrary('/series/s');
@@ -179,7 +185,7 @@ describe('Series', () => {
     expect(list).toHaveAttribute('aria-pressed', 'true');
     const feed = volumes.getByRole('feed', { name: 'Series volumes' });
     const a = within(feed).getByRole('button', { name: /Book A/ });
-    const b = within(feed).getByRole('button', { name: /Book B/ });
+    const b = within(feed).getByRole('button', { name: 'Book B by Example Author' });
     vi.spyOn(feed, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 100, 300, 160));
     vi.spyOn(a, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 100, 300, 80));
     vi.spyOn(b, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 180, 300, 80));
@@ -190,16 +196,21 @@ describe('Series', () => {
     fireEvent.pointerUp(b, { ...pointer, clientY: 110 });
 
     await waitFor(async () => expect(await getSeriesForBook('b')).toMatchObject({
-      author: 'Series Author', bookIds: ['b', 'a'], ...(numbered && { volumeNumbers: { b: 0.5, a: 3 } }),
+      author: 'Series Author', bookIds: ['b', 'a'], ...(numbered && { volumeOrder: 'custom', volumeNumbers: { a: 0.5, b: 3 } }),
     }));
     expect(within(feed).getAllByRole('button').map((item) => item.dataset.bookId)).toEqual(['b', 'a']);
-    expect(within(feed).getAllByRole('button')[0]).toHaveTextContent(numbered ? 'Volume 0.5' : 'Volume 1');
+    expect(within(feed).getAllByRole('button')[0]).toHaveTextContent(numbered ? 'Volume 3' : 'Volume 0.25');
     expect(volumes.queryByRole('button', { name: 'Save order' })).toBeNull();
     expect(volumes.queryByRole('button', { name: /Actions for/i })).toBeNull();
     const grid = volumes.getByRole('button', { name: 'Grid view' });
     fireEvent.click(grid);
     expect(grid).toHaveAttribute('aria-pressed', 'true');
     expect(within(feed).getAllByRole('button').map((item) => item.dataset.bookId)).toEqual(['b', 'a']);
+    if (numbered) {
+      fireEvent.click(volumes.getByRole('button', { name: 'Sort by volume number' }));
+      await volumes.findByText('Volumes sorted by number.');
+      expect(await getSeriesForBook('b')).toMatchObject({ bookIds: ['a', 'b'], volumeNumbers: { a: 0.5, b: 3 } });
+    }
   });
 
   it('commits the displayed drop slot when releasing in a two column grid', async () => {
@@ -287,21 +298,56 @@ describe('Series', () => {
     expect(await screen.findByRole('heading', { name: 'Series' })).toBeInTheDocument();
   });
 
-  it('creates a custom reading order and displays series and volume progress', async () => {
-    await addBook(book('a', 'Book A', 'completed'));
-    await addBook(book('b', 'Book B'));
+  it('selects books first, suggests editable details, and preserves click order and progress', async () => {
+    const filename = 'The Collector’s Complete Illustrated Saga - Volume 07.5.txt';
+    await addBook({ ...book('a', 'Book A', 'completed'), originalFilename: filename,
+      author: 'Unknown Author', userTags: ['fantasy', 'Illustrated'] });
+    await addBook({ ...book('b', 'Book B'), originalFilename: 'The Collector’s Complete Illustrated Saga - Vol. 10.txt',
+      userTags: ['Adventure', 'Fantasy'] });
     await saveProgress(progress('b', 0.5));
     renderLibrary('/series');
     const create = await screen.findByRole('button', { name: 'Create series' });
     await waitFor(() => expect(create).toBeEnabled());
     fireEvent.click(create);
-    const dialog = within(screen.getByRole('dialog'));
-    fireEvent.change(dialog.getByLabelText('Series name'), { target: { value: 'Custom Series' } });
-    fireEvent.click(dialog.getByRole('button', { name: 'Add Book A' }));
-    fireEvent.click(dialog.getByRole('button', { name: 'Add Book B' }));
-    fireEvent.click(dialog.getByRole('button', { name: 'Move Book B up' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Create series' }));
+    expect(dialog.queryByLabelText('Series name')).toBeNull();
+    expect(dialog.queryByLabelText('Author')).toBeNull();
+    expect(dialog.getByText(/order you select them/i)).toBeInTheDocument();
+    const select = dialog.getByRole('button', { name: 'Select' });
+    expect(select.querySelector('svg')).toBeNull();
+    fireEvent.click(select);
+    const pickerDialog = screen.getByRole('dialog', { name: 'Select books' });
+    const picker = within(pickerDialog);
+    expect(picker.getByRole('button', { name: 'Use selected books' })).toBeDisabled();
+    const search = picker.getByRole('textbox', { name: 'Search title or filename' });
+    fireEvent.click(picker.getByRole('checkbox', { name: /Book B/ }));
+    fireEvent.change(search, { target: { value: '07.5' } });
+    await waitFor(() => expect(picker.queryByRole('checkbox', { name: /Book B/ })).toBeNull());
+    expect(picker.getByText(filename)).toBeInTheDocument();
+    const volumeName = `Book A by Unknown Author, ${filename}`;
+    const volume = picker.getByRole('checkbox', { name: volumeName });
+    fireEvent.click(volume);
+    expect(volume).toHaveAttribute('aria-description', 'Selection position 2');
+    fireEvent.click(picker.getByRole('button', { name: 'List view' }));
+    expect(picker.getByRole('checkbox', { name: volumeName })).toHaveAttribute('aria-description', 'Selection position 2');
+    fireEvent.click(picker.getByRole('button', { name: 'Use selected books' }));
+    const name = dialog.getByLabelText('Series name');
+    expect(name).toHaveValue('The Collector’s Complete Illustrated Saga');
+    expect(name).toHaveFocus();
+    expect(dialog.getByLabelText('Author')).toHaveValue('Example Author');
+    expect(dialog.getByLabelText('Tags (comma separated)')).toHaveValue('Adventure, Fantasy, Illustrated');
+    fireEvent.change(name, { target: { value: 'Custom Series' } });
+    fireEvent.change(dialog.getByLabelText('Author'), { target: { value: 'Custom Author' } });
+    fireEvent.change(dialog.getByLabelText('Tags (comma separated)'), { target: { value: 'Personal' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Select' }));
+    fireEvent.click(picker.getByRole('checkbox', { name: /Book B/ }));
+    fireEvent.keyDown(pickerDialog, { key: 'Escape' });
+    expect(dialog.getByText('2 selected')).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Select' })).toHaveFocus();
+    expect(dialog.getByLabelText('Series name')).toHaveValue('Custom Series');
     fireEvent.click(dialog.getByRole('button', { name: 'Create series' }));
     const card = await screen.findByRole('link', { name: /Custom Series/ });
+    expect(await getSeriesForBook('a')).toMatchObject({ title: 'Custom Series', author: 'Custom Author', tags: ['Personal'] });
     expect(within(card).getByText('75%')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Book [AB]/ })).toBeNull();
     fireEvent.click(card);
@@ -311,6 +357,29 @@ describe('Series', () => {
     expect(volumes.getByText('50%')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: 'All series' }));
     expect(await screen.findByRole('link', { name: /Custom Series/ })).toBeInTheDocument();
+  });
+
+  it('saves numeric sorting for decimal filenames and titles, with unnumbered entries last', async () => {
+    const books = [
+      book('extra', 'Companion'),
+      { ...book('ten', 'The Saga'), originalFilename: 'The Saga - Vol 10.cbz' },
+      { ...book('half', 'The Saga'), originalFilename: 'The Saga - Vol. 07.5.cbz' },
+      { ...book('small', 'The Saga'), originalFilename: 'The Saga - Vol 7.12.cbz' },
+      book('seven', 'The Saga Volume 7'),
+      { ...book('issue', 'The Saga'), originalFilename: 'The Saga #7.5.cbz' },
+    ];
+    await Promise.all(books.map(addBook));
+    await saveSeries({ id: 'numeric', title: 'Numeric Order', bookIds: books.map(({ id }) => id) });
+    renderLibrary('/series/numeric');
+    const feed = await screen.findByRole('feed', { name: 'Series volumes' });
+    const order = () => within(feed).getAllByRole('button').map((item) => item.dataset.bookId);
+    expect(order()).toEqual(books.map(({ id }) => id));
+    fireEvent.click(screen.getByRole('button', { name: 'Sort by volume number' }));
+    await screen.findByText('Volumes sorted by number.');
+    const sortedIds = ['seven', 'small', 'half', 'issue', 'ten', 'extra'];
+    expect(order()).toEqual(sortedIds);
+    expect(await getSeriesForBook('extra')).toMatchObject({ bookIds: sortedIds });
+    expect(feed.querySelector('[data-book-id="half"]')).toHaveTextContent('Volume 7.5');
   });
 
   it('shows compact series cards and uses the first volume cover for the banner until a custom cover is saved', async () => {

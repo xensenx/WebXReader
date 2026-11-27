@@ -23,22 +23,20 @@ import { useAppBack } from '../../app/navigation';
 import { clearLibraryViewState } from '../../features/library/library-state';
 import { clearSeriesBrowserState } from '../../features/series/series-browser';
 import {
-  getStorageEstimate,
   getSettings,
-  requestPersistentStorage,
   clearDatabase,
 } from '../../core/storage/database';
 import {
   downloadLibraryBackup,
   restoreLibraryBackup,
 } from '../../features/export/backup-service';
-import { formatFileSize } from '../../utils';
 import type { ReadingMode } from '../../types/book';
 
 import { Button } from '../common/Button';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { LibraryNameField } from './LibraryNameField';
+import { StorageSettings } from './StorageSettings';
 import { ThemePicker } from './ThemePicker';
 import styles from './SettingsView.module.css';
 
@@ -108,8 +106,6 @@ export function SettingsView() {
       : 'appearance';
 
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection);
-  const [storageInfo, setStorageInfo] = useState<{ usage: number; quota: number } | null>(null);
-  const [persistent, setPersistent] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -148,34 +144,6 @@ export function SettingsView() {
       const prevSection = SETTINGS_SECTIONS[prevIndex];
       handleSelectSection(prevSection.id);
       document.getElementById(`tab-${prevSection.id}`)?.focus();
-    }
-  };
-
-  useEffect(() => {
-    let active = true;
-    async function checkStorage() {
-      const est = await getStorageEstimate();
-      if (!active) return;
-      setStorageInfo(est);
-
-      if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
-        const isPersisted = await navigator.storage.persisted();
-        if (active) setPersistent(isPersisted);
-      }
-    }
-    checkStorage();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const handleRequestPersistent = async () => {
-    const granted = await requestPersistentStorage();
-    setPersistent(granted);
-    if (granted) {
-      setStatusMessage('Persistent storage granted by browser.');
-    } else {
-      setStatusMessage('Browser could not grant persistent storage.');
     }
   };
 
@@ -229,11 +197,6 @@ export function SettingsView() {
       alert(`Failed to clear database: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
-
-  const storageUsagePercent =
-    storageInfo && storageInfo.quota > 0
-      ? Math.round((storageInfo.usage / storageInfo.quota) * 100)
-      : 0;
 
   return (
     <div className={styles.container}>
@@ -532,60 +495,7 @@ export function SettingsView() {
           )}
 
           {/* 4. Local storage and privacy */}
-          {activeSection === 'storage-privacy' && (
-            <div className={styles.card}>
-              <div className={styles.cardHeader}>
-                <ShieldCheck size={18} aria-hidden="true" />
-                <div className={styles.cardTitleGroup}>
-                  <h2 className={styles.cardTitle}>Local Storage & Privacy</h2>
-                  <p className={styles.cardDesc}>
-                    Browser quota, persistence status, and local data policy
-                  </p>
-                </div>
-              </div>
-
-              <div className={styles.infoBox}>
-                <strong>100% Local-First Promise:</strong> WebXReader never sends your novel
-                contents, reading history, or personal annotations to any remote server or cloud
-                storage. Your books and reading data live in IndexedDB; general site preferences are
-                stored separately in browser local storage and remain when you clear library data.
-              </div>
-
-              {storageInfo && (
-                <div>
-                  <div className={styles.row}>
-                    <span className={styles.rowLabel}>Browser Storage Usage</span>
-                    <span className={styles.rowDesc}>
-                      {formatFileSize(storageInfo.usage)} of {formatFileSize(storageInfo.quota)} (
-                      {storageUsagePercent}%)
-                    </span>
-                  </div>
-                  <div className={styles.storageBar}>
-                    <div
-                      className={styles.storageFill}
-                      style={{ width: `${Math.min(100, storageUsagePercent)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className={styles.row}>
-                <div className={styles.rowCol}>
-                  <span className={styles.rowLabel}>Persistent Storage Status</span>
-                  <span className={styles.rowDesc}>
-                    {persistent
-                      ? 'Active: Your browser has marked your library as persistent.'
-                      : 'Best-effort: Storage may be evicted by the browser under extreme disk pressure.'}
-                  </span>
-                </div>
-                {!persistent && (
-                  <Button variant="secondary" size="sm" onClick={handleRequestPersistent}>
-                    Request Persistence
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
+          {activeSection === 'storage-privacy' && <StorageSettings />}
 
           {/* 5. Backup and restoration */}
           {activeSection === 'backup-restoration' && (
@@ -604,7 +514,8 @@ export function SettingsView() {
                 <div className={styles.rowCol}>
                   <span className={styles.rowLabel}>Export Library Backup</span>
                   <span className={styles.rowDesc}>
-                    Save a versioned JSON backup of your books, content, reading progress, bookmarks, and settings.
+                    Save a JSON backup of your books, reading progress, bookmarks, and settings.
+                    The library backup limit is 100 MB. Larger books can be exported individually from the library.
                   </span>
                 </div>
                 <Button

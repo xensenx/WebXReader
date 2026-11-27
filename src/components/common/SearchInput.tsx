@@ -2,7 +2,7 @@
  * Debounced search input with clear button.
  */
 
-import { useState, useEffect, useRef, useCallback, type ChangeEvent } from 'react';
+import { useState, useEffect, useId, useRef, useCallback, type ChangeEvent, type Ref } from 'react';
 import { Search, X } from 'lucide-react';
 import styles from './SearchInput.module.css';
 
@@ -12,6 +12,7 @@ interface SearchInputProps {
   placeholder?: string;
   debounceMs?: number;
   className?: string;
+  inputRef?: Ref<HTMLInputElement>;
 }
 
 export function SearchInput({
@@ -20,7 +21,9 @@ export function SearchInput({
   placeholder = 'Search…',
   debounceMs = 300,
   className,
+  inputRef,
 }: SearchInputProps) {
+  const inputId = useId();
   const [localValue, setLocalValue] = useState(controlledValue ?? '');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -67,11 +70,12 @@ export function SearchInput({
   return (
     <div className={`${styles.wrapper} ${className ?? ''}`}>
       <Search className={styles.searchIcon} size={16} aria-hidden="true" />
-      <label className="sr-only" htmlFor="search-input">
+      <label className="sr-only" htmlFor={inputId}>
         {placeholder}
       </label>
       <input
-        id="search-input"
+        id={inputId}
+        ref={inputRef}
         type="text"
         className={styles.input}
         value={localValue}

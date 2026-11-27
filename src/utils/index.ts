@@ -31,8 +31,8 @@ export async function computeHash(data: ArrayBuffer): Promise<string> {
  */
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
   const size = bytes / Math.pow(1024, i);
   return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
@@ -180,13 +180,17 @@ export async function readFileAsText(file: File, encoding?: string): Promise<str
 /**
  * Reads a File as ArrayBuffer.
  */
-const importedFileBuffers = new WeakMap<File, ArrayBuffer>();
+const importedFileBuffers = new WeakMap<Blob, ArrayBuffer>();
 
 export function reuseImportBuffer(file: File, buffer: ArrayBuffer): void {
   importedFileBuffers.set(file, buffer);
 }
 
-export async function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
+export function releaseImportBuffer(file: File): void {
+  importedFileBuffers.delete(file);
+}
+
+export async function readFileAsArrayBuffer(file: Blob): Promise<ArrayBuffer> {
   const cached = importedFileBuffers.get(file);
   if (cached) return cached;
   return new Promise((resolve, reject) => {

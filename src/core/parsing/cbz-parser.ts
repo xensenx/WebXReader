@@ -6,6 +6,7 @@
 
 import JSZip from 'jszip';
 import { openBudgetedZip, readZipEntryLimited, ZIP_LIMITS } from './zip-budget';
+import { COMIC_ARCHIVE_TOTAL_BYTES } from './archive-size-limits';
 import type { BookMetadata } from '../../types/book';
 import {
   naturalCompare,
@@ -61,7 +62,7 @@ async function parseComicInfo(
  * @returns Metadata, Table of Contents, cover image, and page filenames
  */
 export async function parseCbz(arrayBuffer: ArrayBuffer): Promise<ComicParseResult> {
-  const zip = await openBudgetedZip(arrayBuffer);
+  const zip = await openBudgetedZip(arrayBuffer, COMIC_ARCHIVE_TOTAL_BYTES);
 
   // 1. Gather all valid image file entries
   const imageEntries: { path: string; entry: JSZip.JSZipObject }[] = [];

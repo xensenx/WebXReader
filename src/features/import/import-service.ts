@@ -5,16 +5,20 @@
  * and persistence. Delegates format-specific parsing to the modular format registry.
  */
 
-import type { Book, BookContent, BookFormat, Chapter } from '../../types/book';
+import type { Book, BookFormat, Chapter } from '../../types/book';
 import {
   generateId,
   computeHash,
   getFileExtension,
   readFileAsArrayBuffer,
   reuseImportBuffer,
+  releaseImportBuffer,
+  formatFileSize,
 } from '../../utils';
 import {
   findBookByHash,
+  getLibraryFileSize,
+  getSettings,
   saveBookBundle,
 } from '../../core/storage/database';
 import {
@@ -26,6 +30,8 @@ import {
   type FormatDefinition,
 } from '../../formats';
 import { validateAndDetectImageFormat } from '../../core/parsing/image-parser';
+import { getFormatImportLimit } from '../../formats/import-limits';
+import { BROWSER_QUOTA_ERROR, MAX_JSON_BACKUP_BYTES, isStorageQuotaError, libraryLimitError } from '../../core/storage/storage-limits';
 
 /** Options for the import process */
 export interface ImportOptions {
@@ -130,36 +136,12 @@ export async function importFile(
         error: 'The selected file is empty (0 bytes).',
       };
     }
-    const maxInputBytes = /\.(?:pdf|cbz|cbr|cb7|djvu)$/i.test(file.name)
-      ? 200 * 1024 * 1024 : 100 * 1024 * 1024;
-    if (file.size > maxInputBytes) {
-      return { success: false, error: `This file exceeds the ${maxInputBytes / 1048576} MB import limit.` };
-    }
-
-    // 2. Validate format using extension or MIME type
-    let formatDef: FormatDefinition | null = detectFormatFromFilename(file.name);
-    if (!formatDef && file.type) {
-      formatDef = detectFormatFromMimeType(file.type);
-    }
-
-    // 3. Read file buffer for hash calculation and deduplication
-    let arrayBuffer: ArrayBuffer;
-    try {
-      arrayBuffer = await readFileAsArrayBuffer(file);
-      reuseImportBuffer(file, arrayBuffer);
-    } catch (readError) {
-      return {
-        success: false,
-        error: `Failed to read file: ${readError instanceof Error ? readError.message : String(readError)}`,
-      };
-    }
-
-    // 4. Fallback content sniffing (e.g. dropped image without extension or misnamed)
-    if (!formatDef && arrayBuffer.byteLength >= 8) {
+    // Resolve the format and enforce its ceiling before buffering the full file.
+    let formatDef: FormatDefinition | null = detectFormatFromFilename(file.name) ?? detectFormatFromMimeType(file.type);
+    if (!formatDef && file.size >= 8) {
       try {
-        const header = new Uint8Array(arrayBuffer, 0, Math.min(32, arrayBuffer.byteLength));
-        const detectedImageFormat = validateAndDetectImageFormat(header);
-        formatDef = getFormat(detectedImageFormat) ?? null;
+        const header = await readFileAsArrayBuffer(file.slice(0, 32));
+        formatDef = getFormat(validateAndDetectImageFormat(new Uint8Array(header))) ?? null;
       } catch {
         // Not a recognized binary format
       }
@@ -171,6 +153,27 @@ export async function importFile(
         success: false,
         error: `Unsupported file type: "${ext}". Supported formats: ${getAllSupportedExtensions().join(', ')}`,
       };
+    }
+
+    const formatLimit = getFormatImportLimit(formatDef.id);
+    if (file.size > formatLimit) {
+      return { success: false, error: `${formatDef.label} files have a ${formatFileSize(formatLimit)} import limit.` };
+    }
+    const settings = await getSettings();
+    const fileLimit = settings?.importFileLimitBytes;
+    if (fileLimit != null && file.size > fileLimit) {
+      return {
+        success: false,
+        error: `This file exceeds your ${formatFileSize(fileLimit)} per-file limit. Change it in Settings → Local storage and privacy.`,
+      };
+    }
+
+    let arrayBuffer: ArrayBuffer;
+    try {
+      arrayBuffer = await readFileAsArrayBuffer(file);
+      reuseImportBuffer(file, arrayBuffer);
+    } catch (readError) {
+      return { success: false, error: `Failed to read file: ${readError instanceof Error ? readError.message : String(readError)}` };
     }
 
     // 5. Compute content hash for deduplication
@@ -186,6 +189,14 @@ export async function importFile(
           isDuplicate: true,
           existingBookId: existingBook.id,
         };
+      }
+    }
+
+    const libraryLimit = settings?.librarySizeLimitBytes;
+    if (libraryLimit != null) {
+      const used = await getLibraryFileSize();
+      if (file.size > libraryLimit - used) {
+        return { success: false, error: libraryLimitError(libraryLimit, used, file.size).message };
       }
     }
 
@@ -222,21 +233,26 @@ export async function importFile(
       coverImage: parsed.coverImage,
     });
 
-    const content: BookContent = {
+    const originalFile = parsed.originalFile ?? (formatDef.requiresOriginalFile ? arrayBuffer : undefined);
+    const content = {
       bookId,
       chapters: parsed.chapters,
       rawText: parsed.rawText,
-      originalFile: parsed.originalFile ?? (formatDef.requiresOriginalFile ? arrayBuffer : undefined),
+      // IndexedDB can persist a disk-backed File without serializing the entire buffer again.
+      originalFile: originalFile === arrayBuffer && arrayBuffer.byteLength > MAX_JSON_BACKUP_BYTES ? file : originalFile,
       format: actualFormatId,
     };
 
     // 10. Persist to local IndexedDB
     try {
-      await saveBookBundle(book, content, parsed.coverImage);
+      const currentLimit = (await getSettings())?.librarySizeLimitBytes;
+      await saveBookBundle(book, content, parsed.coverImage, currentLimit ?? null);
     } catch (saveError) {
       return {
         success: false,
-        error: `Failed to save book: ${saveError instanceof Error ? saveError.message : String(saveError)}`,
+        error: isStorageQuotaError(saveError)
+          ? BROWSER_QUOTA_ERROR
+          : `Failed to save book: ${saveError instanceof Error ? saveError.message : String(saveError)}`,
       };
     }
 
@@ -250,5 +266,7 @@ export async function importFile(
       success: false,
       error: `Import failed unexpectedly: ${error instanceof Error ? error.message : String(error)}`,
     };
+  } finally {
+    releaseImportBuffer(file);
   }
 }

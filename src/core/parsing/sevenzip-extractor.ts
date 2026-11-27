@@ -8,15 +8,14 @@ import {
   shouldIgnoreEntry,
   naturalCompare,
   getImageMimeType,
+  parseComicInfoXml,
+  buildTableOfContents,
+  extractCoverDataUrl,
+  type ComicParseResult,
 } from './comic-archive';
 import { removeDirRecursive, walkDirectory } from './sevenzip-common';
 import { extractSevenZipWithBudget, inspectSevenZipArchive } from './sevenzip-budget';
-
-export interface ExtractedComicArchive {
-  imagePaths: string[];
-  comicInfoXml?: string;
-  files: Map<string, Uint8Array>;
-}
+import { COMIC_ARCHIVE_TOTAL_BYTES } from './archive-size-limits';
 
 export interface ComicArchiveSession {
   pageNames: string[];
@@ -28,12 +27,12 @@ export interface ComicArchiveSession {
 let sessionCounter = 0;
 
 /**
- * Extracts a comic archive in memory and returns image paths, files map, and optional ComicInfo.xml text.
+ * Read the archive listing and extract only the metadata and cover needed for import.
  */
-export async function extractComicArchive(
+export async function parseSevenZipComic(
   arrayBuffer: ArrayBuffer,
-  fileExtension: string = '7z'
-): Promise<ExtractedComicArchive> {
+  fileExtension: 'cbr' | 'cb7',
+): Promise<ComicParseResult> {
   const listing: string[] = [];
   const sevenZip = await createSevenZipInstance((line) => listing.push(line));
   const FS = sevenZip.FS;
@@ -47,46 +46,41 @@ export async function extractComicArchive(
   FS.mkdir(outDir);
 
   try {
-    const bytes = new Uint8Array(arrayBuffer);
-    FS.writeFile(inputFile, bytes);
-
-    inspectSevenZipArchive(sevenZip, inputFile, listing);
-    extractSevenZipWithBudget(sevenZip, outDir, ['x', inputFile, `-o${outDir}`, '-y']);
-
-    // Remove input file immediately to save memory
-    try {
-      FS.unlink(inputFile);
-    } catch {
-      // ignore
-    }
-
-    const allEntries = walkDirectory(FS, outDir);
-    const imagePaths: string[] = [];
-    const files = new Map<string, Uint8Array>();
-    let comicInfoXml: string | undefined;
-
-    for (const entry of allEntries) {
-      if (shouldIgnoreEntry(entry.rel)) continue;
-
-      if (isImageFileName(entry.rel)) {
-        imagePaths.push(entry.rel);
-        const data = FS.readFile(entry.full);
-        files.set(entry.rel, data as Uint8Array);
-      } else if (entry.rel.toLowerCase().endsWith('comicinfo.xml')) {
-        comicInfoXml = FS.readFile(entry.full, { encoding: 'utf8' }) as string;
-      }
-    }
-
-    if (imagePaths.length === 0) {
+    FS.writeFile(inputFile, new Uint8Array(arrayBuffer));
+    const entries = inspectSevenZipArchive(sevenZip, inputFile, listing, COMIC_ARCHIVE_TOTAL_BYTES)
+      .filter(({ path, isDirectory }) => !isDirectory && !shouldIgnoreEntry(path.replace(/\\/g, '/')));
+    const images = entries.filter(({ path }) => isImageFileName(path)).sort((a, b) => naturalCompare(a.path, b.path));
+    if (images.length === 0) {
       throw new Error(`No readable image files found in the .${fileExtension} archive.`);
     }
 
-    imagePaths.sort(naturalCompare);
+    function extractEntry(entry: (typeof entries)[number]): Uint8Array {
+      const outputFile = `${outDir}/${entry.path.replace(/\\/g, '/')}`;
+      extractSevenZipWithBudget(sevenZip, outDir, ['x', inputFile, `-o${outDir}`, '-y', '-p-', '-spd', `-i!${entry.path}`], entry.size);
+      const bytes = FS.readFile(outputFile) as Uint8Array;
+      FS.unlink(outputFile);
+      return bytes;
+    }
 
+    const info = entries.find(({ path }) => /(?:^|[\\/])ComicInfo\.xml$/i.test(path));
+    const { metadata, readingDirection, coverImageIndex, bookmarks } = info
+      ? parseComicInfoXml(new TextDecoder().decode(extractEntry(info)))
+      : { metadata: {}, bookmarks: [] };
+    const cover = images[coverImageIndex ?? 0] ?? images[0];
+    let coverImage: string | undefined;
+    try {
+      coverImage = await extractCoverDataUrl(extractEntry(cover), getImageMimeType(cover.path));
+    } catch (error) {
+      console.warn('Could not extract comic cover:', error);
+    }
+    const imagePaths = images.map(({ path }) => path.replace(/\\/g, '/'));
     return {
-      imagePaths,
-      comicInfoXml,
-      files,
+      metadata,
+      tableOfContents: buildTableOfContents(imagePaths, bookmarks),
+      coverImage,
+      totalPages: imagePaths.length,
+      readingDirection,
+      pageFileNames: imagePaths,
     };
   } finally {
     removeDirRecursive(FS, baseDir);
@@ -116,8 +110,8 @@ export async function openComicArchiveSession(
   try {
     const bytes = new Uint8Array(arrayBuffer);
     FS.writeFile(inputFile, bytes);
-    inspectSevenZipArchive(sevenZip, inputFile, listing);
-    extractSevenZipWithBudget(sevenZip, outDir, ['x', inputFile, `-o${outDir}`, '-y']);
+    inspectSevenZipArchive(sevenZip, inputFile, listing, COMIC_ARCHIVE_TOTAL_BYTES);
+    extractSevenZipWithBudget(sevenZip, outDir, ['x', inputFile, `-o${outDir}`, '-y', '-p-'], COMIC_ARCHIVE_TOTAL_BYTES);
   } catch (error) {
     removeDirRecursive(FS, baseDir);
     throw error;

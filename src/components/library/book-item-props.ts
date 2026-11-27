@@ -19,6 +19,8 @@ export interface BookItemProps {
   actions?: BookMenuActions;
   selectionMode?: boolean;
   selected?: boolean;
+  selectionIndex?: number;
+  showSourceDetails?: boolean;
   onToggleSelection?: (id: string) => void;
   isDragging?: boolean;
   onPointerDown?: (event: PointerEvent<HTMLDivElement>) => void;

@@ -35,7 +35,7 @@ function getSeriesMetadata(input: Partial<BookSeries>) {
 /** Validate and sort entries before storage, including backup imports. */
 export function normalizeSeries(value: unknown): BookSeries {
   if (!value || typeof value !== 'object') throw new Error('Invalid series.');
-  const { id, title, bookIds, volumeNumbers, createdAt } = value as Partial<BookSeries>;
+  const { id, title, bookIds, volumeNumbers, volumeOrder, createdAt } = value as Partial<BookSeries>;
   if (typeof id !== 'string' || !id || typeof title !== 'string' || !title.trim() || title.trim().length > SERIES_TITLE_LIMIT) {
     throw new Error('Enter a series name up to 120 characters.');
   }
@@ -48,7 +48,8 @@ export function normalizeSeries(value: unknown): BookSeries {
   if (volumeNumbers === undefined) return { ...series, bookIds: [...bookIds] };
   if (!volumeNumbers || typeof volumeNumbers !== 'object') throw new Error('Enter valid volume numbers.');
 
-  const numbered = bookIds.map((bookId) => ({
+  const idsWithLabels = volumeOrder === 'custom' ? bookIds.filter((bookId) => Object.hasOwn(volumeNumbers, bookId)) : bookIds;
+  const numbered = idsWithLabels.map((bookId) => ({
     bookId,
     number: Object.hasOwn(volumeNumbers, bookId) ? volumeNumbers[bookId] : NaN,
   }));
@@ -57,6 +58,11 @@ export function normalizeSeries(value: unknown): BookSeries {
   }
   if (new Set(numbered.map((volume) => volume.number)).size !== numbered.length) {
     throw new Error('Use a different number for each volume.');
+  }
+  if (volumeOrder === 'custom') {
+    return { ...series, bookIds: [...bookIds], ...(numbered.length && {
+      volumeOrder, volumeNumbers: Object.fromEntries(numbered.map(({ bookId, number }) => [bookId, number])),
+    }) };
   }
   numbered.sort((left, right) => left.number - right.number);
   return {
@@ -70,7 +76,7 @@ export function appendSeriesBooks(series: BookSeries, bookIds: readonly string[]
   const currentIds = new Set(series.bookIds);
   const additions = [...new Set(bookIds)].filter((id) => !currentIds.has(id));
   const nextIds = [...series.bookIds, ...additions];
-  if (!series.volumeNumbers) return { ...series, bookIds: nextIds };
+  if (!series.volumeNumbers || series.volumeOrder === 'custom') return { ...series, bookIds: nextIds };
 
   const volumeNumbers = new Map(Object.entries(series.volumeNumbers));
   const lastId = series.bookIds.at(-1);
@@ -90,13 +96,7 @@ export function reorderSeriesVolumes(series: BookSeries, bookIds: readonly strin
       series.bookIds.some((id) => !nextIds.has(id))) {
     throw new Error('The volumes in this series have changed. Reopen the series and try again.');
   }
-  const numbers = series.volumeNumbers;
-  if (!numbers) return { ...series, bookIds: [...bookIds] };
-  return {
-    ...series,
-    bookIds: [...bookIds],
-    volumeNumbers: Object.fromEntries(bookIds.map((id, index) => [id, numbers[series.bookIds[index]]])),
-  };
+  return { ...series, bookIds: [...bookIds], ...(series.volumeNumbers && { volumeOrder: 'custom' }) };
 }
 
 export function getVolumeProgress(book: SeriesBookProgress): number {
@@ -113,8 +113,4 @@ export function summarizeSeries(books: readonly SeriesBookProgress[]) {
     if (fraction === 1) completed++;
   }
   return { fraction: books.length ? progress / books.length : 0, completed, total: books.length };
-}
-
-export function getVolumeLabel(series: BookSeries, bookId: string, index: number): string {
-  return `Volume ${series.volumeNumbers?.[bookId] ?? index + 1}`;
 }
