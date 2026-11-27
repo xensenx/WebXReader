@@ -174,7 +174,7 @@ describe('Series', () => {
 
   it.each([false, true])('reorders volumes by dragging and preserves assigned numbers when present (%s)', async (numbered) => {
     await addBook(book('a', 'Book A'));
-    await addBook(book('b', 'Book B'));
+    await addBook({ ...book('b', 'Book B'), originalFilename: 'Reorder Series - Vol. 0.25.txt' });
     await saveSeries({ id: 's', title: 'Reorder Series', author: 'Series Author', bookIds: ['a', 'b'],
       volumeNumbers: numbered ? { a: 0.5, b: 3 } : undefined });
     renderLibrary('/series/s');
@@ -185,7 +185,7 @@ describe('Series', () => {
     expect(list).toHaveAttribute('aria-pressed', 'true');
     const feed = volumes.getByRole('feed', { name: 'Series volumes' });
     const a = within(feed).getByRole('button', { name: /Book A/ });
-    const b = within(feed).getByRole('button', { name: /Book B/ });
+    const b = within(feed).getByRole('button', { name: 'Book B by Example Author' });
     vi.spyOn(feed, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 100, 300, 160));
     vi.spyOn(a, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 100, 300, 80));
     vi.spyOn(b, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 180, 300, 80));
@@ -199,7 +199,7 @@ describe('Series', () => {
       author: 'Series Author', bookIds: ['b', 'a'], ...(numbered && { volumeOrder: 'custom', volumeNumbers: { a: 0.5, b: 3 } }),
     }));
     expect(within(feed).getAllByRole('button').map((item) => item.dataset.bookId)).toEqual(['b', 'a']);
-    expect(within(feed).getAllByRole('button')[0]).toHaveTextContent(numbered ? 'Volume 3' : 'Volume 1');
+    expect(within(feed).getAllByRole('button')[0]).toHaveTextContent(numbered ? 'Volume 3' : 'Volume 0.25');
     expect(volumes.queryByRole('button', { name: 'Save order' })).toBeNull();
     expect(volumes.queryByRole('button', { name: /Actions for/i })).toBeNull();
     const grid = volumes.getByRole('button', { name: 'Grid view' });
@@ -324,11 +324,12 @@ describe('Series', () => {
     fireEvent.change(search, { target: { value: '07.5' } });
     await waitFor(() => expect(picker.queryByRole('checkbox', { name: /Book B/ })).toBeNull());
     expect(picker.getByText(filename)).toBeInTheDocument();
-    const volume = picker.getByRole('checkbox', { name: /Book A/ });
+    const volumeName = `Book A by Unknown Author, ${filename}`;
+    const volume = picker.getByRole('checkbox', { name: volumeName });
     fireEvent.click(volume);
     expect(volume).toHaveAttribute('aria-description', 'Selection position 2');
     fireEvent.click(picker.getByRole('button', { name: 'List view' }));
-    expect(picker.getByRole('checkbox', { name: /Book A/ })).toHaveAttribute('aria-description', 'Selection position 2');
+    expect(picker.getByRole('checkbox', { name: volumeName })).toHaveAttribute('aria-description', 'Selection position 2');
     fireEvent.click(picker.getByRole('button', { name: 'Use selected books' }));
     const name = dialog.getByLabelText('Series name');
     expect(name).toHaveValue('The Collector’s Complete Illustrated Saga');

@@ -33,13 +33,14 @@ function readNumber(value?: string): number | undefined {
 }
 
 export function getBookVolumeNumber(book: VolumeBook, series?: BookSeries): number | undefined {
+  const labels = series?.volumeNumbers;
+  if (labels && Object.hasOwn(labels, book.id)) return labels[book.id];
+
   const filename = volumeFilenameStem(book.originalFilename);
   const title = book.title;
-  const labels = series?.volumeNumbers;
   return readNumber(book.identifiers?.volume)
     ?? readNumber(labeledNumber.exec(filename)?.[1])
     ?? readNumber(labeledNumber.exec(title)?.[1])
-    ?? (labels && Object.hasOwn(labels, book.id) ? labels[book.id] : undefined)
     ?? readNumber(trailingNumber.exec(filename)?.[1])
     ?? readNumber(trailingNumber.exec(title)?.[1])
     ?? readNumber(leadingNumber.exec(filename)?.[1])

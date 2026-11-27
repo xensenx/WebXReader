@@ -103,7 +103,7 @@ export function BookCard({
           handleCardClick();
         }
       }}
-      aria-label={`${book.title} by ${book.author || 'Unknown'}`}
+      aria-label={`${book.title} by ${book.author || 'Unknown'}${showSourceDetails && book.originalFilename ? `, ${book.originalFilename}` : ''}`}
       aria-checked={selectionMode ? selected : undefined}
       aria-description={selectionIndex === undefined ? undefined : `Selection position ${selectionIndex}`}
     >
