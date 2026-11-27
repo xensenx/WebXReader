@@ -341,6 +341,9 @@ export interface UserSettings {
   fb2IncludeNotes?: boolean;
   /** Import size warning threshold in MB */
   importSizeWarningMB: number;
+  /** Optional device-specific ceilings measured in bytes. */
+  importFileLimitBytes?: number | null;
+  librarySizeLimitBytes?: number | null;
   /** Invert page canvas colors */
   invertColors?: boolean;
   /** Last updated */
@@ -402,8 +405,10 @@ export interface BookSeries {
   coverImage?: string;
   /** Ordered IDs of the books in the series. */
   bookIds: string[];
-  /** Present when the user orders the series by volume number. */
+  /** Explicit volume labels saved by the original Series editor. */
   volumeNumbers?: Record<string, number>;
+  /** Keep bookIds in its saved order independently of legacy volume labels. */
+  volumeOrder?: 'custom';
 }
 
 /** Backup data format. */
@@ -462,6 +467,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   autoDetectChaptersDocx: true,
   autoDetectChaptersDoc: true,
   importSizeWarningMB: 50,
+  importFileLimitBytes: null,
+  librarySizeLimitBytes: null,
   invertColors: false,
   updatedAt: Date.now(),
 };

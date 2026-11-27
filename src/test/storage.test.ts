@@ -5,6 +5,7 @@ import {
   addBook,
   getBook,
   listBooks,
+  getLibraryFileSize,
   updateBook,
   updateBookAndCover,
   deleteBook,
@@ -89,6 +90,34 @@ describe('IndexedDB Storage Operations', () => {
     ).rejects.toThrow();
 
     expect((await getBookContent(dummyBook.id))?.rawText).toBe('original');
+  });
+
+  it('counts archived originals and enforces the same budget for concurrent writes', async () => {
+    await addBook({ ...dummyBook, archived: true });
+    const a = { ...dummyBook, id: 'a' };
+    const b = { ...dummyBook, id: 'b' };
+    const save = (book: Book) => saveBookBundle(book, { bookId: book.id, format: 'txt', rawText: book.id }, undefined, 2048);
+    const results = await Promise.allSettled([save(a), save(b)]);
+    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+    expect(await getLibraryFileSize()).toBe(2048);
+    expect(await listBooks()).toHaveLength(2);
+    await deleteBook(dummyBook.id);
+    await save(results[0].status === 'rejected' ? a : b);
+    expect(await getLibraryFileSize()).toBe(2048);
+  });
+
+  it('leaves the library intact when a backup exceeds its budget', async () => {
+    await addBook(dummyBook);
+    const backup = await exportBackup();
+    await clearDatabase();
+    await saveSettings({ ...DEFAULT_SETTINGS, librarySizeLimitBytes: 1023 });
+    try {
+      await expect(restoreBackup(backup)).rejects.toThrow('library limit');
+      expect(await listBooks()).toHaveLength(0);
+      expect((await getSettings())?.librarySizeLimitBytes).toBe(1023);
+    } finally {
+      await clearSettings();
+    }
   });
 
   it('saves and restores reading progress', async () => {

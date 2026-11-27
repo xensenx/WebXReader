@@ -1,15 +1,16 @@
 import JSZip from 'jszip';
+import { ARCHIVE_TOTAL_BYTES } from './archive-size-limits';
 
 export const ZIP_LIMITS = {
   entries: 2000,
   depth: 32,
   entryBytes: 50 * 1024 * 1024,
-  totalBytes: 300 * 1024 * 1024,
+  totalBytes: ARCHIVE_TOTAL_BYTES,
   coverBytes: 5 * 1024 * 1024,
 } as const;
 
 /** Validate central-directory sizes before a consumer can inflate any entry. */
-export function validateZipArchive(zip: JSZip): void {
+export function validateZipArchive(zip: JSZip, totalBytes: number = ZIP_LIMITS.totalBytes): void {
   const entries = Object.values(zip.files);
   if (entries.length > ZIP_LIMITS.entries) throw new Error('Archive contains too many entries.');
   let total = 0;
@@ -29,7 +30,7 @@ export function validateZipArchive(zip: JSZip): void {
       throw new Error('Archive entry has an unsafe compression ratio.');
     }
     total += size!;
-    if (total > ZIP_LIMITS.totalBytes) throw new Error('Archive exceeds the expanded size limit.');
+    if (total > totalBytes) throw new Error(`Archive exceeds the ${totalBytes / 1048576} MB expanded size limit.`);
   }
 }
 
@@ -62,9 +63,9 @@ export function readZipEntryLimited(entry: JSZip.JSZipObject, limit = ZIP_LIMITS
   });
 }
 
-export async function openBudgetedZip(data: ArrayBuffer | Uint8Array): Promise<JSZip> {
+export async function openBudgetedZip(data: ArrayBuffer | Uint8Array, totalBytes?: number): Promise<JSZip> {
   const zip = await JSZip.loadAsync(data);
-  validateZipArchive(zip);
+  validateZipArchive(zip, totalBytes);
   return zip;
 }
 

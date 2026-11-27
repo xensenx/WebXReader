@@ -67,7 +67,9 @@
 .volumes { margin-top: var(--space-6); }
 .volumesHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-3); }
 .volumes h2 { margin: 0; font-size: var(--text-xl); }
+.volumeActions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .orderError { color: var(--color-danger); font-size: var(--text-sm); }
+.orderNotice { margin: 0 0 var(--space-2); color: var(--color-text-secondary); font-size: var(--text-sm); }
 .volumeList { border-block-end: 1px solid var(--color-border); }
 .volumeList > [data-book-id] { border-width: 1px 0 0; border-radius: 0; background: transparent; }
 .volumeList > [data-book-id]:hover { background: var(--color-surface-hover); }

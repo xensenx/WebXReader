@@ -5,6 +5,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { SettingsView } from '../components/settings/SettingsView';
 import { SettingsProvider } from '../app/providers/SettingsContext';
 import * as database from '../core/storage/database';
+import { GIGABYTE, MEGABYTE } from '../core/storage/storage-limits';
 
 afterEach(() => {
   cleanup();
@@ -139,6 +140,33 @@ describe('SettingsView master-detail browser-style navigation', () => {
 
     expect(screen.queryByText('Application Theme')).not.toBeInTheDocument();
     expect(screen.queryByText('Export Library Backup')).not.toBeInTheDocument();
+  });
+
+  it('saves optional limits with independent units and reports library headroom', async () => {
+    await database.clearSettings();
+    const readSize = vi.spyOn(database, 'getLibraryFileSize').mockResolvedValue(2 * GIGABYTE);
+    vi.spyOn(database, 'getStorageEstimate').mockResolvedValue({ usage: 3 * GIGABYTE, quota: 5 * GIGABYTE });
+    const user = userEvent.setup();
+    renderSettingsView(['/settings?section=storage-privacy']);
+
+    expect(await screen.findByText(/2\.0 GB · Original file sizes/)).toBeInTheDocument();
+    expect(screen.getByRole('meter')).toHaveAttribute('aria-valuenow', '60');
+    await user.click(screen.getByRole('button', { name: 'Refresh usage' }));
+    await waitFor(() => expect(readSize).toHaveBeenCalledTimes(2));
+
+    const file = screen.getByRole('spinbutton', { name: 'Per-file limit' });
+    const total = screen.getByRole('spinbutton', { name: 'Total library limit' });
+    await user.type(file, '350');
+    await user.type(total, '2.5');
+    await user.click(screen.getByRole('button', { name: 'Save limits' }));
+    await screen.findByText('Storage limits saved.');
+    expect(await database.getSettings()).toMatchObject({ importFileLimitBytes: 350 * MEGABYTE, librarySizeLimitBytes: 2.5 * GIGABYTE });
+    expect(screen.getByText('512.0 MB left under your limit')).toBeInTheDocument();
+
+    await user.clear(total);
+    await user.click(screen.getByRole('button', { name: 'Save limits' }));
+    await waitFor(async () => expect((await database.getSettings())?.librarySizeLimitBytes).toBeNull());
+    await database.clearSettings();
   });
 
   it('switches to Backup and restoration section and displays backup controls', async () => {

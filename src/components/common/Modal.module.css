@@ -34,6 +34,18 @@
   max-width: 720px;
 }
 
+.xl {
+  max-width: 1000px;
+  height: min(850px, 90dvh);
+}
+
+.xl .body {
+  display: flex;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 .header {
   display: flex;
   align-items: center;

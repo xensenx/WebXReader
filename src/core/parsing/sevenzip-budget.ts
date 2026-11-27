@@ -1,10 +1,16 @@
 import type { SevenZipModule } from './sevenzip-init';
 import { walkDirectoryWithStats } from './sevenzip-common';
+import { ARCHIVE_TOTAL_BYTES } from './archive-size-limits';
 
 const MAX_ENTRIES = 2000;
 const MAX_DEPTH = 32;
 const MAX_ENTRY_BYTES = 50 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 300 * 1024 * 1024;
+
+interface SevenZipEntry {
+  path: string;
+  size: number;
+  isDirectory: boolean;
+}
 
 export function runSevenZip(sevenZip: SevenZipModule, args: string[]): void {
   try {
@@ -17,13 +23,14 @@ export function runSevenZip(sevenZip: SevenZipModule, args: string[]): void {
 }
 
 /** Parse 7-Zip's technical listing before any archive member is extracted. */
-export function validateSevenZipListing(lines: string[]): void {
+export function validateSevenZipListing(lines: string[], totalLimit = ARCHIVE_TOTAL_BYTES): SevenZipEntry[] {
   const output = lines.join('\n');
   const separator = output.indexOf('----------');
   if (separator < 0) throw new Error('Could not inspect archive entries safely.');
   const records = output.slice(separator + 10).split(/\n\s*\n/);
   let entries = 0;
   let total = 0;
+  const files: SevenZipEntry[] = [];
   for (const record of records) {
     const path = /^Path = (.+)$/m.exec(record)?.[1];
     if (!path) continue;
@@ -33,26 +40,32 @@ export function validateSevenZipListing(lines: string[]): void {
     }
     entries++;
     if (entries > MAX_ENTRIES) throw new Error('Archive contains too many entries.');
-    if (/^Folder = \+$/m.test(record)) continue;
+    if (/^Folder = \+$/m.test(record)) {
+      files.push({ path, size: 0, isDirectory: true });
+      continue;
+    }
     const sizeText = /^Size = (\d+)$/m.exec(record)?.[1];
     if (!sizeText) throw new Error('Archive entry has no declared size.');
     const size = Number(sizeText);
     if (!Number.isSafeInteger(size) || size > MAX_ENTRY_BYTES) throw new Error('Archive entry exceeds the expanded size limit.');
     total += size;
-    if (total > MAX_TOTAL_BYTES) throw new Error('Archive exceeds the expanded size limit.');
+    if (total > totalLimit) throw new Error('Archive exceeds the expanded size limit.');
+    files.push({ path, size, isDirectory: false });
   }
   if (entries === 0) throw new Error('Archive contains no entries.');
+  return files;
 }
 
-export function inspectSevenZipArchive(sevenZip: SevenZipModule, inputFile: string, output: string[]): void {
+export function inspectSevenZipArchive(sevenZip: SevenZipModule, inputFile: string, output: string[], totalLimit?: number): SevenZipEntry[] {
   output.length = 0;
   runSevenZip(sevenZip, ['l', '-slt', inputFile]);
-  validateSevenZipListing(output);
+  const entries = validateSevenZipListing(output, totalLimit);
   output.length = 0;
+  return entries;
 }
 
 /** Stop MEMFS writes as soon as actual inflated bytes exceed the declared budget. */
-export function extractSevenZipWithBudget(sevenZip: SevenZipModule, outDir: string, args: string[]): void {
+export function extractSevenZipWithBudget(sevenZip: SevenZipModule, outDir: string, args: string[], totalLimit = ARCHIVE_TOTAL_BYTES): void {
   const fs = sevenZip.FS;
   const originalWrite = fs.write;
   const fileSizes = new Map<string, number>();
@@ -64,7 +77,7 @@ export function extractSevenZipWithBudget(sevenZip: SevenZipModule, outDir: stri
       const previous = fileSizes.get(path) ?? 0;
       const start = position ?? (stream as typeof stream & { position?: number }).position ?? previous;
       const next = Math.max(previous, start + length);
-      if (next > MAX_ENTRY_BYTES || total + next - previous > MAX_TOTAL_BYTES) {
+      if (next > MAX_ENTRY_BYTES || total + next - previous > totalLimit) {
         limitExceeded = true;
         throw new Error('Archive exceeded the actual expanded byte limit.');
       }
@@ -84,7 +97,7 @@ export function extractSevenZipWithBudget(sevenZip: SevenZipModule, outDir: stri
         throw new Error('Archive extracted entry exceeds its limit.');
       }
       totalBytes += item.size;
-      if (totalBytes > MAX_TOTAL_BYTES) throw new Error('Archive exceeds the actual expanded byte limit.');
+      if (totalBytes > totalLimit) throw new Error('Archive exceeds the actual expanded byte limit.');
     }
   } finally {
     fs.write = originalWrite;

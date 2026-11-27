@@ -27,6 +27,8 @@ export function BookList({
   volumeLabel,
   selectionMode,
   selected,
+  selectionIndex,
+  showSourceDetails,
   onToggleSelection,
   isDragging,
   onPointerDown,
@@ -95,7 +97,7 @@ export function BookList({
 
   return (
     <div
-      className={`${styles.row} ${selected ? styles.rowSelected : ''} ${isDragging ? styles.rowDragging : ''}`}
+      className={`${styles.row} ${selected ? styles.rowSelected : ''} ${isDragging ? styles.rowDragging : ''} ${showSourceDetails ? styles.sourceDetails : ''}`}
       data-book-id={book.id}
       onPointerDown={onPointerDown}
       onClick={handleRowClick}
@@ -111,10 +113,11 @@ export function BookList({
       }}
       aria-label={`${book.title} by ${book.author || 'Unknown'}`}
       aria-checked={selectionMode ? selected : undefined}
+      aria-description={selectionIndex === undefined ? undefined : `Selection position ${selectionIndex}`}
     >
       {selectionMode && (
         <span className={`${styles.selectionIndicator} ${selected ? styles.selectionIndicatorSelected : ''}`} aria-hidden="true">
-          {selected && <Check size={14} />}
+          {selected && (selectionIndex ?? <Check size={14} />)}
         </span>
       )}
       <div className={styles.thumbnailContainer} data-drag-preview>
@@ -145,6 +148,7 @@ export function BookList({
           {volumeLabel && `${volumeLabel} · `}
           {book.author || 'Unknown Author'}
         </span>
+        {showSourceDetails && book.originalFilename && <span className={styles.filename}>{book.originalFilename}</span>}
       </div>
 
       <div className={styles.metaCol}>

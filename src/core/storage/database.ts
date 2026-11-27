@@ -21,15 +21,20 @@ import type {
   BackupBookContent,
 } from '../../types/book';
 import { sanitizeBookChapter } from '../parsing/sanitize-reader-html';
+import { BROWSER_QUOTA_ERROR, MAX_JSON_BACKUP_BYTES, isStorageQuotaError, libraryLimitError, normalizeStorageLimit } from './storage-limits';
 
 const DB_NAME = 'webxreader';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SETTINGS_STORAGE_KEY = 'webxreader.preferences.v1';
 
 function normalizeUserSettings(settings: Omit<Partial<UserSettings>, 'theme'> & { theme?: unknown }): UserSettings {
   const savedTheme = settings.theme === 'light' ? 'dark' : settings.theme;
   const theme = APP_THEME_OPTIONS.find(({ value }) => value === savedTheme)?.value ?? DEFAULT_SETTINGS.theme;
-  return { ...DEFAULT_SETTINGS, ...settings, theme, libraryName: normalizeLibraryName(settings.libraryName), id: 'global' };
+  return {
+    ...DEFAULT_SETTINGS, ...settings, theme, libraryName: normalizeLibraryName(settings.libraryName), id: 'global',
+    importFileLimitBytes: normalizeStorageLimit(settings.importFileLimitBytes),
+    librarySizeLimitBytes: normalizeStorageLimit(settings.librarySizeLimitBytes),
+  };
 }
 
 function readLocalUserSettings(): UserSettings | undefined {
@@ -116,6 +121,9 @@ function openDatabase(): Promise<IDBDatabase> {
       if (oldVersion < 2) {
         db.createObjectStore(STORES.series, { keyPath: 'id' })
           .createIndex('bookId', 'bookIds', { multiEntry: true, unique: true });
+      }
+      if (oldVersion < 3) {
+        request.transaction!.objectStore(STORES.books).createIndex('fileSize', 'fileSize');
       }
     };
   });
@@ -214,6 +222,57 @@ export async function listBooks(): Promise<Book[]> {
   return getAllFromStore<Book>(STORES.books);
 }
 
+/** Read index keys so calculating usage never loads book metadata, covers or contents. */
+function sumLibraryFileSizes(store: IDBObjectStore, onTotal: (bytes: number) => void) {
+  const request = store.index('fileSize').openKeyCursor();
+  let total = 0;
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (cursor) {
+      total += normalizeStorageLimit(cursor.key) ?? 0;
+      cursor.continue();
+    } else {
+      onTotal(total);
+    }
+  };
+  return request;
+}
+
+export async function getLibraryFileSize(): Promise<number> {
+  const db = await getDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORES.books, 'readonly');
+    const request = sumLibraryFileSizes(tx.objectStore(STORES.books), resolve);
+    request.onerror = () => reject(request.error ?? new Error('Could not calculate the library file size.'));
+  });
+}
+
+/** Check the cap inside the same write transaction so concurrent imports share it. */
+function writeWithinLibraryLimit(tx: IDBTransaction, incoming: number, limit: number | null, write: () => void) {
+  let failure: unknown;
+  const commit = () => {
+    try {
+      write();
+    } catch (error) {
+      failure = error;
+      tx.abort();
+    }
+  };
+  if (limit === null || incoming === 0) {
+    commit();
+  } else {
+    sumLibraryFileSizes(tx.objectStore(STORES.books), (used) => {
+      if (incoming <= limit - used) {
+        commit();
+      } else {
+        failure = libraryLimitError(limit, used, incoming);
+        tx.abort();
+      }
+    });
+  }
+  return () => failure ?? tx.error ?? new Error('The library write was rolled back.');
+}
+
 export async function addBook(book: Book): Promise<void> {
   await withTransaction(STORES.books, 'readwrite', (store) => store.add(book));
 }
@@ -276,8 +335,9 @@ export async function saveRecoveredEpubCover(bookId: string, coverImage?: string
 /** Persist a book, its content, and optional cover in one transaction. */
 export async function saveBookBundle(
   book: Book,
-  content: BookContent,
+  content: StoredBookContent,
   coverData?: string,
+  libraryLimit: number | null = null,
 ): Promise<void> {
   const db = await getDb();
   const storeNames: StoreName[] = coverData
@@ -286,14 +346,13 @@ export async function saveBookBundle(
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeNames, 'readwrite');
-    tx.objectStore(STORES.books).add(book);
-    tx.objectStore(STORES.bookContent).add(content);
-    if (coverData) {
-      tx.objectStore(STORES.covers).put({ bookId: book.id, data: coverData });
-    }
+    const getError = writeWithinLibraryLimit(tx, book.fileSize, libraryLimit, () => {
+      tx.objectStore(STORES.books).add(book);
+      tx.objectStore(STORES.bookContent).add(content);
+      if (coverData) tx.objectStore(STORES.covers).put({ bookId: book.id, data: coverData });
+    });
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(new Error(`Failed to save book: ${tx.error?.message ?? 'transaction failed'}`));
-    tx.onabort = () => reject(new Error(`Book import was rolled back: ${tx.error?.message ?? 'transaction aborted'}`));
+    tx.onabort = () => reject(getError());
   });
 }
 
@@ -368,13 +427,22 @@ export async function findBookByHash(contentHash: string): Promise<Book | undefi
 // Book Content Operations
 // ============================================================
 
-export async function getBookContent(bookId: string): Promise<BookContent | undefined> {
-  const content = await withTransaction<BookContent | undefined>(STORES.bookContent, 'readonly', (store) => store.get(bookId));
+type StoredBookContent = Omit<BookContent, 'originalFile'> & { originalFile?: Blob | ArrayBuffer };
+
+export async function getStoredBookContent(bookId: string): Promise<StoredBookContent | undefined> {
+  const content = await withTransaction<StoredBookContent | undefined>(STORES.bookContent, 'readonly', (store) => store.get(bookId));
   if (content && content.originalFile && content.format === 'mht') {
     delete content.originalFile;
     withTransaction(STORES.bookContent, 'readwrite', (store) => store.put(content)).catch(() => {});
   }
   return content;
+}
+
+export async function getBookContent(bookId: string): Promise<BookContent | undefined> {
+  const content = await getStoredBookContent(bookId);
+  if (!content) return undefined;
+  const { originalFile } = content;
+  return { ...content, originalFile: originalFile instanceof Blob ? await originalFile.arrayBuffer() : originalFile };
 }
 
 export async function saveBookContent(content: BookContent): Promise<void> {
@@ -608,7 +676,7 @@ export async function saveBookSettings(settings: BookSettings): Promise<void> {
 export async function exportBackup(): Promise<BackupData> {
   const [db, settings] = await Promise.all([getDb(), getSettings()]);
   const books = await listBooks();
-  if (books.length > 1000 || books.reduce((sum, book) => sum + (book.fileSize || 0), 0) > 100 * 1024 * 1024) {
+  if (books.length > 1000 || books.reduce((sum, book) => sum + (book.fileSize || 0), 0) > MAX_JSON_BACKUP_BYTES) {
     throw new Error('Library exceeds the 100 MB JSON backup limit. Export books individually.');
   }
   
@@ -652,8 +720,12 @@ export async function exportBackup(): Promise<BackupData> {
 
     const contentReq = tx.objectStore(STORES.bookContent).getAll();
     contentReq.onsuccess = () => {
-      results.contents = (contentReq.result as BookContent[]).map(serializeBookContent);
-      complete();
+      try {
+        results.contents = (contentReq.result as StoredBookContent[]).map(serializeBookContent);
+        complete();
+      } catch (error) {
+        reject(error);
+      }
     }
     contentReq.onerror = () => reject(new Error(`Backup export failed: ${contentReq.error?.message ?? 'content read failed'}`));
 
@@ -664,7 +736,7 @@ export async function exportBackup(): Promise<BackupData> {
 /** Serialize one IndexedDB record at a time, preserving the version 2 JSON format. */
 export async function exportBackupStream(): Promise<ReadableStream<Uint8Array>> {
   const [db, settings, books] = await Promise.all([getDb(), getSettings(), listBooks()]);
-  if (books.length > 1000 || books.reduce((sum, book) => sum + (book.fileSize || 0), 0) > 100 * 1024 * 1024) {
+  if (books.length > 1000 || books.reduce((sum, book) => sum + (book.fileSize || 0), 0) > MAX_JSON_BACKUP_BYTES) {
     throw new Error('Library exceeds the 100 MB JSON backup limit. Export books individually.');
   }
   const encoder = new TextEncoder();
@@ -713,7 +785,7 @@ export async function exportBackupStream(): Promise<ReadableStream<Uint8Array>> 
               readStore(index + 1);
               return;
             }
-            const value = key === 'contents' ? serializeBookContent(cursor.value as BookContent) : cursor.value;
+            const value = key === 'contents' ? serializeBookContent(cursor.value as StoredBookContent) : cursor.value;
             emit(`${first ? '' : ','}${JSON.stringify(value)}`);
             first = false;
             cursor.continue();
@@ -749,7 +821,10 @@ function fromBase64(value: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-function serializeBookContent(content: BookContent): BackupBookContent {
+function serializeBookContent(content: StoredBookContent): BackupBookContent {
+  if (content.originalFile instanceof Blob) {
+    throw new Error('Library exceeds the 100 MB JSON backup limit. Export books individually.');
+  }
   return {
     bookId: content.bookId,
     format: content.format,
@@ -875,7 +950,7 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
       decodedBytes += chapter.content?.length ?? 0;
       if (chapter.children) for (const child of chapter.children) stack.push(child);
     }
-    if (decodedBytes > 100 * 1024 * 1024) throw new Error('Backup content exceeds the 100 MB limit.');
+    if (decodedBytes > MAX_JSON_BACKUP_BYTES) throw new Error('Backup content exceeds the 100 MB limit.');
   }
 
   const errors: string[] = [];
@@ -900,7 +975,7 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
       errors.push(`Book "${candidate.title}" has matching content already in the library, skipped`);
       continue;
     }
-    booksToRestore.push(candidate);
+    booksToRestore.push({ ...candidate });
     existingIds.add(candidate.id);
     existingHashes.set(candidate.contentHash, candidate.id);
   }
@@ -917,7 +992,13 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
       throw new Error(`Invalid content payload for book "${candidate.bookId}"`);
     }
   }
-  const db = await getDb();
+  let incoming = 0;
+  for (const book of booksToRestore) {
+    const content = contentRecords.get(book.id);
+    book.fileSize = Math.max(normalizeStorageLimit(book.fileSize) ?? 0, content?.originalFile?.byteLength ?? 0);
+    incoming += book.fileSize;
+  }
+  const [db, currentSettings] = await Promise.all([getDb(), getSettings()]);
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
@@ -925,37 +1006,40 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
       'readwrite'
     );
 
-    for (const book of booksToRestore) {
-      tx.objectStore(STORES.books).put(book);
-      const content = contentRecords.get(book.id);
-      if (content) {
-        tx.objectStore(STORES.bookContent).put(content);
-      } else if (backup.version === 1) {
-        errors.push(`Backup does not contain content for "${book.title}"`);
+    const limit = normalizeStorageLimit(currentSettings?.librarySizeLimitBytes);
+    const getError = writeWithinLibraryLimit(tx, incoming, limit, () => {
+      for (const book of booksToRestore) {
+        tx.objectStore(STORES.books).add(book);
+        const content = contentRecords.get(book.id);
+        if (content) {
+          tx.objectStore(STORES.bookContent).put(content);
+        } else if (backup.version === 1) {
+          errors.push(`Backup does not contain content for "${book.title}"`);
+        }
       }
-    }
 
-    for (const progress of backup.progress) {
-      if (hasBookId(progress) && restorableIds.has(progress.bookId)) {
-        tx.objectStore(STORES.progress).put(progress);
+      for (const progress of backup.progress) {
+        if (hasBookId(progress) && restorableIds.has(progress.bookId)) {
+          tx.objectStore(STORES.progress).put(progress);
+        }
       }
-    }
-    for (const bookmark of backup.bookmarks) {
-      if (hasBookId(bookmark) && restorableIds.has(bookmark.bookId)) {
-        tx.objectStore(STORES.bookmarks).put(bookmark);
+      for (const bookmark of backup.bookmarks) {
+        if (hasBookId(bookmark) && restorableIds.has(bookmark.bookId)) {
+          tx.objectStore(STORES.bookmarks).put(bookmark);
+        }
       }
-    }
-    for (const annotation of backup.annotations) {
-      if (hasBookId(annotation) && restorableIds.has(annotation.bookId)) {
-        tx.objectStore(STORES.annotations).put(annotation);
+      for (const annotation of backup.annotations) {
+        if (hasBookId(annotation) && restorableIds.has(annotation.bookId)) {
+          tx.objectStore(STORES.annotations).put(annotation);
+        }
       }
-    }
-    for (const bookSetting of backup.bookSettings) {
-      if (hasBookId(bookSetting) && restorableIds.has(bookSetting.bookId)) {
-        tx.objectStore(STORES.bookSettings).put(bookSetting);
+      for (const bookSetting of backup.bookSettings) {
+        if (hasBookId(bookSetting) && restorableIds.has(bookSetting.bookId)) {
+          tx.objectStore(STORES.bookSettings).put(bookSetting);
+        }
       }
-    }
-    if (backup.series?.length) restoreSeriesRecords(tx, backup.series, bookIdRemap, errors);
+      if (backup.series?.length) restoreSeriesRecords(tx, backup.series, bookIdRemap, errors);
+    });
     tx.oncomplete = () => {
       if (backup.settings) {
         saveSettings(backup.settings)
@@ -965,8 +1049,10 @@ export async function restoreBackup(backup: BackupData): Promise<{ booksRestored
       }
       resolve({ booksRestored: booksToRestore.length, errors });
     };
-    tx.onerror = () => reject(new Error(`Backup restore failed: ${tx.error?.message ?? 'transaction failed'}`));
-    tx.onabort = () => reject(new Error(`Backup restore was rolled back: ${tx.error?.message ?? 'transaction aborted'}`));
+    tx.onabort = () => {
+      const error = getError();
+      reject(isStorageQuotaError(error) ? new Error(BROWSER_QUOTA_ERROR) : error);
+    };
   });
 }
 
@@ -999,7 +1085,9 @@ function restoreSeriesRecords(tx: IDBTransaction, candidates: BookSeries[], rema
       if (members.size !== series.bookIds.length) errors.push(`Skipped unavailable books in series "${series.title}"`);
       if (!members.size && series.bookIds.length) continue;
       const bookIds = [...members.keys()];
-      const volumeNumbers = series.volumeNumbers ? Object.fromEntries(members) : undefined;
+      const volumeNumbers = series.volumeNumbers
+        ? Object.fromEntries([...members].filter(([, number]) => number !== undefined))
+        : undefined;
       store.add({ ...series, bookIds, volumeNumbers });
       ids.add(series.id);
       for (const bookId of bookIds) occupied.add(bookId);
@@ -1011,14 +1099,23 @@ function restoreSeriesRecords(tx: IDBTransaction, candidates: BookSeries[], rema
  * Gets an estimate of storage usage.
  */
 export async function getStorageEstimate(): Promise<{ usage: number; quota: number } | null> {
-  if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
-    const estimate = await navigator.storage.estimate();
-    return {
-      usage: estimate.usage ?? 0,
-      quota: estimate.quota ?? 0,
-    };
+  try {
+    const estimate = await navigator.storage?.estimate?.();
+    const { usage, quota } = estimate ?? {};
+    if (typeof usage === 'number' && Number.isFinite(usage) && usage >= 0 &&
+        typeof quota === 'number' && Number.isFinite(quota) && quota > 0) return { usage, quota };
+  } catch {
+    // An estimate may be unavailable in private or restricted browser contexts.
   }
   return null;
+}
+
+export async function getStoragePersistence(): Promise<boolean | null> {
+  try {
+    return await navigator.storage?.persisted?.() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

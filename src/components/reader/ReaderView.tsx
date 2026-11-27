@@ -27,7 +27,8 @@ import { useReadingProgress } from '../../hooks/useReadingProgress';
 import { useBookmarks } from '../../hooks/useBookmarks';
 import { useReaderSettings } from '../../hooks/useReaderSettings';
 import { useBookSeries } from '../../features/series/use-book-series';
-import { BOOK_COMPLETION_THRESHOLD, getSeriesPath, getVolumeLabel, summarizeSeries } from '../../features/series/series';
+import { BOOK_COMPLETION_THRESHOLD, getSeriesPath, summarizeSeries } from '../../features/series/series';
+import { getVolumeLabel } from '../../features/series/volume-order';
 
 
 import type { Book, BookContent, Chapter, Bookmark } from '../../types/book';
@@ -755,7 +756,7 @@ export function ReaderView() {
               {seriesContext && seriesSummary && volumeIndex >= 0 && (
                 <Link className={styles.seriesPosition}
                   to={getSeriesPath(seriesContext.series.id)}
-                  title={`${seriesContext.series.title} · ${getVolumeLabel(seriesContext.series, book.id, volumeIndex)}`} onClick={flush}>
+                  title={`${seriesContext.series.title} · ${getVolumeLabel(seriesContext.series, book, volumeIndex)}`} onClick={flush}>
                   {Math.round(seriesSummary.fraction * 100)}% of series
                 </Link>
               )}

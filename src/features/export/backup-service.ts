@@ -3,7 +3,8 @@
  * Provides functions to export/restore backups and download original book files.
  */
 
-import { exportBackupStream, restoreBackup, getBook, getBookContent } from '../../core/storage/database';
+import { exportBackupStream, restoreBackup, getBook, getStoredBookContent } from '../../core/storage/database';
+import { MAX_JSON_BACKUP_BYTES } from '../../core/storage/storage-limits';
 import type { BackupData } from '../../types/book';
 import { getFormatMimeType } from '../../formats';
 
@@ -41,18 +42,18 @@ export async function downloadLibraryBackup(): Promise<void> {
  * Restores a library from a JSON backup file.
  */
 export async function restoreLibraryBackup(file: File): Promise<{ booksRestored: number; errors: string[] }> {
-  if (file.size > 100 * 1024 * 1024) throw new Error('Backup exceeds the 100 MB limit.');
+  if (file.size > MAX_JSON_BACKUP_BYTES) throw new Error('Backup exceeds the 100 MB limit.');
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = async () => {
+    reader.onload = () => {
+      let data: BackupData;
       try {
-        const text = reader.result as string;
-        const data = JSON.parse(text) as BackupData;
-        const result = await restoreBackup(data);
-        resolve(result);
+        data = JSON.parse(reader.result as string) as BackupData;
       } catch (err) {
         reject(new Error(`Failed to parse backup file: ${(err as Error).message}`));
+        return;
       }
+      restoreBackup(data).then(resolve, reject);
     };
     reader.onerror = () => {
       reject(new Error('Failed to read the backup file.'));
@@ -65,7 +66,7 @@ export async function restoreLibraryBackup(file: File): Promise<{ booksRestored:
  * Exports an individual book in its original format.
  */
 export async function downloadOriginalBook(bookId: string): Promise<boolean> {
-  const [book, content] = await Promise.all([getBook(bookId), getBookContent(bookId)]);
+  const [book, content] = await Promise.all([getBook(bookId), getStoredBookContent(bookId)]);
   if (!book || !content) {
     throw new Error('Book or book content not found');
   }
@@ -75,7 +76,9 @@ export async function downloadOriginalBook(bookId: string): Promise<boolean> {
 
   if (content.originalFile) {
     const type = getFormatMimeType(book.sourceFormat);
-    blob = new Blob([content.originalFile], { type });
+    blob = content.originalFile instanceof Blob
+      ? content.originalFile.slice(0, content.originalFile.size, type)
+      : new Blob([content.originalFile], { type });
   } else if (content.rawText) {
     blob = new Blob([content.rawText], { type: 'text/plain;charset=utf-8' });
     if (!filename.toLowerCase().endsWith('.txt')) {

@@ -26,6 +26,7 @@ import {
 } from 'react';
 import JSZip from 'jszip';
 import { openBudgetedZip, readZipEntryLimited } from '../../core/parsing/zip-budget';
+import { COMIC_ARCHIVE_TOTAL_BYTES } from '../../core/parsing/archive-size-limits';
 import { AlertCircle } from 'lucide-react';
 import {
   naturalCompare,
@@ -461,7 +462,7 @@ export const CbzReader = forwardRef<CbzReaderHandle, CbzReaderProps>(function Cb
           pageLoaderRef.current = (idx) => session.getPageBlob(idx);
           finishLoad(session.pageNames.length);
         } else {
-          const zip = await openBudgetedZip(fileData);
+          const zip = await openBudgetedZip(fileData, COMIC_ARCHIVE_TOTAL_BYTES);
           const images: { path: string; entry: JSZip.JSZipObject }[] = [];
 
           zip.forEach((path, entry) => {
