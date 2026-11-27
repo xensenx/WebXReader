@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   BookOpen,
@@ -217,16 +217,20 @@ export function MainPageHeader({ libraryName }: MainPageHeaderProps) {
             ))}
             <div className={styles.navigationDivider} role="separator" />
             {SECONDARY_PAGE_LINKS.map(({ path, label, icon }) => (
-              <button
+              <Link
                 key={path}
+                to={path}
                 className={styles.navigationItem}
                 aria-current={location.pathname === path ? 'page' : undefined}
-                onClick={() => navigateFromPanel(path)}
-                type="button"
+                onClick={(event) => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+                  event.preventDefault();
+                  navigateFromPanel(path);
+                }}
               >
                 {icon}
                 <span>{label}</span>
-              </button>
+              </Link>
             ))}
             <button
               ref={donateTriggerRef}

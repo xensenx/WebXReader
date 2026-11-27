@@ -7,6 +7,35 @@ import { MainPageHeader } from '../components/common/MainPageHeader';
 
 afterEach(cleanup);
 
+it('exposes secondary menu destinations as links', async () => {
+  const user = userEvent.setup();
+  render(<MemoryRouter><SidePanelProvider><MainPageHeader /></SidePanelProvider></MemoryRouter>);
+  await user.click(screen.getByRole('button', { name: 'Open menu' }));
+
+  for (const [name, path] of [
+    ['Settings', '/settings'],
+    ['Privacy Policy', '/privacy-policy'],
+    ['Terms of Use', '/terms-of-use'],
+    ['About', '/about'],
+  ]) {
+    expect(screen.getByRole('link', { name })).toHaveAttribute('href', path);
+  }
+});
+
+it('leaves modified secondary link clicks to the browser', async () => {
+  const user = userEvent.setup();
+  render(<MemoryRouter><SidePanelProvider><MainPageHeader /></SidePanelProvider></MemoryRouter>);
+  await user.click(screen.getByRole('button', { name: 'Open menu' }));
+
+  let defaultPrevented = true;
+  document.addEventListener('click', (event) => {
+    defaultPrevented = event.defaultPrevented;
+    event.preventDefault();
+  }, { once: true });
+  fireEvent.click(screen.getByRole('link', { name: 'Terms of Use' }), { ctrlKey: true });
+  expect(defaultPrevented).toBe(false);
+});
+
 it('keeps Tab navigation in the active dialog and restores focus on Escape', async () => {
   const user = userEvent.setup();
   render(<MemoryRouter><SidePanelProvider><MainPageHeader /></SidePanelProvider></MemoryRouter>);

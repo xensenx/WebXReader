@@ -56,7 +56,8 @@ function renderLibrary(pathname: string) {
 
 function openMenuPage(name: string) {
   if (!screen.queryByRole('dialog', { name: 'Menu' })) fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Menu' })).getByRole('button', { name }));
+  const menu = within(screen.getByRole('dialog', { name: 'Menu' }));
+  fireEvent.click(menu.queryByRole('link', { name }) ?? menu.getByRole('button', { name }));
 }
 
 describe('Series', () => {
@@ -303,9 +304,9 @@ describe('Series', () => {
     renderLibrary('/stats');
     fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
     const menu = within(screen.getByRole('dialog', { name: 'Menu' }));
-    const labels = menu.getAllByRole('button').map((button) => button.textContent?.trim());
+    const labels = menu.getAllByRole('link').map((link) => link.textContent?.trim());
     expect(labels[labels.indexOf('Privacy Policy') + 1]).toBe('Terms of Use');
-    fireEvent.click(menu.getByRole('button', { name: 'Terms of Use' }));
+    fireEvent.click(menu.getByRole('link', { name: 'Terms of Use' }));
 
     expect(screen.getByRole('heading', { name: 'Terms of Use', level: 1 })).toBeInTheDocument();
     expect(screen.getByText('November 28, 2026')).toHaveAttribute('datetime', '2026-11-28');
