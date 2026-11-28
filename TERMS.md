@@ -113,7 +113,7 @@ The WebXReader project and its maintainers assume no responsibility, to the maxi
 - Security vulnerabilities, data loss, service interruptions, or other damages arising from independently operated instances.
 - The actions, policies, or representations of third-party operators.
 
-Independent deployments are not considered official WebXReader services merely because they use the WebXReader source code, name, branding, or interface.
+Independently operated instances are not official WebXReader services. The use of WebXReader's protected branding and visual identity assets is separately governed by the Visual Identity License (VIL).
 
 Nothing in these Terms restricts or supersedes the rights granted under the AGPL-3.0 license. The use, modification, and redistribution of the source code remain governed by that license.
 

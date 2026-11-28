@@ -112,7 +112,7 @@ export function TermsOfUse() {
             <li>Security vulnerabilities, data loss, service interruptions, or other damages arising from independently operated instances.</li>
             <li>The actions, policies, or representations of third-party operators.</li>
           </ul>
-          <p>Independent deployments are not considered official WebXReader services merely because they use the WebXReader source code, name, branding, or interface.</p>
+          <p>Independently operated instances are not official WebXReader services. The use of WebXReader's protected branding and visual identity assets is separately governed by the Visual Identity License (VIL).</p>
           <p>Nothing in these Terms restricts or supersedes the rights granted under the AGPL-3.0 license. The use, modification, and redistribution of the source code remain governed by that license.</p>
         </TermsSection>
 
