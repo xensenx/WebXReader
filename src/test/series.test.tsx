@@ -311,6 +311,7 @@ describe('Series', () => {
     expect(screen.getByRole('heading', { name: 'Terms of Use', level: 1 })).toBeInTheDocument();
     expect(screen.getByText('November 28, 2026')).toHaveAttribute('datetime', '2026-11-28');
     expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(20);
+    expect(screen.getByRole('heading', { name: 'Self-Hosting and Independent Deployments', level: 4 })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: 'Privacy Policy' }));
     expect(screen.getByRole('heading', { name: 'Privacy Policy', level: 1 })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Back to Terms of Use' }));

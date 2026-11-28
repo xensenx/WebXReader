@@ -99,6 +99,21 @@ export function TermsOfUse() {
           <p>Accessing WebXReader through a different domain, browser, browser profile, or device may therefore result in a separate or empty library.</p>
           <p>Users are responsible for understanding which instance they are using and for transferring or backing up their data where appropriate.</p>
           <p>WebXReader does not guarantee the continued availability of any particular domain, deployment mirror, hosting provider, or self-hosted configuration.</p>
+
+          <h4>Self-Hosting and Independent Deployments</h4>
+          <p>WebXReader is open-source software distributed under the GNU Affero General Public License, version 3.0 (AGPL-3.0).</p>
+          <p>These Terms of Use govern access to and use of the official WebXReader deployments operated or maintained by the project.</p>
+          <p>Users who choose to download, modify, build, self-host, or independently deploy WebXReader do so at their own risk and are responsible for the operation, configuration, security, maintenance, legal compliance, and data management of their respective instances.</p>
+          <p>The WebXReader project and its maintainers assume no responsibility, to the maximum extent permitted by applicable law, for:</p>
+          <ul>
+            <li>Independently hosted or third-party deployments.</li>
+            <li>Modifications made to the original source code.</li>
+            <li>Removal, alteration, or circumvention of legal notices, acceptance mechanisms, or protective features.</li>
+            <li>Security vulnerabilities, data loss, service interruptions, or other damages arising from independently operated instances.</li>
+            <li>The actions, policies, or representations of third-party operators.</li>
+          </ul>
+          <p>Independent deployments are not considered official WebXReader services merely because they use the WebXReader source code, name, branding, or interface.</p>
+          <p>Nothing in these Terms restricts or supersedes the rights granted under the AGPL-3.0 license. The use, modification, and redistribution of the source code remain governed by that license.</p>
         </TermsSection>
 
         <TermsSection title="8. Privacy and Third-Party Services">

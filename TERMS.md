@@ -97,6 +97,26 @@ Users are responsible for understanding which instance they are using and for tr
 
 WebXReader does not guarantee the continued availability of any particular domain, deployment mirror, hosting provider, or self-hosted configuration.
 
+### Self-Hosting and Independent Deployments
+
+WebXReader is open-source software distributed under the GNU Affero General Public License, version 3.0 (AGPL-3.0).
+
+These Terms of Use govern access to and use of the official WebXReader deployments operated or maintained by the project.
+
+Users who choose to download, modify, build, self-host, or independently deploy WebXReader do so at their own risk and are responsible for the operation, configuration, security, maintenance, legal compliance, and data management of their respective instances.
+
+The WebXReader project and its maintainers assume no responsibility, to the maximum extent permitted by applicable law, for:
+
+- Independently hosted or third-party deployments.
+- Modifications made to the original source code.
+- Removal, alteration, or circumvention of legal notices, acceptance mechanisms, or protective features.
+- Security vulnerabilities, data loss, service interruptions, or other damages arising from independently operated instances.
+- The actions, policies, or representations of third-party operators.
+
+Independent deployments are not considered official WebXReader services merely because they use the WebXReader source code, name, branding, or interface.
+
+Nothing in these Terms restricts or supersedes the rights granted under the AGPL-3.0 license. The use, modification, and redistribution of the source code remain governed by that license.
+
 ## 8. Privacy and Third-Party Services
 
 WebXReader's handling of information is described in its separately published Privacy Policy.
